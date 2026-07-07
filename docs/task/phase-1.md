@@ -75,17 +75,19 @@ worker 消费任务并更新状态
 
 ## 5. 数据访问层
 
-- [ ] 引入 `sqlc`
-- [ ] 添加 `sqlc.yaml`
-- [ ] 编写 users queries
-- [ ] 编写 system configs queries
-- [ ] 编写 products queries
-- [ ] 编写 selling points queries
-- [ ] 编写 assets queries
-- [ ] 编写 generation tasks queries
+- [x] 引入 `sqlc`
+- [x] 添加 `sqlc.yaml`
+- [x] 编写 users queries
+- [x] 编写 system configs queries
+- [x] 编写 products queries
+- [x] 编写 selling points queries
+- [x] 编写 assets queries
+- [x] 编写 generation tasks queries
 - [ ] 生成 Go DB 代码
-- [ ] 封装 repository
+- [x] 封装 repository
 - [ ] 跑通数据库连接
+
+备注：已完成 sqlc 配置、核心 query 文件和 repository 边界。当前执行环境未安装 Go、sqlc、Docker/PostgreSQL，暂不能生成 Go DB 代码或验证数据库连接。
 
 ## 6. API 基础
 
