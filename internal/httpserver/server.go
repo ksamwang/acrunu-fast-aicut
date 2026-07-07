@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/storage"
 )
@@ -23,6 +24,8 @@ type Server struct {
 	productAssetService  *services.ProductAssetService
 	uploadTokenService   *services.UploadTokenService
 	localStore           *storage.LocalStore
+	taskService         *services.TaskService
+	queueClient         *queue.Client
 }
 
 func New(opts Options) *Server {
@@ -39,6 +42,8 @@ func New(opts Options) *Server {
 		productAssetService: services.NewProductAssetService(),
 		uploadTokenService:  services.NewUploadTokenService(),
 		localStore:          storage.NewLocalStore(opts.Config.StorageRoot),
+		taskService:         services.NewTaskService(opts.Config.StorageRoot),
+		queueClient:         queue.NewClient(opts.Config.RedisAddr),
 	}
 
 	server.routes()
@@ -89,6 +94,8 @@ func (s *Server) routes() {
 	protected.POST("/uploads/tokens", s.handleCreateUploadToken)
 	protected.GET("/assets", s.handleListAssets)
 	protected.GET("/assets/:assetID", s.handleGetAsset)
+	protected.POST("/tasks/test", s.handleCreateTestTask)
+	protected.GET("/tasks", s.handleListTasks)
 
 	api.POST("/uploads/clean-shot", s.handleUploadCleanShot)
 }
