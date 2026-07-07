@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
 
 type Options struct {
@@ -13,9 +14,11 @@ type Options struct {
 }
 
 type Server struct {
-	cfg    config.Config
-	logger *slog.Logger
-	engine *gin.Engine
+	cfg                  config.Config
+	logger               *slog.Logger
+	engine               *gin.Engine
+	userService          *services.UserService
+	systemConfigService  *services.SystemConfigService
 }
 
 func New(opts Options) *Server {
@@ -24,9 +27,11 @@ func New(opts Options) *Server {
 	}
 
 	server := &Server{
-		cfg:    opts.Config,
-		logger: opts.Logger,
-		engine: gin.New(),
+		cfg:                 opts.Config,
+		logger:              opts.Logger,
+		engine:              gin.New(),
+		userService:         services.NewUserService(opts.Config),
+		systemConfigService: services.NewSystemConfigService(),
 	}
 
 	server.routes()
@@ -54,6 +59,11 @@ func (s *Server) routes() {
 	adminGroup.GET("/ping", func(c *gin.Context) {
 		OK(c, gin.H{"message": "admin"})
 	})
+
+	systemConfigs := adminGroup.Group("/system-configs")
+	systemConfigs.GET("", s.handleListSystemConfigs)
+	systemConfigs.GET("/snapshot", s.handleSystemConfigSnapshot)
+	systemConfigs.PUT("/:key", s.handleUpsertSystemConfig)
 
 	protected := api.Group("")
 	protected.Use(s.authMiddleware())
