@@ -32,7 +32,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: deploy/Dockerfile.go
+      dockerfile: deploy/Dockerfile
       args:
         APP_PATH: ./apps/api
         BIN_NAME: aicut-api
@@ -58,7 +58,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: deploy/Dockerfile.go
+      dockerfile: deploy/Dockerfile
       args:
         APP_PATH: ./apps/worker
         BIN_NAME: aicut-worker

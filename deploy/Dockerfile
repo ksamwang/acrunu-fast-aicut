@@ -7,7 +7,7 @@ WORKDIR /src
 ARG APP_PATH
 ARG BIN_NAME
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY apps ./apps
 COPY internal ./internal
 

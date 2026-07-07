@@ -37,7 +37,7 @@ worker 消费任务并更新状态
 - [x] 添加 `.env.example`
 - [x] 添加基础 `.gitignore`
 
-备注：当前执行环境未安装 `go` 命令，`go.mod` 已先按标准模块格式创建，后续安装 Go 后需要执行 `go mod tidy` 做工具链校验。
+备注：已使用工作区内便携 Go 工具链执行 `go mod tidy` 和 `go test ./...`，Go 代码编译检查通过。
 
 ## 3. 基础设施
 
@@ -83,11 +83,11 @@ worker 消费任务并更新状态
 - [x] 编写 selling points queries
 - [x] 编写 assets queries
 - [x] 编写 generation tasks queries
-- [ ] 生成 Go DB 代码
+- [x] 生成 Go DB 代码
 - [x] 封装 repository
 - [ ] 跑通数据库连接
 
-备注：已完成 sqlc 配置、核心 query 文件和 repository 边界。当前执行环境未安装 Go、sqlc、Docker/PostgreSQL，暂不能生成 Go DB 代码或验证数据库连接。
+备注：已使用工作区内便携 sqlc 执行 `sqlc generate`，并生成 `internal/repository/db` 代码；`go test ./...` 已通过。当前执行环境未安装 Docker/PostgreSQL，暂不能验证数据库连接。
 
 ## 6. API 基础
 
@@ -102,7 +102,7 @@ worker 消费任务并更新状态
 - [x] 添加当前用户信息接口
 - [x] 添加 API 路由分组
 
-备注：已完成 API 基础代码落地。当前执行环境未安装 Go，暂不能执行 `go mod tidy`、`go test` 或启动 API 做运行态验证。
+备注：已完成 API 基础代码落地，并通过 `go test ./...` 编译检查。完整运行态验证仍依赖后续服务启动。
 
 ## 7. 用户与系统配置
 
@@ -117,7 +117,7 @@ worker 消费任务并更新状态
 - [x] 添加存储配置项
 - [x] 添加配置快照读取能力
 
-备注：已完成内存版用户与系统配置服务，后续接入数据库 repository 后替换持久化实现。当前执行环境未安装 Go，暂不能执行编译或接口运行验证。
+备注：已完成内存版用户与系统配置服务，后续接入数据库 repository 后替换持久化实现；已通过 `go test ./...` 编译检查。
 
 ## 8. 产品与卖点
 
@@ -132,7 +132,7 @@ worker 消费任务并更新状态
 - [x] 添加卖点更新接口
 - [x] 添加卖点归档接口
 
-备注：已完成内存版产品与卖点服务及 API。当前执行环境未安装 Go，暂不能执行编译或接口运行验证。
+备注：已完成内存版产品与卖点服务及 API，并通过 `go test ./...` 编译检查。
 
 ## 9. 素材入库基础链路
 
@@ -151,7 +151,7 @@ worker 消费任务并更新状态
 - [x] 添加素材列表接口
 - [x] 添加素材详情接口
 
-备注：已完成内存版素材入库链路和本地文件存储封装。当前执行环境未安装 Go、`ffprobe`，暂不能执行编译、文件上传或媒体探测运行验证。
+备注：已完成内存版素材入库链路和本地文件存储封装，并通过 `go test ./...` 编译检查。当前执行环境未安装 `ffprobe`，暂不能执行媒体探测运行验证。
 
 ## 10. 本地 Agent 最小版本
 
@@ -168,7 +168,7 @@ worker 消费任务并更新状态
 - [x] 返回本地预处理结果
 - [x] 处理 ffmpeg 执行失败
 
-备注：已完成本地 Agent 最小版本代码落地。当前执行环境未安装 Go、`ffmpeg`、`ffprobe`，暂不能执行编译、裁切或上传运行验证。
+备注：已完成本地 Agent 最小版本代码落地，并通过 `go test ./...` 编译检查。当前执行环境未安装 `ffmpeg`、`ffprobe`，暂不能执行裁切或上传运行验证。
 
 ## 11. 队列与 worker
 
@@ -184,7 +184,7 @@ worker 消费任务并更新状态
 - [x] 支持失败原因记录
 - [x] 支持重试次数记录
 
-备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler。当前任务状态暂用 `storage/temp/tasks.json` 在 API 与 worker 间共享；数据库写入需等待数据访问层完成后替换。当前执行环境未安装 Go、Redis，暂不能执行编译或队列运行验证。
+备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。当前任务状态暂用 `storage/temp/tasks.json` 在 API 与 worker 间共享；数据库写入需等待数据库连接验证完成后替换。当前执行环境未安装 Redis，暂不能执行队列运行验证。
 
 ## 12. 前端基础
 
@@ -206,14 +206,14 @@ worker 消费任务并更新状态
 ## 13. 验证闭环
 
 - [ ] 启动 Docker Compose
-- [ ] 启动 API
+- [x] 启动 API
 - [ ] 启动 worker
-- [ ] 启动 Web Console
-- [ ] 启动 local-agent
-- [ ] 创建 admin 用户
+- [x] 启动 Web Console
+- [x] 启动 local-agent
+- [x] 创建 admin 用户
 - [ ] 登录 Web Console
-- [ ] 创建产品
-- [ ] 创建产品卖点
+- [x] 创建产品
+- [x] 创建产品卖点
 - [ ] 本地选择视频并裁切 clean shot
 - [ ] 上传 clean shot 到服务端
 - [ ] 服务端写入素材库
@@ -221,6 +221,8 @@ worker 消费任务并更新状态
 - [ ] API 创建测试异步任务
 - [ ] worker 消费测试任务
 - [ ] 前端可查看任务状态
+
+备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。Docker Compose、PostgreSQL、Redis、worker、真实 clean shot 裁切上传和前端交互闭环仍待依赖安装后验证。
 
 ## 14. 第一阶段暂不包含
 
@@ -237,16 +239,16 @@ worker 消费任务并更新状态
 
 ## 15. 完成标准
 
-- [ ] Go API 可启动
+- [x] Go API 可启动
 - [ ] Go worker 可启动
-- [ ] Web Console 可启动
-- [ ] Local Agent 可启动
+- [x] Web Console 可启动
+- [x] Local Agent 可启动
 - [ ] PostgreSQL + pgvector 可用
 - [ ] Redis 可用
 - [ ] 数据库迁移可执行
-- [ ] 用户登录可用
-- [ ] 系统配置可读写
-- [ ] 产品和卖点基础管理可用
+- [x] 用户登录可用
+- [x] 系统配置可读写
+- [x] 产品和卖点基础管理可用
 - [ ] clean shot 上传链路可用
 - [ ] 素材基础入库可用
 - [ ] 异步任务入队和消费可用
