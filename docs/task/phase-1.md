@@ -19,23 +19,25 @@ worker 消费任务并更新状态
 
 ## 2. 工程初始化
 
-- [ ] 初始化 Go module
-- [ ] 建立 `apps/api`
-- [ ] 建立 `apps/worker`
-- [ ] 建立 `apps/local-agent`
-- [ ] 建立 `apps/web`
-- [ ] 建立 `internal/auth`
-- [ ] 建立 `internal/config`
-- [ ] 建立 `internal/domain`
-- [ ] 建立 `internal/ffmpeg`
-- [ ] 建立 `internal/modelgateway`
-- [ ] 建立 `internal/queue`
-- [ ] 建立 `internal/repository`
-- [ ] 建立 `internal/services`
-- [ ] 建立 `internal/storage`
-- [ ] 添加 `Makefile`
-- [ ] 添加 `.env.example`
-- [ ] 添加基础 `.gitignore`
+- [x] 初始化 Go module
+- [x] 建立 `apps/api`
+- [x] 建立 `apps/worker`
+- [x] 建立 `apps/local-agent`
+- [x] 建立 `apps/web`
+- [x] 建立 `internal/auth`
+- [x] 建立 `internal/config`
+- [x] 建立 `internal/domain`
+- [x] 建立 `internal/ffmpeg`
+- [x] 建立 `internal/modelgateway`
+- [x] 建立 `internal/queue`
+- [x] 建立 `internal/repository`
+- [x] 建立 `internal/services`
+- [x] 建立 `internal/storage`
+- [x] 添加 `Makefile`
+- [x] 添加 `.env.example`
+- [x] 添加基础 `.gitignore`
+
+备注：当前执行环境未安装 `go` 命令，`go.mod` 已先按标准模块格式创建，后续安装 Go 后需要执行 `go mod tidy` 做工具链校验。
 
 ## 3. 基础设施
 

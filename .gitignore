@@ -1,0 +1,42 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Go
+bin/
+coverage.out
+
+# Node / frontend
+node_modules/
+dist/
+build/
+
+# Local storage
+storage/*
+!storage/.gitkeep
+!storage/assets/
+!storage/assets/.gitkeep
+!storage/frames/
+!storage/frames/.gitkeep
+!storage/voiceovers/
+!storage/voiceovers/.gitkeep
+!storage/renders/
+!storage/renders/.gitkeep
+!storage/subtitles/
+!storage/subtitles/.gitkeep
+!storage/bgm/
+!storage/bgm/.gitkeep
+!storage/temp/
+!storage/temp/.gitkeep
+
+# Logs and temp files
+*.log
+tmp/
+*.tmp
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
