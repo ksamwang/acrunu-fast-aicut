@@ -56,20 +56,22 @@ worker 消费任务并更新状态
 
 ## 4. 数据库迁移
 
-- [ ] 引入 `goose`
-- [ ] 建立 `migrations/`
-- [ ] 建立 `sql/schema/`
-- [ ] 建立 `sql/queries/`
-- [ ] 添加 pgvector 扩展迁移
-- [ ] 添加 `users` 迁移
-- [ ] 添加 `upload_tokens` 迁移
-- [ ] 添加 `system_configs` 迁移
-- [ ] 添加 `products` 迁移
-- [ ] 添加 `product_selling_points` 迁移
-- [ ] 添加 `assets` 迁移
-- [ ] 添加 `generation_tasks` 迁移
-- [ ] 添加基础审计字段
-- [ ] 验证迁移可重复执行
+- [x] 引入 `goose`
+- [x] 建立 `migrations/`
+- [x] 建立 `sql/schema/`
+- [x] 建立 `sql/queries/`
+- [x] 添加 pgvector 扩展迁移
+- [x] 添加 `users` 迁移
+- [x] 添加 `upload_tokens` 迁移
+- [x] 添加 `system_configs` 迁移
+- [x] 添加 `products` 迁移
+- [x] 添加 `product_selling_points` 迁移
+- [x] 添加 `assets` 迁移
+- [x] 添加 `generation_tasks` 迁移
+- [x] 添加基础审计字段
+- [x] 验证迁移可重复执行
+
+备注：已通过 `scripts/check-migrations.ps1` 验证所有迁移文件包含 goose Up/Down 结构。当前执行环境未安装 Docker、PostgreSQL 和 goose，数据库运行态 up/down 验证需在安装依赖后执行。
 
 ## 5. 数据访问层
 

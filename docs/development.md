@@ -64,3 +64,31 @@ Unix shell：
 - `storage/temp`
 
 原始素材默认不上传服务端，只上传本地 Agent 生成的 clean shot。
+
+## 6. 数据库迁移
+
+安装 `goose`：
+
+```powershell
+go install github.com/pressly/goose/v3/cmd/goose@latest
+```
+
+执行迁移：
+
+```powershell
+$env:DATABASE_URL="postgres://aicut:aicut@localhost:5432/aicut?sslmode=disable"
+make migrate-up
+```
+
+回滚最近一次迁移：
+
+```powershell
+$env:DATABASE_URL="postgres://aicut:aicut@localhost:5432/aicut?sslmode=disable"
+make migrate-down
+```
+
+检查迁移文件结构：
+
+```powershell
+make check-migrations
+```

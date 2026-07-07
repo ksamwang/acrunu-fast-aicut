@@ -1,0 +1,7 @@
+-- +goose Up
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- +goose Down
+DROP EXTENSION IF EXISTS vector;
+DROP EXTENSION IF EXISTS pgcrypto;
