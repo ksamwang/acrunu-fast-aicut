@@ -1,7 +1,10 @@
-.PHONY: dev test migrate-up migrate-down sqlc lint
+.PHONY: dev infra test migrate-up migrate-down sqlc lint check-ffmpeg
 
 dev:
-	@echo "TODO: start local development services"
+	docker compose up --build
+
+infra:
+	docker compose up postgres redis
 
 test:
 	@echo "TODO: run tests"
@@ -17,3 +20,6 @@ sqlc:
 
 lint:
 	@echo "TODO: run linters"
+
+check-ffmpeg:
+	powershell -ExecutionPolicy Bypass -File ./scripts/check-ffmpeg.ps1

@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aicut-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aicut}
+      POSTGRES_USER: ${POSTGRES_USER:-aicut}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aicut}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aicut} -d ${POSTGRES_DB:-aicut}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: aicut-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.go
+      args:
+        APP_PATH: ./apps/api
+        BIN_NAME: aicut-api
+    container_name: aicut-api
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      API_ADDR: ${API_ADDR:-:8080}
+      DATABASE_URL: ${DATABASE_URL:-postgres://aicut:aicut@postgres:5432/aicut?sslmode=disable}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/app/storage}
+      MODEL_GATEWAY_TIMEOUT_SECONDS: ${MODEL_GATEWAY_TIMEOUT_SECONDS:-120}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.go
+      args:
+        APP_PATH: ./apps/worker
+        BIN_NAME: aicut-worker
+    container_name: aicut-worker
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      DATABASE_URL: ${DATABASE_URL:-postgres://aicut:aicut@postgres:5432/aicut?sslmode=disable}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/app/storage}
+      MODEL_GATEWAY_TIMEOUT_SECONDS: ${MODEL_GATEWAY_TIMEOUT_SECONDS:-120}
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:

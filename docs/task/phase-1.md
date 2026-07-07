@@ -41,16 +41,18 @@ worker 消费任务并更新状态
 
 ## 3. 基础设施
 
-- [ ] 添加 `docker-compose.yml`
-- [ ] 配置 PostgreSQL
-- [ ] 配置 pgvector 扩展
-- [ ] 配置 Redis
-- [ ] 配置服务端本地 `storage/`
-- [ ] 配置 API 环境变量
-- [ ] 配置 worker 环境变量
-- [ ] 配置 local-agent 环境变量
-- [ ] 添加 `ffmpeg` / `ffprobe` 可用性检查
-- [ ] 添加本地开发启动说明
+- [x] 添加 `docker-compose.yml`
+- [x] 配置 PostgreSQL
+- [x] 配置 pgvector 扩展
+- [x] 配置 Redis
+- [x] 配置服务端本地 `storage/`
+- [x] 配置 API 环境变量
+- [x] 配置 worker 环境变量
+- [x] 配置 local-agent 环境变量
+- [x] 添加 `ffmpeg` / `ffprobe` 可用性检查
+- [x] 添加本地开发启动说明
+
+备注：当前执行环境未安装 Docker、`ffmpeg` 和 `ffprobe`，本阶段已完成配置与检查脚本落地，运行态验证需在安装依赖后执行。
 
 ## 4. 数据库迁移
 
