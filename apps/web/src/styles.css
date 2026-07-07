@@ -50,3 +50,11 @@ body {
 .page-stack {
   width: 100%;
 }
+
+.wide-space {
+  width: 100%;
+}
+
+.selected-row > td {
+  background: #e6f4ff !important;
+}

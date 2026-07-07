@@ -201,7 +201,7 @@ worker 消费任务并更新状态
 - [x] 建立系统配置页面
 - [x] 限制系统配置页面仅 `admin` 可见
 
-备注：已完成 Web Console 前端骨架，并通过 `npm run build` 验证。
+备注：已完成 Web Console 前端骨架，并对接登录、产品、卖点、素材、任务和系统配置 API；已通过 `npm run build` 验证。
 
 ## 13. 验证闭环
 
