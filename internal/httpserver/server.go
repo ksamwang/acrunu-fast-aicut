@@ -19,6 +19,7 @@ type Server struct {
 	engine               *gin.Engine
 	userService          *services.UserService
 	systemConfigService  *services.SystemConfigService
+	productAssetService  *services.ProductAssetService
 }
 
 func New(opts Options) *Server {
@@ -32,6 +33,7 @@ func New(opts Options) *Server {
 		engine:              gin.New(),
 		userService:         services.NewUserService(opts.Config),
 		systemConfigService: services.NewSystemConfigService(),
+		productAssetService: services.NewProductAssetService(),
 	}
 
 	server.routes()
@@ -70,4 +72,13 @@ func (s *Server) routes() {
 	protected.GET("/ping", func(c *gin.Context) {
 		OK(c, gin.H{"message": "ok"})
 	})
+	protected.POST("/products", s.handleCreateProduct)
+	protected.GET("/products", s.handleListProducts)
+	protected.GET("/products/:productID", s.handleGetProduct)
+	protected.PUT("/products/:productID", s.handleUpdateProduct)
+	protected.POST("/products/:productID/archive", s.handleArchiveProduct)
+	protected.POST("/products/:productID/selling-points", s.handleCreateSellingPoint)
+	protected.GET("/products/:productID/selling-points", s.handleListSellingPoints)
+	protected.PUT("/selling-points/:sellingPointID", s.handleUpdateSellingPoint)
+	protected.POST("/selling-points/:sellingPointID/archive", s.handleArchiveSellingPoint)
 }
