@@ -155,18 +155,20 @@ worker 消费任务并更新状态
 
 ## 10. 本地 Agent 最小版本
 
-- [ ] 搭建 `apps/local-agent`
-- [ ] 本地 Agent 启动 localhost HTTP 服务
-- [ ] 添加本地 Agent 健康检查接口
-- [ ] 接收浏览器传入的本地文件路径
-- [ ] 接收入点和出点参数
-- [ ] 接收素材类型参数
-- [ ] 调用本地 `ffmpeg` 生成 clean shot
-- [ ] 调用本地 `ffprobe` 读取基础信息
-- [ ] 计算 clean shot checksum
-- [ ] 使用 upload token 上传 clean shot
-- [ ] 返回本地预处理结果
-- [ ] 处理 ffmpeg 执行失败
+- [x] 搭建 `apps/local-agent`
+- [x] 本地 Agent 启动 localhost HTTP 服务
+- [x] 添加本地 Agent 健康检查接口
+- [x] 接收浏览器传入的本地文件路径
+- [x] 接收入点和出点参数
+- [x] 接收素材类型参数
+- [x] 调用本地 `ffmpeg` 生成 clean shot
+- [x] 调用本地 `ffprobe` 读取基础信息
+- [x] 计算 clean shot checksum
+- [x] 使用 upload token 上传 clean shot
+- [x] 返回本地预处理结果
+- [x] 处理 ffmpeg 执行失败
+
+备注：已完成本地 Agent 最小版本代码落地。当前执行环境未安装 Go、`ffmpeg`、`ffprobe`，暂不能执行编译、裁切或上传运行验证。
 
 ## 11. 队列与 worker
 
