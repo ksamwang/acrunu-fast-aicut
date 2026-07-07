@@ -1,0 +1,231 @@
+# 第一阶段任务清单
+
+## 1. 阶段目标
+
+第一阶段目标是搭建系统工程骨架，并跑通共享素材库与异步任务基础链路。
+
+完成后的最小闭环：
+
+```text
+用户登录 Web Console
+创建产品和卖点
+通过本地 Agent 裁切本地视频为 clean shot
+上传 clean shot 到服务端
+服务端保存文件并记录 assets
+API 创建一个异步任务
+worker 消费任务并更新状态
+前端能看到素材和任务状态
+```
+
+## 2. 工程初始化
+
+- [ ] 初始化 Go module
+- [ ] 建立 `apps/api`
+- [ ] 建立 `apps/worker`
+- [ ] 建立 `apps/local-agent`
+- [ ] 建立 `apps/web`
+- [ ] 建立 `internal/auth`
+- [ ] 建立 `internal/config`
+- [ ] 建立 `internal/domain`
+- [ ] 建立 `internal/ffmpeg`
+- [ ] 建立 `internal/modelgateway`
+- [ ] 建立 `internal/queue`
+- [ ] 建立 `internal/repository`
+- [ ] 建立 `internal/services`
+- [ ] 建立 `internal/storage`
+- [ ] 添加 `Makefile`
+- [ ] 添加 `.env.example`
+- [ ] 添加基础 `.gitignore`
+
+## 3. 基础设施
+
+- [ ] 添加 `docker-compose.yml`
+- [ ] 配置 PostgreSQL
+- [ ] 配置 pgvector 扩展
+- [ ] 配置 Redis
+- [ ] 配置服务端本地 `storage/`
+- [ ] 配置 API 环境变量
+- [ ] 配置 worker 环境变量
+- [ ] 配置 local-agent 环境变量
+- [ ] 添加 `ffmpeg` / `ffprobe` 可用性检查
+- [ ] 添加本地开发启动说明
+
+## 4. 数据库迁移
+
+- [ ] 引入 `goose`
+- [ ] 建立 `migrations/`
+- [ ] 建立 `sql/schema/`
+- [ ] 建立 `sql/queries/`
+- [ ] 添加 pgvector 扩展迁移
+- [ ] 添加 `users` 迁移
+- [ ] 添加 `upload_tokens` 迁移
+- [ ] 添加 `system_configs` 迁移
+- [ ] 添加 `products` 迁移
+- [ ] 添加 `product_selling_points` 迁移
+- [ ] 添加 `assets` 迁移
+- [ ] 添加 `generation_tasks` 迁移
+- [ ] 添加基础审计字段
+- [ ] 验证迁移可重复执行
+
+## 5. 数据访问层
+
+- [ ] 引入 `sqlc`
+- [ ] 添加 `sqlc.yaml`
+- [ ] 编写 users queries
+- [ ] 编写 system configs queries
+- [ ] 编写 products queries
+- [ ] 编写 selling points queries
+- [ ] 编写 assets queries
+- [ ] 编写 generation tasks queries
+- [ ] 生成 Go DB 代码
+- [ ] 封装 repository
+- [ ] 跑通数据库连接
+
+## 6. API 基础
+
+- [ ] 搭建 Gin HTTP 服务
+- [ ] 添加健康检查接口
+- [ ] 添加统一错误响应
+- [ ] 添加 request id 中间件
+- [ ] 添加结构化日志
+- [ ] 添加基础认证中间件
+- [ ] 添加 `admin` / `user` 角色判断
+- [ ] 添加用户登录接口
+- [ ] 添加当前用户信息接口
+- [ ] 添加 API 路由分组
+
+## 7. 用户与系统配置
+
+- [ ] 实现 `UserService`
+- [ ] 实现 `SystemConfigService`
+- [ ] 添加初始化 admin 用户能力
+- [ ] 添加系统配置查询接口
+- [ ] 添加系统配置更新接口
+- [ ] 限制系统配置更新仅 `admin` 可用
+- [ ] 添加模型 provider 配置项
+- [ ] 添加并发控制配置项
+- [ ] 添加存储配置项
+- [ ] 添加配置快照读取能力
+
+## 8. 产品与卖点
+
+- [ ] 实现 `ProductAssetService` 产品部分
+- [ ] 添加产品创建接口
+- [ ] 添加产品列表接口
+- [ ] 添加产品详情接口
+- [ ] 添加产品更新接口
+- [ ] 添加产品归档接口
+- [ ] 添加卖点创建接口
+- [ ] 添加卖点列表接口
+- [ ] 添加卖点更新接口
+- [ ] 添加卖点归档接口
+
+## 9. 素材入库基础链路
+
+- [ ] 定义 clean shot 上传元数据结构
+- [ ] 定义短期 upload token 申请接口
+- [ ] 实现 upload token 生成
+- [ ] 实现 upload token 校验
+- [ ] 实现服务端 clean shot 文件接收
+- [ ] 保存 clean shot 到 `storage/assets`
+- [ ] 写入 `assets` 表
+- [ ] 记录 `created_by_user_id`
+- [ ] 调用 `ffprobe` 读取时长
+- [ ] 调用 `ffprobe` 读取分辨率
+- [ ] 调用 `ffprobe` 读取帧率
+- [ ] 根据处理结果更新素材状态为 `ready` 或 `failed`
+- [ ] 添加素材列表接口
+- [ ] 添加素材详情接口
+
+## 10. 本地 Agent 最小版本
+
+- [ ] 搭建 `apps/local-agent`
+- [ ] 本地 Agent 启动 localhost HTTP 服务
+- [ ] 添加本地 Agent 健康检查接口
+- [ ] 接收浏览器传入的本地文件路径
+- [ ] 接收入点和出点参数
+- [ ] 接收素材类型参数
+- [ ] 调用本地 `ffmpeg` 生成 clean shot
+- [ ] 调用本地 `ffprobe` 读取基础信息
+- [ ] 计算 clean shot checksum
+- [ ] 使用 upload token 上传 clean shot
+- [ ] 返回本地预处理结果
+- [ ] 处理 ffmpeg 执行失败
+
+## 11. 队列与 worker
+
+- [ ] 引入 Asynq
+- [ ] 定义任务类型
+- [ ] 定义任务 payload 结构
+- [ ] 实现任务入队封装
+- [ ] 实现 worker 启动入口
+- [ ] 注册测试任务 handler
+- [ ] API 能提交测试任务
+- [ ] worker 能消费测试任务
+- [ ] 任务状态写入数据库
+- [ ] 支持失败原因记录
+- [ ] 支持重试次数记录
+
+## 12. 前端基础
+
+- [ ] 初始化 Vite React 项目
+- [ ] 接入 TypeScript
+- [ ] 接入 Ant Design
+- [ ] 建立登录页
+- [ ] 建立基础布局
+- [ ] 建立产品管理页面
+- [ ] 建立卖点管理入口
+- [ ] 建立素材列表页面
+- [ ] 建立素材上传 / 本地 Agent 入口
+- [ ] 建立任务列表页面
+- [ ] 建立系统配置页面
+- [ ] 限制系统配置页面仅 `admin` 可见
+
+## 13. 验证闭环
+
+- [ ] 启动 Docker Compose
+- [ ] 启动 API
+- [ ] 启动 worker
+- [ ] 启动 Web Console
+- [ ] 启动 local-agent
+- [ ] 创建 admin 用户
+- [ ] 登录 Web Console
+- [ ] 创建产品
+- [ ] 创建产品卖点
+- [ ] 本地选择视频并裁切 clean shot
+- [ ] 上传 clean shot 到服务端
+- [ ] 服务端写入素材库
+- [ ] 前端可查看素材列表
+- [ ] API 创建测试异步任务
+- [ ] worker 消费测试任务
+- [ ] 前端可查看任务状态
+
+## 14. 第一阶段暂不包含
+
+- [ ] 完整 LLM 文案生成
+- [ ] VLM 画面理解
+- [ ] ASR 口播句段识别
+- [ ] TTS 配音生成
+- [ ] pgvector 真实向量检索
+- [ ] 完整 `edit_plan` 生成
+- [ ] 服务端真实成片渲染
+- [ ] 字幕生成
+- [ ] BGM 混音
+- [ ] 多模板批量生成策略
+
+## 15. 完成标准
+
+- [ ] Go API 可启动
+- [ ] Go worker 可启动
+- [ ] Web Console 可启动
+- [ ] Local Agent 可启动
+- [ ] PostgreSQL + pgvector 可用
+- [ ] Redis 可用
+- [ ] 数据库迁移可执行
+- [ ] 用户登录可用
+- [ ] 系统配置可读写
+- [ ] 产品和卖点基础管理可用
+- [ ] clean shot 上传链路可用
+- [ ] 素材基础入库可用
+- [ ] 异步任务入队和消费可用
+- [ ] 前端可查看素材和任务状态
