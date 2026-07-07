@@ -1,0 +1,52 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f4f6f8;
+}
+
+.login-shell {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(420px, 100%);
+}
+
+.app-shell {
+  min-height: 100%;
+}
+
+.brand {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.topbar {
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.content {
+  padding: 24px;
+}
+
+.page-stack {
+  width: 100%;
+}
