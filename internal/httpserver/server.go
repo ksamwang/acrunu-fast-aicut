@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/storage"
 )
 
 type Options struct {
@@ -20,6 +21,8 @@ type Server struct {
 	userService          *services.UserService
 	systemConfigService  *services.SystemConfigService
 	productAssetService  *services.ProductAssetService
+	uploadTokenService   *services.UploadTokenService
+	localStore           *storage.LocalStore
 }
 
 func New(opts Options) *Server {
@@ -34,6 +37,8 @@ func New(opts Options) *Server {
 		userService:         services.NewUserService(opts.Config),
 		systemConfigService: services.NewSystemConfigService(),
 		productAssetService: services.NewProductAssetService(),
+		uploadTokenService:  services.NewUploadTokenService(),
+		localStore:          storage.NewLocalStore(opts.Config.StorageRoot),
 	}
 
 	server.routes()
@@ -81,4 +86,9 @@ func (s *Server) routes() {
 	protected.GET("/products/:productID/selling-points", s.handleListSellingPoints)
 	protected.PUT("/selling-points/:sellingPointID", s.handleUpdateSellingPoint)
 	protected.POST("/selling-points/:sellingPointID/archive", s.handleArchiveSellingPoint)
+	protected.POST("/uploads/tokens", s.handleCreateUploadToken)
+	protected.GET("/assets", s.handleListAssets)
+	protected.GET("/assets/:assetID", s.handleGetAsset)
+
+	api.POST("/uploads/clean-shot", s.handleUploadCleanShot)
 }

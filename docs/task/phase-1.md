@@ -136,20 +136,22 @@ worker 消费任务并更新状态
 
 ## 9. 素材入库基础链路
 
-- [ ] 定义 clean shot 上传元数据结构
-- [ ] 定义短期 upload token 申请接口
-- [ ] 实现 upload token 生成
-- [ ] 实现 upload token 校验
-- [ ] 实现服务端 clean shot 文件接收
-- [ ] 保存 clean shot 到 `storage/assets`
-- [ ] 写入 `assets` 表
-- [ ] 记录 `created_by_user_id`
-- [ ] 调用 `ffprobe` 读取时长
-- [ ] 调用 `ffprobe` 读取分辨率
-- [ ] 调用 `ffprobe` 读取帧率
-- [ ] 根据处理结果更新素材状态为 `ready` 或 `failed`
-- [ ] 添加素材列表接口
-- [ ] 添加素材详情接口
+- [x] 定义 clean shot 上传元数据结构
+- [x] 定义短期 upload token 申请接口
+- [x] 实现 upload token 生成
+- [x] 实现 upload token 校验
+- [x] 实现服务端 clean shot 文件接收
+- [x] 保存 clean shot 到 `storage/assets`
+- [x] 写入 `assets` 表
+- [x] 记录 `created_by_user_id`
+- [x] 调用 `ffprobe` 读取时长
+- [x] 调用 `ffprobe` 读取分辨率
+- [x] 调用 `ffprobe` 读取帧率
+- [x] 根据处理结果更新素材状态为 `ready` 或 `failed`
+- [x] 添加素材列表接口
+- [x] 添加素材详情接口
+
+备注：已完成内存版素材入库链路和本地文件存储封装。当前执行环境未安装 Go、`ffprobe`，暂不能执行编译、文件上传或媒体探测运行验证。
 
 ## 10. 本地 Agent 最小版本
 

@@ -7,6 +7,7 @@ type Config struct {
 	APIAddr       string
 	AdminUsername string
 	AdminPassword string
+	StorageRoot   string
 }
 
 func Load() Config {
@@ -15,6 +16,7 @@ func Load() Config {
 		APIAddr:       env("API_ADDR", ":8080"),
 		AdminUsername: env("ADMIN_USERNAME", "admin"),
 		AdminPassword: env("ADMIN_PASSWORD", "admin"),
+		StorageRoot:   env("STORAGE_LOCAL_ROOT", "./storage"),
 	}
 }
 
