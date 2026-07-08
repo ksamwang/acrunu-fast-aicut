@@ -18,9 +18,16 @@ func main() {
 	defer taskService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
+	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
+	defer queueClient.Close()
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
-		services.NewAssetProcessingService(cfg.StorageRoot, productAssetService.Service.Queries()),
+		services.NewAssetProcessingService(
+			cfg.StorageRoot,
+			productAssetService.Service,
+			queueClient,
+			nil,
+		),
 	)
 
 	if cfg.QueueBackend == "file" {

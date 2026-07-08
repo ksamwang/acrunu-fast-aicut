@@ -69,3 +69,19 @@ func (c *Client) EnqueueAssetExtractFrames(assetID string, storageKey string, du
 	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetExtractFrames, payload))
 	return err
 }
+
+func (c *Client) EnqueueAssetAnalyze(assetID string) error {
+	payload, err := json.Marshal(AssetAnalyzePayload{AssetID: assetID})
+	if err != nil {
+		return err
+	}
+
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeAssetAnalyze, payload)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetAnalyze, payload))
+	return err
+}

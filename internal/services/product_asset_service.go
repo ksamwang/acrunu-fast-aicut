@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/repository"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/repository/db"
 )
@@ -19,6 +20,7 @@ import (
 var (
 	ErrProductNotFound      = errors.New("product not found")
 	ErrSellingPointNotFound = errors.New("selling point not found")
+	ErrAssetNotFound        = errors.New("asset not found")
 )
 
 type Product struct {
@@ -198,6 +200,21 @@ type AssetFrameSnapshot struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type AssetAnalysisUpdate struct {
+	AnalysisStatus   string
+	UsabilityStatus  string
+	SceneDescription string
+	ShotSize         string
+	CameraMovement   string
+	Subjects         []string
+	SceneTags        []string
+	QualityTags      []string
+	ModelResult      map[string]any
+	AnalysisError    string
+	AnalyzedAt       time.Time
+	UpdatedByUserID  string
+}
+
 func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error) {
 	if s.queries != nil {
 		return s.createAssetInPostgres(input)
@@ -348,6 +365,39 @@ func (s *ProductAssetService) ListAssetFrameSnapshots(assetID string) []AssetFra
 		})
 	}
 	return items
+}
+
+func (s *ProductAssetService) UpdateAssetAnalysis(assetID string, update AssetAnalysisUpdate) error {
+	if s.queries != nil {
+		return s.updateAssetAnalysisInPostgres(assetID, update)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	asset, ok := s.assets[assetID]
+	if !ok {
+		return ErrAssetNotFound
+	}
+
+	asset.AnalysisStatus = update.AnalysisStatus
+	if update.UsabilityStatus != "" {
+		asset.UsabilityStatus = update.UsabilityStatus
+	}
+	asset.SceneDescription = update.SceneDescription
+	asset.ShotSize = update.ShotSize
+	asset.CameraMovement = update.CameraMovement
+	asset.Subjects = append([]string(nil), update.Subjects...)
+	asset.SceneTags = append([]string(nil), update.SceneTags...)
+	asset.QualityTags = append([]string(nil), update.QualityTags...)
+	asset.AnalysisError = update.AnalysisError
+	if !update.AnalyzedAt.IsZero() {
+		analyzedAt := update.AnalyzedAt
+		asset.AnalyzedAt = &analyzedAt
+	}
+	asset.UpdatedAt = time.Now()
+	s.assets[assetID] = asset
+	return nil
 }
 
 func (s *ProductAssetService) CreateProduct(input CreateProductInput) Product {
@@ -758,6 +808,39 @@ func (s *ProductAssetService) getAssetFromPostgres(id string) (Asset, bool) {
 		return Asset{}, false
 	}
 	return assetFromDBRecord(row), true
+}
+
+func (s *ProductAssetService) updateAssetAnalysisInPostgres(assetID string, update AssetAnalysisUpdate) error {
+	return s.queries.UpdateAssetAnalysis(context.Background(), db.UpdateAssetAnalysisParams{
+		ID:               assetNullableUUIDParam(assetID),
+		AnalysisStatus:   firstNonEmpty(update.AnalysisStatus, "ready"),
+		UsabilityStatus:  firstNonEmpty(update.UsabilityStatus, "usable"),
+		SceneDescription: assetTextParam(update.SceneDescription),
+		ShotSize:         assetTextParam(update.ShotSize),
+		CameraMovement:   assetTextParam(update.CameraMovement),
+		Subjects:         mustJSON(update.Subjects, []string{}),
+		SceneTags:        mustJSON(update.SceneTags, []string{}),
+		QualityTags:      mustJSON(update.QualityTags, []string{}),
+		ModelResult:      mustJSON(update.ModelResult, map[string]any{}),
+		AnalysisError:    assetTextParam(update.AnalysisError),
+		AnalyzedAt:       pgtype.Timestamptz{Time: update.AnalyzedAt, Valid: !update.AnalyzedAt.IsZero()},
+		UpdatedByUserID:  assetNullableUUIDParam(update.UpdatedByUserID),
+	})
+}
+
+func AssetAnalysisUpdateFromResult(result modelgateway.AnalyzeAssetResult, analysisStatus string, analyzedAt time.Time) AssetAnalysisUpdate {
+	return AssetAnalysisUpdate{
+		AnalysisStatus:   analysisStatus,
+		UsabilityStatus:  result.UsabilityStatus,
+		SceneDescription: result.SceneDescription,
+		ShotSize:         result.ShotSize,
+		CameraMovement:   result.CameraMovement,
+		Subjects:         append([]string(nil), result.Subjects...),
+		SceneTags:        append([]string(nil), result.SceneTags...),
+		QualityTags:      append([]string(nil), result.QualityTags...),
+		ModelResult:      result.ModelResult,
+		AnalyzedAt:       analyzedAt,
+	}
 }
 
 func productFromDB(row db.Product) Product {

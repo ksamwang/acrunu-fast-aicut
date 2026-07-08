@@ -28,3 +28,10 @@ func (h *WorkerHandler) HandleAssetExtractFrames(ctx context.Context, payload qu
 	}
 	return h.assetProcessingService.HandleAssetExtractFrames(ctx, payload)
 }
+
+func (h *WorkerHandler) HandleAssetAnalyze(ctx context.Context, payload queue.AssetAnalyzePayload) error {
+	if h.assetProcessingService == nil {
+		return nil
+	}
+	return h.assetProcessingService.HandleAssetAnalyze(ctx, payload)
+}
