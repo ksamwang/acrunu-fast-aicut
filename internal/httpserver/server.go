@@ -11,19 +11,20 @@ import (
 )
 
 type Options struct {
-	Config config.Config
-	Logger *slog.Logger
+	Config      config.Config
+	Logger      *slog.Logger
+	TaskService *services.TaskService
 }
 
 type Server struct {
-	cfg                  config.Config
-	logger               *slog.Logger
-	engine               *gin.Engine
-	userService          *services.UserService
-	systemConfigService  *services.SystemConfigService
-	productAssetService  *services.ProductAssetService
-	uploadTokenService   *services.UploadTokenService
-	localStore           *storage.LocalStore
+	cfg                 config.Config
+	logger              *slog.Logger
+	engine              *gin.Engine
+	userService         *services.UserService
+	systemConfigService *services.SystemConfigService
+	productAssetService *services.ProductAssetService
+	uploadTokenService  *services.UploadTokenService
+	localStore          *storage.LocalStore
 	taskService         *services.TaskService
 	queueClient         *queue.Client
 }
@@ -31,6 +32,11 @@ type Server struct {
 func New(opts Options) *Server {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
+	}
+
+	taskService := opts.TaskService
+	if taskService == nil {
+		taskService = services.NewTaskService(opts.Config.StorageRoot)
 	}
 
 	server := &Server{
@@ -42,7 +48,7 @@ func New(opts Options) *Server {
 		productAssetService: services.NewProductAssetService(),
 		uploadTokenService:  services.NewUploadTokenService(),
 		localStore:          storage.NewLocalStore(opts.Config.StorageRoot),
-		taskService:         services.NewTaskService(opts.Config.StorageRoot),
+		taskService:         taskService,
 		queueClient:         queue.NewClient(opts.Config.RedisAddr),
 	}
 

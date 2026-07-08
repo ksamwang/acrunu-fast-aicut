@@ -24,7 +24,7 @@ INSERT INTO generation_tasks (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
 )
-RETURNING id, product_id, created_by_user_id, task_type, status, variant_count, target_duration_ms, style_prompt, config_snapshot, error_message, created_at, updated_at, started_at, finished_at
+RETURNING id, product_id, created_by_user_id, task_type, status, variant_count, target_duration_ms, style_prompt, config_snapshot, error_message, retry_count, created_at, updated_at, started_at, finished_at
 `
 
 type CreateGenerationTaskParams struct {
@@ -61,6 +61,7 @@ func (q *Queries) CreateGenerationTask(ctx context.Context, arg CreateGeneration
 		&i.StylePrompt,
 		&i.ConfigSnapshot,
 		&i.ErrorMessage,
+		&i.RetryCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StartedAt,
@@ -70,7 +71,7 @@ func (q *Queries) CreateGenerationTask(ctx context.Context, arg CreateGeneration
 }
 
 const getGenerationTaskByID = `-- name: GetGenerationTaskByID :one
-SELECT id, product_id, created_by_user_id, task_type, status, variant_count, target_duration_ms, style_prompt, config_snapshot, error_message, created_at, updated_at, started_at, finished_at FROM generation_tasks
+SELECT id, product_id, created_by_user_id, task_type, status, variant_count, target_duration_ms, style_prompt, config_snapshot, error_message, retry_count, created_at, updated_at, started_at, finished_at FROM generation_tasks
 WHERE id = $1
 `
 
@@ -88,6 +89,7 @@ func (q *Queries) GetGenerationTaskByID(ctx context.Context, id pgtype.UUID) (Ge
 		&i.StylePrompt,
 		&i.ConfigSnapshot,
 		&i.ErrorMessage,
+		&i.RetryCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.StartedAt,
@@ -97,7 +99,7 @@ func (q *Queries) GetGenerationTaskByID(ctx context.Context, id pgtype.UUID) (Ge
 }
 
 const listGenerationTasks = `-- name: ListGenerationTasks :many
-SELECT id, product_id, created_by_user_id, task_type, status, variant_count, target_duration_ms, style_prompt, config_snapshot, error_message, created_at, updated_at, started_at, finished_at FROM generation_tasks
+SELECT id, product_id, created_by_user_id, task_type, status, variant_count, target_duration_ms, style_prompt, config_snapshot, error_message, retry_count, created_at, updated_at, started_at, finished_at FROM generation_tasks
 WHERE status = COALESCE($1, status)
 ORDER BY created_at DESC
 `
@@ -122,6 +124,7 @@ func (q *Queries) ListGenerationTasks(ctx context.Context, status pgtype.Text) (
 			&i.StylePrompt,
 			&i.ConfigSnapshot,
 			&i.ErrorMessage,
+			&i.RetryCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.StartedAt,
@@ -141,6 +144,7 @@ const updateGenerationTaskStatus = `-- name: UpdateGenerationTaskStatus :exec
 UPDATE generation_tasks
 SET status = $2,
     error_message = $3,
+    retry_count = CASE WHEN $2 = 'failed' THEN retry_count + 1 ELSE retry_count END,
     updated_at = now(),
     started_at = CASE WHEN $2 = 'running' AND started_at IS NULL THEN now() ELSE started_at END,
     finished_at = CASE WHEN $2 IN ('completed', 'failed', 'cancelled') THEN now() ELSE finished_at END

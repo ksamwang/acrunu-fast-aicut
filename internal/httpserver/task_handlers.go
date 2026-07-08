@@ -14,9 +14,13 @@ func (s *Server) handleCreateTestTask(c *gin.Context) {
 		return
 	}
 
-	task := s.taskService.CreateTestTask(user.ID)
+	task, err := s.taskService.CreateTestTask(c.Request.Context(), user.ID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "task_error", "failed to create test task")
+		return
+	}
 	if err := s.queueClient.EnqueueTestTask(task.ID); err != nil {
-		_ = s.taskService.MarkFailed(task.ID, err.Error())
+		_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
 		Fail(c, http.StatusBadGateway, "queue_error", "failed to enqueue test task")
 		return
 	}
@@ -25,5 +29,10 @@ func (s *Server) handleCreateTestTask(c *gin.Context) {
 }
 
 func (s *Server) handleListTasks(c *gin.Context) {
-	OK(c, s.taskService.ListTasks())
+	tasks, err := s.taskService.ListTasks(c.Request.Context())
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "task_error", "failed to list tasks")
+		return
+	}
+	OK(c, tasks)
 }

@@ -6,26 +6,28 @@ import (
 )
 
 type Config struct {
-	AppEnv        string
-	APIAddr       string
-	LocalAgentAddr string
-	RedisAddr      string
+	AppEnv            string
+	APIAddr           string
+	LocalAgentAddr    string
+	DatabaseURL       string
+	RedisAddr         string
 	WorkerConcurrency int
-	AdminUsername string
-	AdminPassword string
-	StorageRoot   string
+	AdminUsername     string
+	AdminPassword     string
+	StorageRoot       string
 }
 
 func Load() Config {
 	return Config{
-		AppEnv:        env("APP_ENV", "development"),
-		APIAddr:       env("API_ADDR", ":8080"),
-		LocalAgentAddr: env("LOCAL_AGENT_ADDR", "127.0.0.1:58721"),
-		RedisAddr:      env("REDIS_ADDR", "localhost:6379"),
+		AppEnv:            env("APP_ENV", "development"),
+		APIAddr:           env("API_ADDR", ":8080"),
+		LocalAgentAddr:    env("LOCAL_AGENT_ADDR", "127.0.0.1:58721"),
+		DatabaseURL:       env("DATABASE_URL", ""),
+		RedisAddr:         env("REDIS_ADDR", "localhost:6379"),
 		WorkerConcurrency: envInt("WORKER_CONCURRENCY", 4),
-		AdminUsername: env("ADMIN_USERNAME", "admin"),
-		AdminPassword: env("ADMIN_PASSWORD", "admin"),
-		StorageRoot:   env("STORAGE_LOCAL_ROOT", "./storage"),
+		AdminUsername:     env("ADMIN_USERNAME", "admin"),
+		AdminPassword:     env("ADMIN_PASSWORD", "admin"),
+		StorageRoot:       env("STORAGE_LOCAL_ROOT", "./storage"),
 	}
 }
 

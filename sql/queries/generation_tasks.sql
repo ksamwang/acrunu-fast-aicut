@@ -26,6 +26,7 @@ ORDER BY created_at DESC;
 UPDATE generation_tasks
 SET status = $2,
     error_message = $3,
+    retry_count = CASE WHEN $2 = 'failed' THEN retry_count + 1 ELSE retry_count END,
     updated_at = now(),
     started_at = CASE WHEN $2 = 'running' AND started_at IS NULL THEN now() ELSE started_at END,
     finished_at = CASE WHEN $2 IN ('completed', 'failed', 'cancelled') THEN now() ELSE finished_at END

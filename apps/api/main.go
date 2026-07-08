@@ -1,20 +1,25 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/httpserver"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
 
 func main() {
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	taskService := services.NewConfiguredTaskService(context.Background(), cfg, logger)
+	defer taskService.Close()
 
 	server := httpserver.New(httpserver.Options{
-		Config: cfg,
-		Logger: logger,
+		Config:      cfg,
+		Logger:      logger,
+		TaskService: taskService.Service,
 	})
 
 	if err := server.Run(); err != nil {

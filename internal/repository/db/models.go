@@ -46,6 +46,7 @@ type GenerationTask struct {
 	StylePrompt      pgtype.Text        `json:"style_prompt"`
 	ConfigSnapshot   []byte             `json:"config_snapshot"`
 	ErrorMessage     pgtype.Text        `json:"error_message"`
+	RetryCount       int32              `json:"retry_count"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 	StartedAt        pgtype.Timestamptz `json:"started_at"`

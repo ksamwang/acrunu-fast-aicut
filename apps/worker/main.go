@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -12,10 +13,11 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	taskService := services.NewTaskService(cfg.StorageRoot)
+	taskService := services.NewConfiguredTaskService(context.Background(), cfg, logger)
+	defer taskService.Close()
 
 	server := queue.NewServer(cfg.RedisAddr, cfg.WorkerConcurrency)
-	mux := queue.NewServeMux(taskService)
+	mux := queue.NewServeMux(taskService.Service)
 
 	logger.Info("worker starting", "redis", cfg.RedisAddr, "concurrency", cfg.WorkerConcurrency)
 	if err := server.Run(mux); err != nil {

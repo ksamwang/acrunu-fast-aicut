@@ -30,22 +30,71 @@ type GenerationTask struct {
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 }
 
+type TaskStore interface {
+	CreateTestTask(ctx context.Context, userID string) (GenerationTask, error)
+	ListTasks(ctx context.Context) ([]GenerationTask, error)
+	MarkRunning(ctx context.Context, taskID string) error
+	MarkCompleted(ctx context.Context, taskID string) error
+	MarkFailed(ctx context.Context, taskID string, message string) error
+}
+
 type TaskService struct {
+	store TaskStore
+}
+
+type fileTaskStore struct {
 	mu       sync.RWMutex
 	filePath string
 	tasks    map[string]GenerationTask
 }
 
 func NewTaskService(storageRoot string) *TaskService {
-	service := &TaskService{
+	store := &fileTaskStore{
 		filePath: filepath.Join(storageRoot, "temp", "tasks.json"),
 		tasks:    map[string]GenerationTask{},
 	}
-	_ = service.load()
-	return service
+	_ = store.load()
+	return NewTaskServiceWithStore(store)
 }
 
-func (s *TaskService) CreateTestTask(userID string) GenerationTask {
+func NewTaskServiceWithStore(store TaskStore) *TaskService {
+	return &TaskService{store: store}
+}
+
+func (s *TaskService) CreateTestTask(ctx context.Context, userID string) (GenerationTask, error) {
+	return s.store.CreateTestTask(ctx, userID)
+}
+
+func (s *TaskService) ListTasks(ctx context.Context) ([]GenerationTask, error) {
+	return s.store.ListTasks(ctx)
+}
+
+func (s *TaskService) MarkRunning(ctx context.Context, taskID string) error {
+	return s.store.MarkRunning(ctx, taskID)
+}
+
+func (s *TaskService) MarkCompleted(ctx context.Context, taskID string) error {
+	return s.store.MarkCompleted(ctx, taskID)
+}
+
+func (s *TaskService) MarkFailed(ctx context.Context, taskID string, message string) error {
+	return s.store.MarkFailed(ctx, taskID, message)
+}
+
+func (s *TaskService) HandleTestTask(ctx context.Context, payload queue.TestTaskPayload) error {
+	if err := s.MarkRunning(ctx, payload.TaskID); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		_ = s.MarkFailed(context.Background(), payload.TaskID, ctx.Err().Error())
+		return ctx.Err()
+	case <-time.After(100 * time.Millisecond):
+	}
+	return s.MarkCompleted(ctx, payload.TaskID)
+}
+
+func (s *fileTaskStore) CreateTestTask(_ context.Context, userID string) (GenerationTask, error) {
 	now := time.Now()
 	task := GenerationTask{
 		ID:              uuid.NewString(),
@@ -59,11 +108,10 @@ func (s *TaskService) CreateTestTask(userID string) GenerationTask {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tasks[task.ID] = task
-	_ = s.saveLocked()
-	return task
+	return task, s.saveLocked()
 }
 
-func (s *TaskService) ListTasks() []GenerationTask {
+func (s *fileTaskStore) ListTasks(_ context.Context) ([]GenerationTask, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.loadLocked()
@@ -75,10 +123,10 @@ func (s *TaskService) ListTasks() []GenerationTask {
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
 	})
-	return tasks
+	return tasks, nil
 }
 
-func (s *TaskService) MarkRunning(taskID string) error {
+func (s *fileTaskStore) MarkRunning(_ context.Context, taskID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.loadLocked()
@@ -95,7 +143,7 @@ func (s *TaskService) MarkRunning(taskID string) error {
 	return s.saveLocked()
 }
 
-func (s *TaskService) MarkCompleted(taskID string) error {
+func (s *fileTaskStore) MarkCompleted(_ context.Context, taskID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.loadLocked()
@@ -112,7 +160,7 @@ func (s *TaskService) MarkCompleted(taskID string) error {
 	return s.saveLocked()
 }
 
-func (s *TaskService) MarkFailed(taskID string, message string) error {
+func (s *fileTaskStore) MarkFailed(_ context.Context, taskID string, message string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.loadLocked()
@@ -131,26 +179,13 @@ func (s *TaskService) MarkFailed(taskID string, message string) error {
 	return s.saveLocked()
 }
 
-func (s *TaskService) HandleTestTask(ctx context.Context, payload queue.TestTaskPayload) error {
-	if err := s.MarkRunning(payload.TaskID); err != nil {
-		return err
-	}
-	select {
-	case <-ctx.Done():
-		_ = s.MarkFailed(payload.TaskID, ctx.Err().Error())
-		return ctx.Err()
-	case <-time.After(100 * time.Millisecond):
-	}
-	return s.MarkCompleted(payload.TaskID)
-}
-
-func (s *TaskService) load() error {
+func (s *fileTaskStore) load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.loadLocked()
 }
 
-func (s *TaskService) loadLocked() error {
+func (s *fileTaskStore) loadLocked() error {
 	content, err := os.ReadFile(s.filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -164,7 +199,7 @@ func (s *TaskService) loadLocked() error {
 	return json.Unmarshal(content, &s.tasks)
 }
 
-func (s *TaskService) saveLocked() error {
+func (s *fileTaskStore) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.filePath), 0755); err != nil {
 		return err
 	}

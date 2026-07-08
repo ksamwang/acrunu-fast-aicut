@@ -184,7 +184,7 @@ worker 消费任务并更新状态
 - [x] 支持失败原因记录
 - [x] 支持重试次数记录
 
-备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。当前任务状态暂用 `storage/temp/tasks.json` 在 API 与 worker 间共享；数据库写入需等待数据库连接验证完成后替换。当前执行环境未安装 Redis，暂不能执行队列运行验证。
+备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。已抽象任务状态存储并接入 PostgreSQL task store，`DATABASE_URL` 可连接时使用 `generation_tasks`，不可用时回退 `storage/temp/tasks.json`。当前执行环境未安装 PostgreSQL 和 Redis，数据库写入与队列消费运行态仍待验证。
 
 ## 12. 前端基础
 
