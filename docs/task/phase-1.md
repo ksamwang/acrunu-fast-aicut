@@ -201,7 +201,7 @@ worker 消费任务并更新状态
 - [x] 建立系统配置页面
 - [x] 限制系统配置页面仅 `admin` 可见
 
-备注：已完成 Web Console 前端骨架，并对接登录、产品、卖点、素材、任务和系统配置 API；已通过 `npm run build` 验证。
+备注：已完成 Web Console 前端骨架，并对接登录、产品、卖点、素材、任务和系统配置 API；已通过 `npm run build` 验证。已新增 Playwright E2E 测试，使用 mock API 验证登录后可进入控制台、素材列表可显示 `ready` 素材、任务列表可显示 `completed` 任务状态。
 
 ## 13. 验证闭环
 
@@ -211,18 +211,18 @@ worker 消费任务并更新状态
 - [x] 启动 Web Console
 - [x] 启动 local-agent
 - [x] 创建 admin 用户
-- [ ] 登录 Web Console
+- [x] 登录 Web Console
 - [x] 创建产品
 - [x] 创建产品卖点
 - [x] 本地选择视频并裁切 clean shot
 - [x] 上传 clean shot 到服务端
 - [x] 服务端写入素材库
-- [ ] 前端可查看素材列表
+- [x] 前端可查看素材列表
 - [x] API 创建测试异步任务
 - [x] worker 消费测试任务
-- [ ] 前端可查看任务状态
+- [x] 前端可查看任务状态
 
-备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。已使用 `QUEUE_BACKEND=file` 启动独立 worker，验证 `/api/tasks/test` 创建任务后 worker 消费并将任务状态更新为 `completed`。Docker Compose、PostgreSQL、Redis 和前端点击交互闭环仍待验证。
+备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。已使用 `QUEUE_BACKEND=file` 启动独立 worker，验证 `/api/tasks/test` 创建任务后 worker 消费并将任务状态更新为 `completed`。已通过 `npm run test:e2e` 用 Playwright 验证 Web Console 登录、素材列表和任务状态页渲染。Docker Compose、PostgreSQL 和 Redis 运行态仍待验证。
 
 ## 14. 第一阶段暂不包含
 
@@ -252,4 +252,4 @@ worker 消费任务并更新状态
 - [x] clean shot 上传链路可用
 - [x] 素材基础入库可用
 - [x] 异步任务入队和消费可用
-- [ ] 前端可查看素材和任务状态
+- [x] 前端可查看素材和任务状态

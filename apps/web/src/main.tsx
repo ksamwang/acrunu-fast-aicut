@@ -120,7 +120,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
   const [loading, setLoading] = useState(false);
 
   return (
-    <div className="login-shell">
+    <div className="login-shell" data-testid="login-page">
       <Card className="login-card" title="AICut Console">
         <Form
           layout="vertical"
@@ -146,7 +146,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
           <Form.Item name="password" label="密码" rules={[{ required: true }]}>
             <Input.Password />
           </Form.Item>
-          <Button type="primary" htmlType="submit" loading={loading} block>
+          <Button type="primary" htmlType="submit" loading={loading} block data-testid="login-submit">
             登录
           </Button>
         </Form>
@@ -270,7 +270,8 @@ function AssetsPage({ token }: { token: string }) {
   const assets = useResource<Asset[]>("/api/assets", token);
 
   return (
-    <Space direction="vertical" size="middle" className="page-stack">
+    <div data-testid="assets-page">
+      <Space direction="vertical" size="middle" className="page-stack">
       <Typography.Title level={3}>共享素材库</Typography.Title>
       <Card title="本地 Agent 上传入口">
         <Space direction="vertical" className="wide-space">
@@ -292,7 +293,8 @@ function AssetsPage({ token }: { token: string }) {
           ]}
         />
       </Card>
-    </Space>
+      </Space>
+    </div>
   );
 }
 
@@ -313,7 +315,8 @@ function TasksPage({ token }: { token: string }) {
   };
 
   return (
-    <Space direction="vertical" size="middle" className="page-stack">
+    <div data-testid="tasks-page">
+      <Space direction="vertical" size="middle" className="page-stack">
       <Typography.Title level={3}>任务列表</Typography.Title>
       <Card title="批量剪辑任务" extra={<Button type="primary" loading={creating} onClick={createTask}>创建测试任务</Button>}>
         <Table<Task>
@@ -329,7 +332,8 @@ function TasksPage({ token }: { token: string }) {
           ]}
         />
       </Card>
-    </Space>
+      </Space>
+    </div>
   );
 }
 
@@ -366,7 +370,7 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
   ];
 
   return (
-    <Layout className="app-shell">
+    <Layout className="app-shell" data-testid="console-app">
       <Layout.Sider width={220} theme="light">
         <div className="brand">AICut</div>
         <Menu selectedKeys={[view]} items={menuItems} onClick={(item) => setView(item.key as ViewKey)} />
