@@ -1,8 +1,10 @@
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.25
 
 FROM golang:${GO_VERSION}-bookworm AS builder
 
 WORKDIR /src
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
 
 ARG APP_PATH
 ARG BIN_NAME

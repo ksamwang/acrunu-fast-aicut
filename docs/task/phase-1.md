@@ -85,9 +85,9 @@ worker 消费任务并更新状态
 - [x] 编写 generation tasks queries
 - [x] 生成 Go DB 代码
 - [x] 封装 repository
-- [ ] 跑通数据库连接
+- [x] 跑通数据库连接
 
-备注：已使用工作区内便携 sqlc 执行 `sqlc generate`，并生成 `internal/repository/db` 代码；`go test ./...` 已通过。当前执行环境未安装 Docker/PostgreSQL，暂不能验证数据库连接。
+备注：已使用工作区内便携 sqlc 执行 `sqlc generate`，并生成 `internal/repository/db` 代码；`go test ./...` 已通过。已在服务器 `10.168.10.23` 通过 Docker Compose 启动 PostgreSQL，并验证 API/worker 可通过 `DATABASE_URL` 使用 PostgreSQL task store。
 
 ## 6. API 基础
 
@@ -180,11 +180,11 @@ worker 消费任务并更新状态
 - [x] 注册测试任务 handler
 - [x] API 能提交测试任务
 - [x] worker 能消费测试任务
-- [ ] 任务状态写入数据库
+- [x] 任务状态写入数据库
 - [x] 支持失败原因记录
 - [x] 支持重试次数记录
 
-备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。已抽象任务状态存储并接入 PostgreSQL task store，`DATABASE_URL` 可连接时使用 `generation_tasks`，不可用时回退 `storage/temp/tasks.json`。已新增本地开发用 `QUEUE_BACKEND=file`，在无 Redis 环境下验证 API 与独立 worker 可通过文件队列完成测试任务入队、消费和状态更新；Redis 队列与数据库写入运行态仍待依赖可用后验证。
+备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。已抽象任务状态存储并接入 PostgreSQL task store，`DATABASE_URL` 可连接时使用 `generation_tasks`，不可用时回退 `storage/temp/tasks.json`。已新增本地开发用 `QUEUE_BACKEND=file`，在无 Redis 环境下验证 API 与独立 worker 可通过文件队列完成测试任务入队、消费和状态更新；已在服务器 `10.168.10.23` 使用 Redis 队列验证 `/api/tasks/test` 创建任务后 worker 消费并将 `generation_tasks` 状态更新为 `completed`。
 
 ## 12. 前端基础
 
@@ -205,7 +205,7 @@ worker 消费任务并更新状态
 
 ## 13. 验证闭环
 
-- [ ] 启动 Docker Compose
+- [x] 启动 Docker Compose
 - [x] 启动 API
 - [x] 启动 worker
 - [x] 启动 Web Console
@@ -222,7 +222,7 @@ worker 消费任务并更新状态
 - [x] worker 消费测试任务
 - [x] 前端可查看任务状态
 
-备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。已使用 `QUEUE_BACKEND=file` 启动独立 worker，验证 `/api/tasks/test` 创建任务后 worker 消费并将任务状态更新为 `completed`。已通过 `npm run test:e2e` 用 Playwright 验证 Web Console 登录、素材列表和任务状态页渲染。Docker Compose、PostgreSQL 和 Redis 运行态仍待验证。
+备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。已使用 `QUEUE_BACKEND=file` 启动独立 worker，验证 `/api/tasks/test` 创建任务后 worker 消费并将任务状态更新为 `completed`。已通过 `npm run test:e2e` 用 Playwright 验证 Web Console 登录、素材列表和任务状态页渲染。已在服务器 `10.168.10.23` 安装 Docker/Compose，配置 registry mirror，执行 `docker compose up -d --build`，PostgreSQL/pgvector 与 Redis 均为 healthy，API/worker 均为 running，并验证 Redis + worker + PostgreSQL 任务状态闭环。
 
 ## 14. 第一阶段暂不包含
 
@@ -243,9 +243,9 @@ worker 消费任务并更新状态
 - [x] Go worker 可启动
 - [x] Web Console 可启动
 - [x] Local Agent 可启动
-- [ ] PostgreSQL + pgvector 可用
-- [ ] Redis 可用
-- [ ] 数据库迁移可执行
+- [x] PostgreSQL + pgvector 可用
+- [x] Redis 可用
+- [x] 数据库迁移可执行
 - [x] 用户登录可用
 - [x] 系统配置可读写
 - [x] 产品和卖点基础管理可用
