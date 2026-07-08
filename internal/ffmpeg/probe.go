@@ -3,6 +3,7 @@ package ffmpeg
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ type probeOutput struct {
 func Probe(ctx context.Context, filePath string) (ProbeResult, error) {
 	cmd := exec.CommandContext(
 		ctx,
-		"ffprobe",
+		ffprobePath(),
 		"-v", "error",
 		"-print_format", "json",
 		"-show_format",
@@ -66,6 +67,14 @@ func Probe(ctx context.Context, filePath string) (ProbeResult, error) {
 	}
 
 	return result, nil
+}
+
+func ffprobePath() string {
+	path := os.Getenv("FFPROBE_PATH")
+	if path == "" {
+		return "ffprobe"
+	}
+	return path
 }
 
 func secondsStringToMs(value string) int {

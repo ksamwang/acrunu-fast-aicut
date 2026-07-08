@@ -52,7 +52,7 @@ worker 消费任务并更新状态
 - [x] 添加 `ffmpeg` / `ffprobe` 可用性检查
 - [x] 添加本地开发启动说明
 
-备注：当前执行环境未安装 Docker、`ffmpeg` 和 `ffprobe`，本阶段已完成配置与检查脚本落地，运行态验证需在安装依赖后执行。
+备注：当前执行环境未安装 Docker，但已使用工作区内便携 `ffmpeg` / `ffprobe` 完成媒体裁切与探测运行验证；Docker Compose 运行态验证仍需在 Docker 可用后执行。
 
 ## 4. 数据库迁移
 
@@ -151,7 +151,7 @@ worker 消费任务并更新状态
 - [x] 添加素材列表接口
 - [x] 添加素材详情接口
 
-备注：已完成内存版素材入库链路和本地文件存储封装，并通过 `go test ./...` 编译检查。当前执行环境未安装 `ffprobe`，暂不能执行媒体探测运行验证。
+备注：已完成内存版素材入库链路和本地文件存储封装，并通过 `go test ./...` 编译检查。已使用便携 `ffprobe` 验证服务端上传后可读取时长、分辨率和帧率，并将素材状态写为 `ready`。
 
 ## 10. 本地 Agent 最小版本
 
@@ -168,7 +168,7 @@ worker 消费任务并更新状态
 - [x] 返回本地预处理结果
 - [x] 处理 ffmpeg 执行失败
 
-备注：已完成本地 Agent 最小版本代码落地，并通过 `go test ./...` 编译检查。当前执行环境未安装 `ffmpeg`、`ffprobe`，暂不能执行裁切或上传运行验证。
+备注：已完成本地 Agent 最小版本代码落地，并通过 `go test ./...` 编译检查。已使用便携 `ffmpeg` / `ffprobe` 验证本地 Agent 可裁切 clean shot、读取媒体信息并通过 upload token 上传到服务端。
 
 ## 11. 队列与 worker
 
@@ -214,15 +214,15 @@ worker 消费任务并更新状态
 - [ ] 登录 Web Console
 - [x] 创建产品
 - [x] 创建产品卖点
-- [ ] 本地选择视频并裁切 clean shot
-- [ ] 上传 clean shot 到服务端
-- [ ] 服务端写入素材库
+- [x] 本地选择视频并裁切 clean shot
+- [x] 上传 clean shot 到服务端
+- [x] 服务端写入素材库
 - [ ] 前端可查看素材列表
 - [ ] API 创建测试异步任务
 - [ ] worker 消费测试任务
 - [ ] 前端可查看任务状态
 
-备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。Docker Compose、PostgreSQL、Redis、worker、真实 clean shot 裁切上传和前端交互闭环仍待依赖安装后验证。
+备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。Docker Compose、PostgreSQL、Redis、worker 和前端点击交互闭环仍待验证。
 
 ## 14. 第一阶段暂不包含
 
@@ -249,7 +249,7 @@ worker 消费任务并更新状态
 - [x] 用户登录可用
 - [x] 系统配置可读写
 - [x] 产品和卖点基础管理可用
-- [ ] clean shot 上传链路可用
-- [ ] 素材基础入库可用
+- [x] clean shot 上传链路可用
+- [x] 素材基础入库可用
 - [ ] 异步任务入队和消费可用
 - [ ] 前端可查看素材和任务状态

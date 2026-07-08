@@ -13,6 +13,13 @@
 
 当前服务端容器会安装 `ffmpeg` 和 `ffprobe`，但本地 Agent 在用户客户机运行，因此客户机也需要可用的 `ffmpeg` 和 `ffprobe`。
 
+如果不想把 `ffmpeg` 加入系统 PATH，可以通过环境变量指定可执行文件路径：
+
+```powershell
+$env:FFMPEG_PATH="E:\tools\ffmpeg\bin\ffmpeg.exe"
+$env:FFPROBE_PATH="E:\tools\ffmpeg\bin\ffprobe.exe"
+```
+
 ## 2. 环境变量
 
 复制 `.env.example` 为 `.env` 后按需调整。
