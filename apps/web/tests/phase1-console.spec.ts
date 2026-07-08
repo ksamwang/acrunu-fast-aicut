@@ -1,6 +1,31 @@
 import { expect, test } from "@playwright/test";
 
 test("logs in and renders asset and task status pages", async ({ page }) => {
+  let asset = {
+    id: "asset-1",
+    product_id: "product-1",
+    asset_name: "clean-shot",
+    storage_key: "assets/clean-shot.mp4",
+    file_name: "clean-shot.mp4",
+    source_type: "visual_only",
+    status: "ready",
+    analysis_status: "ready",
+    usability_status: "usable",
+    duration_ms: 2066,
+    width: 320,
+    height: 568,
+    has_audio: true,
+    audio_codec: "aac",
+    bitrate_kbps: 3200,
+    scene_description: "product close-up with stable framing",
+    shot_size: "close_up",
+    camera_movement: "static",
+    subjects: ["product"],
+    scene_tags: ["indoor", "demo"],
+    quality_tags: [] as string[],
+    reviewer_notes: ""
+  };
+
   await page.route("**/api/**", async (route) => {
     const url = route.request().url();
 
@@ -62,34 +87,30 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     }
 
     if (url.includes("/api/assets")) {
+      if (url.includes("/api/assets/asset-1/review") && route.request().method() === "PUT") {
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        asset = {
+          ...asset,
+          scene_description: String(body.scene_description ?? ""),
+          shot_size: String(body.shot_size ?? ""),
+          camera_movement: String(body.camera_movement ?? ""),
+          subjects: (body.subjects as string[]) ?? [],
+          scene_tags: (body.scene_tags as string[]) ?? [],
+          quality_tags: (body.quality_tags as string[]) ?? [],
+          usability_status: String(body.usability_status ?? ""),
+          reviewer_notes: String(body.reviewer_notes ?? "")
+        };
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({ data: asset })
+        });
+        return;
+      }
+
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
-          data: [
-            {
-              id: "asset-1",
-              product_id: "product-1",
-              asset_name: "clean-shot",
-              storage_key: "assets/clean-shot.mp4",
-              file_name: "clean-shot.mp4",
-              source_type: "visual_only",
-              status: "ready",
-              analysis_status: "ready",
-              usability_status: "usable",
-              duration_ms: 2066,
-              width: 320,
-              height: 568,
-              has_audio: true,
-              audio_codec: "aac",
-              bitrate_kbps: 3200,
-              scene_description: "product close-up with stable framing",
-              shot_size: "close_up",
-              camera_movement: "static",
-              subjects: ["product"],
-              scene_tags: ["indoor", "demo"],
-              quality_tags: []
-            }
-          ]
+          data: [asset]
         })
       });
       return;
@@ -157,6 +178,16 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await expect(page.getByText("No quality issues")).toBeVisible();
   await expect(page.getByText("0:00.500")).toBeVisible();
   await expect(page.getByTestId("frame-card")).toBeVisible();
+  await page.getByRole("button", { name: "Edit Tags" }).click();
+  await expect(page.getByTestId("asset-review-form")).toBeVisible();
+  await page.getByLabel("Scene Description").fill("manual revised description");
+  await page.getByLabel("Reviewer Notes").fill("reviewed by editor");
+  await page.getByLabel("Quality Tags").fill("soft_focus");
+  await page.keyboard.press("Enter");
+  await page.getByTestId("save-asset-review").click();
+  await expect(page.getByText("manual revised description")).toBeVisible();
+  await expect(page.getByText("reviewed by editor")).toBeVisible();
+  await expect(page.getByText("soft_focus")).toBeVisible();
   await page.locator(".ant-modal-close").click();
   await expect(page.getByRole("dialog")).toBeHidden();
 

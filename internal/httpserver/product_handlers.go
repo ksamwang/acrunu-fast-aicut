@@ -129,6 +129,8 @@ func handleProductError(c *gin.Context, err error) {
 		Fail(c, http.StatusNotFound, "not_found", "product not found")
 	case errors.Is(err, services.ErrSellingPointNotFound):
 		Fail(c, http.StatusNotFound, "not_found", "selling point not found")
+	case errors.Is(err, services.ErrAssetNotFound):
+		Fail(c, http.StatusNotFound, "not_found", "asset not found")
 	default:
 		Fail(c, http.StatusInternalServerError, "internal_error", "product service error")
 	}

@@ -96,6 +96,17 @@ type AssetFrameResponse = {
   frames: AssetFrameSnapshot[];
 };
 
+type AssetReviewPayload = {
+  scene_description: string;
+  shot_size: string;
+  camera_movement: string;
+  subjects: string[];
+  scene_tags: string[];
+  quality_tags: string[];
+  usability_status: string;
+  reviewer_notes: string;
+};
+
 type Task = {
   id: string;
   task_type: string;
@@ -343,6 +354,9 @@ function AssetsPage({ token }: { token: string }) {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
   const [framesLoading, setFramesLoading] = useState(false);
+  const [editingAnalysis, setEditingAnalysis] = useState(false);
+  const [savingAnalysis, setSavingAnalysis] = useState(false);
+  const [reviewForm] = Form.useForm<AssetReviewPayload>();
 
   const assetPath = useMemo(() => {
     const params = new URLSearchParams();
@@ -389,6 +403,52 @@ function AssetsPage({ token }: { token: string }) {
 
     void loadFrames();
   }, [selectedAsset, token]);
+
+  useEffect(() => {
+    if (!selectedAsset) {
+      reviewForm.resetFields();
+      setEditingAnalysis(false);
+      return;
+    }
+
+    reviewForm.setFieldsValue({
+      scene_description: selectedAsset.scene_description || "",
+      shot_size: selectedAsset.shot_size || "",
+      camera_movement: selectedAsset.camera_movement || "",
+      subjects: selectedAsset.subjects || [],
+      scene_tags: selectedAsset.scene_tags || [],
+      quality_tags: selectedAsset.quality_tags || [],
+      usability_status: selectedAsset.usability_status || "usable",
+      reviewer_notes: selectedAsset.reviewer_notes || ""
+    });
+  }, [reviewForm, selectedAsset]);
+
+  const saveAnalysisReview = async () => {
+    if (!selectedAsset) {
+      return;
+    }
+
+    const values = await reviewForm.validateFields();
+    setSavingAnalysis(true);
+    try {
+      const updated = await apiRequest<Asset>(
+        `/api/assets/${selectedAsset.id}/review`,
+        {
+          method: "PUT",
+          body: JSON.stringify(values)
+        },
+        token
+      );
+      setSelectedAsset(updated);
+      setEditingAnalysis(false);
+      await assets.reload();
+      message.success("Asset review updated");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Failed to update asset review");
+    } finally {
+      setSavingAnalysis(false);
+    }
+  };
 
   return (
     <div data-testid="assets-page">
@@ -526,29 +586,111 @@ function AssetsPage({ token }: { token: string }) {
             </Descriptions>
 
             <Card title="Analysis Summary">
-              <Descriptions bordered column={1} size="small" data-testid="asset-analysis-panel">
-                <Descriptions.Item label="Scene Description">
-                  {selectedAsset.scene_description || <Typography.Text type="secondary">No analysis output yet.</Typography.Text>}
-                </Descriptions.Item>
-                <Descriptions.Item label="Shot Size">
-                  {selectedAsset.shot_size || "-"}
-                </Descriptions.Item>
-                <Descriptions.Item label="Camera Movement">
-                  {selectedAsset.camera_movement || "-"}
-                </Descriptions.Item>
-                <Descriptions.Item label="Subjects">
-                  {renderTagList(selectedAsset.subjects, "No detected subjects")}
-                </Descriptions.Item>
-                <Descriptions.Item label="Scene Tags">
-                  {renderTagList(selectedAsset.scene_tags, "No scene tags")}
-                </Descriptions.Item>
-                <Descriptions.Item label="Quality Tags">
-                  {renderTagList(selectedAsset.quality_tags, "No quality issues")}
-                </Descriptions.Item>
-                <Descriptions.Item label="Analysis Error">
-                  {selectedAsset.analysis_error || <Typography.Text type="secondary">None</Typography.Text>}
-                </Descriptions.Item>
-              </Descriptions>
+              <Space direction="vertical" className="wide-space">
+                <Space>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditingAnalysis((current) => !current);
+                      reviewForm.setFieldsValue({
+                        scene_description: selectedAsset.scene_description || "",
+                        shot_size: selectedAsset.shot_size || "",
+                        camera_movement: selectedAsset.camera_movement || "",
+                        subjects: selectedAsset.subjects || [],
+                        scene_tags: selectedAsset.scene_tags || [],
+                        quality_tags: selectedAsset.quality_tags || [],
+                        usability_status: selectedAsset.usability_status || "usable",
+                        reviewer_notes: selectedAsset.reviewer_notes || ""
+                      });
+                    }}
+                  >
+                    {editingAnalysis ? "Cancel Edit" : "Edit Tags"}
+                  </Button>
+                  {editingAnalysis ? (
+                    <Button type="primary" size="small" loading={savingAnalysis} onClick={saveAnalysisReview} data-testid="save-asset-review">
+                      Save Review
+                    </Button>
+                  ) : null}
+                </Space>
+
+                {editingAnalysis ? (
+                  <Form form={reviewForm} layout="vertical" data-testid="asset-review-form">
+                    <Form.Item name="scene_description" label="Scene Description">
+                      <Input.TextArea rows={3} />
+                    </Form.Item>
+                    <Form.Item name="shot_size" label="Shot Size">
+                      <Select
+                        allowClear
+                        options={[
+                          { value: "close_up", label: "close_up" },
+                          { value: "medium_close_up", label: "medium_close_up" },
+                          { value: "medium_shot", label: "medium_shot" },
+                          { value: "wide_shot", label: "wide_shot" }
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item name="camera_movement" label="Camera Movement">
+                      <Select
+                        allowClear
+                        options={[
+                          { value: "static", label: "static" },
+                          { value: "slow_push_in", label: "slow_push_in" },
+                          { value: "pan", label: "pan" },
+                          { value: "handheld", label: "handheld" }
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item name="subjects" label="Subjects">
+                      <Select mode="tags" tokenSeparators={[","]} open={false} />
+                    </Form.Item>
+                    <Form.Item name="scene_tags" label="Scene Tags">
+                      <Select mode="tags" tokenSeparators={[","]} open={false} />
+                    </Form.Item>
+                    <Form.Item name="quality_tags" label="Quality Tags">
+                      <Select mode="tags" tokenSeparators={[","]} open={false} />
+                    </Form.Item>
+                    <Form.Item name="usability_status" label="Usability Status">
+                      <Select
+                        options={[
+                          { value: "usable", label: "usable" },
+                          { value: "needs_review", label: "needs_review" },
+                          { value: "discarded", label: "discarded" }
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item name="reviewer_notes" label="Reviewer Notes">
+                      <Input.TextArea rows={2} />
+                    </Form.Item>
+                  </Form>
+                ) : (
+                  <Descriptions bordered column={1} size="small" data-testid="asset-analysis-panel">
+                    <Descriptions.Item label="Scene Description">
+                      {selectedAsset.scene_description || <Typography.Text type="secondary">No analysis output yet.</Typography.Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Shot Size">
+                      {selectedAsset.shot_size || "-"}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Camera Movement">
+                      {selectedAsset.camera_movement || "-"}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Subjects">
+                      {renderTagList(selectedAsset.subjects, "No detected subjects")}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Scene Tags">
+                      {renderTagList(selectedAsset.scene_tags, "No scene tags")}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Quality Tags">
+                      {renderTagList(selectedAsset.quality_tags, "No quality issues")}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Reviewer Notes">
+                      {selectedAsset.reviewer_notes || <Typography.Text type="secondary">None</Typography.Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Analysis Error">
+                      {selectedAsset.analysis_error || <Typography.Text type="secondary">None</Typography.Text>}
+                    </Descriptions.Item>
+                  </Descriptions>
+                )}
+              </Space>
             </Card>
 
             <Card title="Frame Previews" loading={framesLoading}>

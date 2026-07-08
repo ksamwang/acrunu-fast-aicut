@@ -79,9 +79,11 @@ type Asset struct {
 	Subjects          []string  `json:"subjects,omitempty"`
 	SceneTags         []string  `json:"scene_tags,omitempty"`
 	QualityTags       []string  `json:"quality_tags,omitempty"`
+	ModelResult       map[string]any `json:"model_result,omitempty"`
 	ReviewerNotes     string    `json:"reviewer_notes,omitempty"`
 	AnalysisError     string    `json:"analysis_error,omitempty"`
 	CreatedByUserID   string    `json:"created_by_user_id"`
+	UpdatedByUserID   string    `json:"updated_by_user_id,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 	AnalyzedAt        *time.Time `json:"analyzed_at,omitempty"`
@@ -215,6 +217,18 @@ type AssetAnalysisUpdate struct {
 	UpdatedByUserID  string
 }
 
+type AssetReviewUpdate struct {
+	SceneDescription string
+	ShotSize         string
+	CameraMovement   string
+	Subjects         []string
+	SceneTags        []string
+	QualityTags      []string
+	UsabilityStatus  string
+	ReviewerNotes    string
+	UpdatedByUserID  string
+}
+
 func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error) {
 	if s.queries != nil {
 		return s.createAssetInPostgres(input)
@@ -287,9 +301,11 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 		Subjects:          append([]string(nil), input.Subjects...),
 		SceneTags:         append([]string(nil), input.SceneTags...),
 		QualityTags:       append([]string(nil), input.QualityTags...),
+		ModelResult:       map[string]any{},
 		ReviewerNotes:     input.ReviewerNotes,
 		AnalysisError:     input.AnalysisError,
 		CreatedByUserID:   input.CreatedByUserID,
+		UpdatedByUserID:   input.CreatedByUserID,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
@@ -390,7 +406,9 @@ func (s *ProductAssetService) UpdateAssetAnalysis(assetID string, update AssetAn
 	asset.Subjects = append([]string(nil), update.Subjects...)
 	asset.SceneTags = append([]string(nil), update.SceneTags...)
 	asset.QualityTags = append([]string(nil), update.QualityTags...)
+	asset.ModelResult = update.ModelResult
 	asset.AnalysisError = update.AnalysisError
+	asset.UpdatedByUserID = update.UpdatedByUserID
 	if !update.AnalyzedAt.IsZero() {
 		analyzedAt := update.AnalyzedAt
 		asset.AnalyzedAt = &analyzedAt
@@ -398,6 +416,33 @@ func (s *ProductAssetService) UpdateAssetAnalysis(assetID string, update AssetAn
 	asset.UpdatedAt = time.Now()
 	s.assets[assetID] = asset
 	return nil
+}
+
+func (s *ProductAssetService) UpdateAssetReview(assetID string, update AssetReviewUpdate) (Asset, error) {
+	if s.queries != nil {
+		return s.updateAssetReviewInPostgres(assetID, update)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	asset, ok := s.assets[assetID]
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+
+	asset.SceneDescription = update.SceneDescription
+	asset.ShotSize = update.ShotSize
+	asset.CameraMovement = update.CameraMovement
+	asset.Subjects = append([]string(nil), update.Subjects...)
+	asset.SceneTags = append([]string(nil), update.SceneTags...)
+	asset.QualityTags = append([]string(nil), update.QualityTags...)
+	asset.UsabilityStatus = firstNonEmpty(update.UsabilityStatus, asset.UsabilityStatus)
+	asset.ReviewerNotes = update.ReviewerNotes
+	asset.UpdatedByUserID = update.UpdatedByUserID
+	asset.UpdatedAt = time.Now()
+	s.assets[assetID] = asset
+	return asset, nil
 }
 
 func (s *ProductAssetService) CreateProduct(input CreateProductInput) Product {
@@ -828,6 +873,47 @@ func (s *ProductAssetService) updateAssetAnalysisInPostgres(assetID string, upda
 	})
 }
 
+func (s *ProductAssetService) updateAssetReviewInPostgres(assetID string, update AssetReviewUpdate) (Asset, error) {
+	current, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+
+	err := s.queries.UpdateAssetAnalysis(context.Background(), db.UpdateAssetAnalysisParams{
+		ID:               assetNullableUUIDParam(assetID),
+		AnalysisStatus:   firstNonEmpty(current.AnalysisStatus, "ready"),
+		UsabilityStatus:  firstNonEmpty(update.UsabilityStatus, current.UsabilityStatus),
+		SceneDescription: assetTextParam(update.SceneDescription),
+		ShotSize:         assetTextParam(update.ShotSize),
+		CameraMovement:   assetTextParam(update.CameraMovement),
+		Subjects:         mustJSON(update.Subjects, []string{}),
+		SceneTags:        mustJSON(update.SceneTags, []string{}),
+		QualityTags:      mustJSON(update.QualityTags, []string{}),
+		ModelResult:      mustJSON(current.ModelResult, map[string]any{}),
+		AnalysisError:    assetTextParam(current.AnalysisError),
+		AnalyzedAt:       pgtype.Timestamptz{Time: derefTime(current.AnalyzedAt), Valid: current.AnalyzedAt != nil},
+		UpdatedByUserID:  assetNullableUUIDParam(update.UpdatedByUserID),
+	})
+	if err != nil {
+		return Asset{}, err
+	}
+
+	if err := s.queries.UpdateAssetReview(context.Background(), db.UpdateAssetReviewParams{
+		ID:              assetNullableUUIDParam(assetID),
+		ReviewerNotes:   assetTextParam(update.ReviewerNotes),
+		UsabilityStatus: firstNonEmpty(update.UsabilityStatus, current.UsabilityStatus),
+		UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
+	}); err != nil {
+		return Asset{}, err
+	}
+
+	updated, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+	return updated, nil
+}
+
 func AssetAnalysisUpdateFromResult(result modelgateway.AnalyzeAssetResult, analysisStatus string, analyzedAt time.Time) AssetAnalysisUpdate {
 	return AssetAnalysisUpdate{
 		AnalysisStatus:   analysisStatus,
@@ -904,9 +990,11 @@ func assetFromDBRecord(row repository.AssetRecord) Asset {
 		Subjects:          decodeStringList(row.Subjects),
 		SceneTags:         decodeStringList(row.SceneTags),
 		QualityTags:       decodeStringList(row.QualityTags),
+		ModelResult:       jsonObject(row.ModelResult),
 		ReviewerNotes:     row.ReviewerNotes,
 		AnalysisError:     row.AnalysisError,
 		CreatedByUserID:   row.CreatedByUserID,
+		UpdatedByUserID:   row.UpdatedByUserID,
 		CreatedAt:         row.CreatedAt,
 		UpdatedAt:         row.UpdatedAt,
 		AnalyzedAt:        row.AnalyzedAt,
@@ -949,9 +1037,11 @@ func assetFromDBRow(row db.Asset) Asset {
 		Subjects:          decodeStringList(row.Subjects),
 		SceneTags:         decodeStringList(row.SceneTags),
 		QualityTags:       decodeStringList(row.QualityTags),
+		ModelResult:       jsonObject(row.ModelResult),
 		ReviewerNotes:     assetTextString(row.ReviewerNotes),
 		AnalysisError:     assetTextString(row.AnalysisError),
 		CreatedByUserID:   assetUUIDString(row.CreatedByUserID),
+		UpdatedByUserID:   assetUUIDString(row.UpdatedByUserID),
 		CreatedAt:         timeValue(row.CreatedAt),
 		UpdatedAt:         timeValue(row.UpdatedAt),
 		AnalyzedAt:        optionalTime(row.AnalyzedAt),
@@ -1038,6 +1128,13 @@ func optionalTime(value pgtype.Timestamptz) *time.Time {
 	}
 	result := value.Time
 	return &result
+}
+
+func derefTime(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return *value
 }
 
 func jsonObject(value []byte) map[string]any {
