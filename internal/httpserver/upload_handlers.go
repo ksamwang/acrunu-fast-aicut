@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -65,6 +66,13 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "bad_request", "invalid source type")
 		return
 	}
+	manualCleanStatus := firstNonEmptyForm(c.PostForm("manual_clean_status"), "cleaned")
+	usabilityStatus := firstNonEmptyForm(c.PostForm("usability_status"), "usable")
+	assetName := c.PostForm("asset_name")
+	sourcePath := c.PostForm("source_path")
+	sourceOriginalName := c.PostForm("source_original_name")
+	reviewerNotes := c.PostForm("reviewer_notes")
+	sellingPointIDs := splitCommaSeparated(c.PostForm("selling_point_ids"))
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -95,6 +103,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 
 	asset, err := s.productAssetService.CreateAsset(services.CreateAssetInput{
 		ProductID:         token.ProductID,
+		AssetName:         assetName,
 		StorageKey:        storageKey,
 		FileName:          header.Filename,
 		FileExt:           ext,
@@ -102,13 +111,21 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		FileSize:          header.Size,
 		Checksum:          checksum,
 		SourceType:        sourceType,
+		IngestionSource:   "local-agent",
 		DurationMs:        probeResult.DurationMs,
 		Width:             probeResult.Width,
 		Height:            probeResult.Height,
 		FPS:               probeResult.FPS,
 		Codec:             probeResult.Codec,
 		Status:            status,
-		ManualCleanStatus: "cleaned",
+		AnalysisStatus:    "pending_analysis",
+		UsabilityStatus:   usabilityStatus,
+		ManualCleanStatus: manualCleanStatus,
+		SourcePath:        sourcePath,
+		SourceOriginalName: firstNonEmptyForm(sourceOriginalName, header.Filename),
+		HasAudio:          false,
+		ReviewerNotes:     reviewerNotes,
+		SellingPointIDs:   sellingPointIDs,
 		CreatedByUserID:   token.UserID,
 	})
 	if err != nil {
@@ -124,7 +141,13 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 }
 
 func (s *Server) handleListAssets(c *gin.Context) {
-	OK(c, s.productAssetService.ListAssets())
+	OK(c, s.productAssetService.ListAssets(services.AssetFilters{
+		ProductID:       c.Query("product_id"),
+		SourceType:      c.Query("source_type"),
+		Status:          c.Query("status"),
+		AnalysisStatus:  c.Query("analysis_status"),
+		UsabilityStatus: c.Query("usability_status"),
+	}))
 }
 
 func (s *Server) handleGetAsset(c *gin.Context) {
@@ -141,4 +164,26 @@ func uploadErrorMessage(err error) string {
 		return "invalid upload token"
 	}
 	return fmt.Sprintf("upload failed: %v", err)
+}
+
+func splitCommaSeparated(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
+}
+
+func firstNonEmptyForm(value string, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }

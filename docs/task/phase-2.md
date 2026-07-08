@@ -67,19 +67,19 @@ Model Gateway 调用 VLM 或 mock provider
 
 ## 4. 素材上传与登记 API
 
-- [ ] 调整素材上传请求结构
+- [x] 调整素材上传请求结构
 - [x] 上传时必须绑定产品
 - [x] 上传时必须选择素材类型
-- [ ] 上传时允许填写人工备注
-- [ ] 上传时允许关联一个或多个卖点
+- [x] 上传时允许填写人工备注
+- [x] 上传时允许关联一个或多个卖点
 - [x] 上传完成后计算文件 hash
 - [ ] 上传完成后进行重复素材检测
 - [x] 上传完成后写入初始分析状态
 - [x] 支持素材详情查询
 - [ ] 支持素材列表分页
-- [ ] 支持按产品筛选
-- [ ] 支持按素材类型筛选
-- [ ] 支持按状态筛选
+- [x] 支持按产品筛选
+- [x] 支持按素材类型筛选
+- [x] 支持按状态筛选
 - [ ] 支持按标签筛选
 - [ ] 支持按卖点筛选
 - [ ] 支持更新素材人工信息
@@ -88,7 +88,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [ ] 补充 API 单元测试
 - [ ] 补充 API 集成测试
 
-备注：已将 API 中的产品、卖点、素材服务改为“配置 `DATABASE_URL` 时走 PostgreSQL，否则回退内存实现”的装配方式；当前上传链路已要求 product 绑定、要求 `source_type`，并在服务端计算 checksum、写入素材记录与初始分析状态。`go test ./...` 已通过。
+备注：已将 API 中的产品、卖点、素材服务改为“配置 `DATABASE_URL` 时走 PostgreSQL，否则回退内存实现”的装配方式；当前上传链路已支持 `asset_name`、`manual_clean_status`、`usability_status`、`source_path`、`source_original_name`、`reviewer_notes`、`selling_point_ids` 等字段，服务端会计算 checksum、写入素材记录与初始分析状态；素材列表已支持 `product_id`、`source_type`、`status`、`analysis_status`、`usability_status` 筛选。`go test ./...` 已通过。
 
 ## 5. 视频技术信息探测
 
