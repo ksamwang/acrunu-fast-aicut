@@ -1,12 +1,19 @@
 package services
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/repository"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/repository/db"
 )
 
 var (
@@ -89,6 +96,8 @@ type ProductAssetService struct {
 	products      map[string]Product
 	sellingPoints map[string]SellingPoint
 	assets        map[string]Asset
+	queries       *db.Queries
+	assetRepo     *repository.AssetRepository
 }
 
 func NewProductAssetService() *ProductAssetService {
@@ -97,6 +106,13 @@ func NewProductAssetService() *ProductAssetService {
 		sellingPoints: map[string]SellingPoint{},
 		assets:        map[string]Asset{},
 	}
+}
+
+func NewProductAssetServiceWithQueries(queries *db.Queries) *ProductAssetService {
+	service := NewProductAssetService()
+	service.queries = queries
+	service.assetRepo = repository.NewAssetRepository(queries)
+	return service
 }
 
 type CreateAssetInput struct {
@@ -119,6 +135,10 @@ type CreateAssetInput struct {
 }
 
 func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error) {
+	if s.queries != nil {
+		return s.createAssetInPostgres(input)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -163,6 +183,10 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 }
 
 func (s *ProductAssetService) ListAssets() []Asset {
+	if s.queries != nil {
+		return s.listAssetsFromPostgres()
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -177,6 +201,10 @@ func (s *ProductAssetService) ListAssets() []Asset {
 }
 
 func (s *ProductAssetService) GetAsset(id string) (Asset, bool) {
+	if s.queries != nil {
+		return s.getAssetFromPostgres(id)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -185,6 +213,10 @@ func (s *ProductAssetService) GetAsset(id string) (Asset, bool) {
 }
 
 func (s *ProductAssetService) CreateProduct(input CreateProductInput) Product {
+	if s.queries != nil {
+		return s.createProductInPostgres(input)
+	}
+
 	now := time.Now()
 	product := Product{
 		ID:          uuid.NewString(),
@@ -204,6 +236,10 @@ func (s *ProductAssetService) CreateProduct(input CreateProductInput) Product {
 }
 
 func (s *ProductAssetService) ListProducts() []Product {
+	if s.queries != nil {
+		return s.listProductsFromPostgres()
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -218,6 +254,10 @@ func (s *ProductAssetService) ListProducts() []Product {
 }
 
 func (s *ProductAssetService) GetProduct(id string) (Product, error) {
+	if s.queries != nil {
+		return s.getProductFromPostgres(id)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -229,6 +269,10 @@ func (s *ProductAssetService) GetProduct(id string) (Product, error) {
 }
 
 func (s *ProductAssetService) UpdateProduct(id string, input UpdateProductInput) (Product, error) {
+	if s.queries != nil {
+		return s.updateProductInPostgres(id, input)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -247,6 +291,10 @@ func (s *ProductAssetService) UpdateProduct(id string, input UpdateProductInput)
 }
 
 func (s *ProductAssetService) ArchiveProduct(id string) error {
+	if s.queries != nil {
+		return s.archiveProductInPostgres(id)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -262,6 +310,10 @@ func (s *ProductAssetService) ArchiveProduct(id string) error {
 }
 
 func (s *ProductAssetService) CreateSellingPoint(productID string, input CreateSellingPointInput) (SellingPoint, error) {
+	if s.queries != nil {
+		return s.createSellingPointInPostgres(productID, input)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -285,6 +337,10 @@ func (s *ProductAssetService) CreateSellingPoint(productID string, input CreateS
 }
 
 func (s *ProductAssetService) ListSellingPoints(productID string) []SellingPoint {
+	if s.queries != nil {
+		return s.listSellingPointsFromPostgres(productID)
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -304,6 +360,10 @@ func (s *ProductAssetService) ListSellingPoints(productID string) []SellingPoint
 }
 
 func (s *ProductAssetService) UpdateSellingPoint(id string, input UpdateSellingPointInput) (SellingPoint, error) {
+	if s.queries != nil {
+		return s.updateSellingPointInPostgres(id, input)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -321,6 +381,10 @@ func (s *ProductAssetService) UpdateSellingPoint(id string, input UpdateSellingP
 }
 
 func (s *ProductAssetService) ArchiveSellingPoint(id string) error {
+	if s.queries != nil {
+		return s.archiveSellingPointInPostgres(id)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -333,4 +397,391 @@ func (s *ProductAssetService) ArchiveSellingPoint(id string) error {
 	sellingPoint.UpdatedAt = time.Now()
 	s.sellingPoints[id] = sellingPoint
 	return nil
+}
+
+func (s *ProductAssetService) createProductInPostgres(input CreateProductInput) Product {
+	row, err := s.queries.CreateProduct(context.Background(), db.CreateProductParams{
+		Name:            input.Name,
+		Description:     assetTextParam(input.Description),
+		Category:        assetTextParam(input.Category),
+		Status:          "active",
+		Metadata:        mustJSON(input.Metadata, map[string]any{}),
+		CreatedByUserID: pgtype.UUID{},
+	})
+	if err != nil {
+		return Product{}
+	}
+	return productFromDB(row)
+}
+
+func (s *ProductAssetService) listProductsFromPostgres() []Product {
+	rows, err := s.queries.ListProducts(context.Background(), pgtype.Text{})
+	if err != nil {
+		return nil
+	}
+	items := make([]Product, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, productFromDB(row))
+	}
+	return items
+}
+
+func (s *ProductAssetService) getProductFromPostgres(id string) (Product, error) {
+	row, err := s.queries.GetProductByID(context.Background(), assetNullableUUIDParam(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Product{}, ErrProductNotFound
+		}
+		return Product{}, err
+	}
+	return productFromDB(row), nil
+}
+
+func (s *ProductAssetService) updateProductInPostgres(id string, input UpdateProductInput) (Product, error) {
+	row, err := s.queries.UpdateProduct(context.Background(), db.UpdateProductParams{
+		ID:              assetNullableUUIDParam(id),
+		Name:            input.Name,
+		Description:     assetTextParam(input.Description),
+		Category:        assetTextParam(input.Category),
+		Metadata:        mustJSON(input.Metadata, map[string]any{}),
+		UpdatedByUserID: pgtype.UUID{},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Product{}, ErrProductNotFound
+		}
+		return Product{}, err
+	}
+	return productFromDB(row), nil
+}
+
+func (s *ProductAssetService) archiveProductInPostgres(id string) error {
+	err := s.queries.ArchiveProduct(context.Background(), db.ArchiveProductParams{
+		ID:              assetNullableUUIDParam(id),
+		UpdatedByUserID: pgtype.UUID{},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrProductNotFound
+		}
+	}
+	return err
+}
+
+func (s *ProductAssetService) createSellingPointInPostgres(productID string, input CreateSellingPointInput) (SellingPoint, error) {
+	row, err := s.queries.CreateSellingPoint(context.Background(), db.CreateSellingPointParams{
+		ProductID:       assetNullableUUIDParam(productID),
+		Title:           input.Title,
+		Description:     assetTextParam(input.Description),
+		Priority:        int32(input.Priority),
+		Status:          "active",
+		CreatedByUserID: pgtype.UUID{},
+	})
+	if err != nil {
+		return SellingPoint{}, err
+	}
+	return sellingPointFromDB(row), nil
+}
+
+func (s *ProductAssetService) listSellingPointsFromPostgres(productID string) []SellingPoint {
+	rows, err := s.queries.ListSellingPointsByProduct(context.Background(), db.ListSellingPointsByProductParams{
+		ProductID: assetNullableUUIDParam(productID),
+		Status:    pgtype.Text{},
+	})
+	if err != nil {
+		return nil
+	}
+	items := make([]SellingPoint, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, sellingPointFromDB(row))
+	}
+	return items
+}
+
+func (s *ProductAssetService) updateSellingPointInPostgres(id string, input UpdateSellingPointInput) (SellingPoint, error) {
+	row, err := s.queries.UpdateSellingPoint(context.Background(), db.UpdateSellingPointParams{
+		ID:              assetNullableUUIDParam(id),
+		Title:           input.Title,
+		Description:     assetTextParam(input.Description),
+		Priority:        int32(input.Priority),
+		UpdatedByUserID: pgtype.UUID{},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SellingPoint{}, ErrSellingPointNotFound
+		}
+		return SellingPoint{}, err
+	}
+	return sellingPointFromDB(row), nil
+}
+
+func (s *ProductAssetService) archiveSellingPointInPostgres(id string) error {
+	err := s.queries.ArchiveSellingPoint(context.Background(), db.ArchiveSellingPointParams{
+		ID:              assetNullableUUIDParam(id),
+		UpdatedByUserID: pgtype.UUID{},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrSellingPointNotFound
+		}
+	}
+	return err
+}
+
+func (s *ProductAssetService) createAssetInPostgres(input CreateAssetInput) (Asset, error) {
+	row, err := s.queries.CreateAsset(context.Background(), db.CreateAssetParams{
+		ProductID:          assetNullableUUIDParam(input.ProductID),
+		AssetName:          assetTextParam(input.FileName),
+		StorageKey:         input.StorageKey,
+		FileName:           input.FileName,
+		FileExt:            assetTextParam(input.FileExt),
+		MimeType:           assetTextParam(input.MimeType),
+		FileSize:           input.FileSize,
+		Checksum:           assetTextParam(input.Checksum),
+		SourceType:         input.SourceType,
+		IngestionSource:    "local-agent",
+		DurationMs:         int4Param(input.DurationMs),
+		Width:              int4Param(input.Width),
+		Height:             int4Param(input.Height),
+		Fps:                numericParam(input.FPS),
+		Codec:              assetTextParam(input.Codec),
+		Status:             firstNonEmpty(input.Status, "ready"),
+		AnalysisStatus:     "pending_analysis",
+		UsabilityStatus:    "usable",
+		ManualCleanStatus:  firstNonEmpty(input.ManualCleanStatus, "cleaned"),
+		SourcePath:         pgtype.Text{},
+		SourceOriginalName: assetTextParam(input.FileName),
+		SourceInMs:         pgtype.Int4{},
+		SourceOutMs:        pgtype.Int4{},
+		HasAudio:           false,
+		AudioCodec:         pgtype.Text{},
+		BitrateKbps:        pgtype.Int4{},
+		SceneDescription:   pgtype.Text{},
+		ShotSize:           pgtype.Text{},
+		CameraMovement:     pgtype.Text{},
+		Subjects:           []byte(`[]`),
+		SceneTags:          []byte(`[]`),
+		QualityTags:        []byte(`[]`),
+		ModelResult:        []byte(`{}`),
+		ReviewerNotes:      pgtype.Text{},
+		AnalysisError:      pgtype.Text{},
+		AnalyzedAt:         pgtype.Timestamptz{},
+		Metadata:           []byte(`{}`),
+		CreatedByUserID:    assetNullableUUIDParam(input.CreatedByUserID),
+	})
+	if err != nil {
+		if isForeignKeyProductError(err) {
+			return Asset{}, ErrProductNotFound
+		}
+		return Asset{}, err
+	}
+	return assetFromDBRow(row), nil
+}
+
+func (s *ProductAssetService) listAssetsFromPostgres() []Asset {
+	if s.assetRepo == nil {
+		return nil
+	}
+	rows, err := s.assetRepo.List(context.Background(), repository.AssetFilters{})
+	if err != nil {
+		return nil
+	}
+	items := make([]Asset, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, assetFromDBRecord(row))
+	}
+	return items
+}
+
+func (s *ProductAssetService) getAssetFromPostgres(id string) (Asset, bool) {
+	if s.assetRepo == nil {
+		return Asset{}, false
+	}
+	row, err := s.assetRepo.GetByID(context.Background(), id)
+	if err != nil {
+		return Asset{}, false
+	}
+	return assetFromDBRecord(row), true
+}
+
+func productFromDB(row db.Product) Product {
+	return Product{
+		ID:          assetUUIDString(row.ID),
+		Name:        row.Name,
+		Description: assetTextString(row.Description),
+		Category:    assetTextString(row.Category),
+		Status:      row.Status,
+		Metadata:    jsonObject(row.Metadata),
+		CreatedAt:   timeValue(row.CreatedAt),
+		UpdatedAt:   timeValue(row.UpdatedAt),
+	}
+}
+
+func sellingPointFromDB(row db.ProductSellingPoint) SellingPoint {
+	return SellingPoint{
+		ID:          assetUUIDString(row.ID),
+		ProductID:   assetUUIDString(row.ProductID),
+		Title:       row.Title,
+		Description: assetTextString(row.Description),
+		Priority:    int(row.Priority),
+		Status:      row.Status,
+		CreatedAt:   timeValue(row.CreatedAt),
+		UpdatedAt:   timeValue(row.UpdatedAt),
+	}
+}
+
+func assetFromDBRecord(row repository.AssetRecord) Asset {
+	return Asset{
+		ID:                row.ID,
+		ProductID:         row.ProductID,
+		StorageKey:        row.StorageKey,
+		FileName:          row.FileName,
+		FileExt:           row.FileExt,
+		MimeType:          row.MimeType,
+		FileSize:          row.FileSize,
+		Checksum:          row.Checksum,
+		SourceType:        row.SourceType,
+		DurationMs:        row.DurationMs,
+		Width:             row.Width,
+		Height:            row.Height,
+		FPS:               row.FPS,
+		Codec:             row.Codec,
+		Status:            row.Status,
+		ManualCleanStatus: row.ManualCleanStatus,
+		CreatedByUserID:   row.CreatedByUserID,
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
+	}
+}
+
+func assetFromDBRow(row db.Asset) Asset {
+	return Asset{
+		ID:                assetUUIDString(row.ID),
+		ProductID:         assetUUIDString(row.ProductID),
+		StorageKey:        row.StorageKey,
+		FileName:          row.FileName,
+		FileExt:           assetTextString(row.FileExt),
+		MimeType:          assetTextString(row.MimeType),
+		FileSize:          row.FileSize,
+		Checksum:          assetTextString(row.Checksum),
+		SourceType:        row.SourceType,
+		DurationMs:        int4Value(row.DurationMs),
+		Width:             int4Value(row.Width),
+		Height:            int4Value(row.Height),
+		FPS:               numericValue(row.Fps),
+		Codec:             assetTextString(row.Codec),
+		Status:            row.Status,
+		ManualCleanStatus: row.ManualCleanStatus,
+		CreatedByUserID:   assetUUIDString(row.CreatedByUserID),
+		CreatedAt:         timeValue(row.CreatedAt),
+		UpdatedAt:         timeValue(row.UpdatedAt),
+	}
+}
+
+func assetUUIDString(value pgtype.UUID) string {
+	if !value.Valid {
+		return ""
+	}
+	return uuid.UUID(value.Bytes).String()
+}
+
+func assetNullableUUIDParam(value string) pgtype.UUID {
+	if value == "" {
+		return pgtype.UUID{}
+	}
+	var id pgtype.UUID
+	if err := id.Scan(value); err != nil {
+		return pgtype.UUID{}
+	}
+	return id
+}
+
+func assetTextParam(value string) pgtype.Text {
+	if value == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: value, Valid: true}
+}
+
+func assetTextString(value pgtype.Text) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
+}
+
+func int4Param(value int) pgtype.Int4 {
+	if value == 0 {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: int32(value), Valid: true}
+}
+
+func numericParam(value float64) pgtype.Numeric {
+	if value == 0 {
+		return pgtype.Numeric{}
+	}
+	var numeric pgtype.Numeric
+	_ = numeric.Scan(value)
+	return numeric
+}
+
+func timeValue(value pgtype.Timestamptz) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return value.Time
+}
+
+func int4Value(value pgtype.Int4) int {
+	if !value.Valid {
+		return 0
+	}
+	return int(value.Int32)
+}
+
+func numericValue(value pgtype.Numeric) float64 {
+	if !value.Valid {
+		return 0
+	}
+	number, err := value.Float64Value()
+	if err != nil || !number.Valid {
+		return 0
+	}
+	return number.Float64
+}
+
+func jsonObject(value []byte) map[string]any {
+	if len(value) == 0 {
+		return map[string]any{}
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(value, &decoded); err != nil || decoded == nil {
+		return map[string]any{}
+	}
+	return decoded
+}
+
+func mustJSON(value any, fallback any) []byte {
+	if value == nil {
+		value = fallback
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		encoded, _ = json.Marshal(fallback)
+		return encoded
+	}
+	return encoded
+}
+
+func firstNonEmpty(value string, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func isForeignKeyProductError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }

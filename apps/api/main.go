@@ -15,11 +15,14 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	taskService := services.NewConfiguredTaskService(context.Background(), cfg, logger)
 	defer taskService.Close()
+	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
+	defer productAssetService.Close()
 
 	server := httpserver.New(httpserver.Options{
-		Config:      cfg,
-		Logger:      logger,
-		TaskService: taskService.Service,
+		Config:              cfg,
+		Logger:              logger,
+		TaskService:         taskService.Service,
+		ProductAssetService: productAssetService.Service,
 	})
 
 	if err := server.Run(); err != nil {

@@ -14,6 +14,7 @@ type Options struct {
 	Config      config.Config
 	Logger      *slog.Logger
 	TaskService *services.TaskService
+	ProductAssetService *services.ProductAssetService
 }
 
 type Server struct {
@@ -39,13 +40,18 @@ func New(opts Options) *Server {
 		taskService = services.NewTaskService(opts.Config.StorageRoot)
 	}
 
+	productAssetService := opts.ProductAssetService
+	if productAssetService == nil {
+		productAssetService = services.NewProductAssetService()
+	}
+
 	server := &Server{
 		cfg:                 opts.Config,
 		logger:              opts.Logger,
 		engine:              gin.New(),
 		userService:         services.NewUserService(opts.Config),
 		systemConfigService: services.NewSystemConfigService(),
-		productAssetService: services.NewProductAssetService(),
+		productAssetService: productAssetService,
 		uploadTokenService:  services.NewUploadTokenService(),
 		localStore:          storage.NewLocalStore(opts.Config.StorageRoot),
 		taskService:         taskService,
