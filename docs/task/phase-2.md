@@ -28,7 +28,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 增加素材可用性状态：可用、待人工确认、废弃
 - [x] 增加素材 hash 字段，用于重复素材识别
 - [ ] 增加素材人工备注字段
-- [x] 增加素材来源字段：local-agent、server-upload、manual-import
+- [x] 增加素材来源字段：`local-agent` / `server-upload` / `manual-import`
 - [x] 增加素材与产品的关联约束
 - [x] 增加素材与产品卖点的可选关联
 - [x] 增加素材标签存储结构
@@ -46,7 +46,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 补充 repository 封装
 - [x] 补充数据模型单元测试
 
-备注：已新增 `000009_expand_assets_for_phase_2.sql`、`000010_create_asset_selling_points.sql`、`000011_create_speech_segments.sql`，扩展 `assets` 二阶段字段，补齐素材与卖点关联表、口播句段表，并生成 sqlc 代码与 repository 封装；`go test ./...` 与迁移结构检查已通过。
+备注：已新增 `000009_expand_assets_for_phase_2.sql`、`000010_create_asset_selling_points.sql`、`000011_create_speech_segments.sql`、`000012_create_asset_frame_snapshots.sql`。
 
 ## 3. 口播素材句段模型
 
@@ -63,7 +63,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 封装 speech segment repository
 - [x] 补充句段模型测试
 
-备注：第二阶段可以先支持人工录入或导入口播转文字结果，不强依赖真实 ASR。
+备注：第二阶段先支持人工录入或导入口播转文字结果，不强依赖真实 ASR。
 
 ## 4. 素材上传与登记 API
 
@@ -85,10 +85,10 @@ Model Gateway 调用 VLM 或 mock provider
 - [ ] 支持更新素材人工信息
 - [ ] 支持归档素材
 - [ ] 支持恢复已归档素材
-- [ ] 补充 API 单元测试
+- [x] 补充 API 单元测试
 - [ ] 补充 API 集成测试
 
-备注：已将 API 中的产品、卖点、素材服务改为“配置 `DATABASE_URL` 时走 PostgreSQL，否则回退内存实现”的装配方式；当前上传链路已支持 `asset_name`、`manual_clean_status`、`usability_status`、`source_path`、`source_original_name`、`reviewer_notes`、`selling_point_ids` 等字段，服务端会计算 checksum、写入素材记录与初始分析状态；素材列表已支持 `product_id`、`source_type`、`status`、`analysis_status`、`usability_status` 筛选。`go test ./...` 已通过。
+备注：当前产品、卖点、素材服务已支持 PostgreSQL 与内存双实现切换。
 
 ## 5. 视频技术信息探测
 
@@ -100,13 +100,11 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 读取音频流是否存在
 - [x] 读取音频编码信息
 - [ ] 判断是否可能包含人物语音
-- [x] 将探测结果写入 assets
+- [x] 将探测结果写入 `assets`
 - [ ] 探测失败时记录错误原因
 - [ ] 探测失败时不阻塞素材文件保存
 - [ ] 补充 ffprobe mock 测试
 - [ ] 补充真实短视频探测验证脚本
-
-备注：已增强 `internal/ffmpeg.Probe`，支持返回时长、分辨率、帧率、视频编码、码率、是否含音频、音频编码，并在上传入库时写入素材记录；基础单测已覆盖码率解析，`go test ./...` 已通过。
 
 ## 6. 抽帧任务
 
@@ -119,13 +117,14 @@ Model Gateway 调用 VLM 或 mock provider
 - [ ] 支持关键帧抽帧预留接口
 - [x] 抽帧文件保存到 `storage/frames`
 - [x] 抽帧结果写入数据库
+- [x] 抽帧结果可保存并查询
 - [ ] 抽帧失败时更新素材分析状态
 - [ ] 抽帧任务支持重试
 - [ ] 抽帧任务支持幂等执行
-- [ ] 补充抽帧服务测试
+- [x] 补充抽帧服务测试
 - [ ] 补充 worker 消费测试
 
-备注：已新增 `asset:extract_frames` 队列任务、`asset_frame_snapshots` 表、`AssetProcessingService` 与 worker handler；素材上传后会自动入队，worker 会按固定时间点抽帧并保存到 `storage/frames/<asset_id>`，同时写入 `asset_frame_snapshots`。`go test ./...` 已通过。
+备注：已接通 `asset:extract_frames` 队列、`AssetProcessingService`、`asset_frame_snapshots` 存储与查询接口。
 
 ## 7. Model Gateway 与 VLM 分析
 
@@ -147,8 +146,6 @@ Model Gateway 调用 VLM 或 mock provider
 - [ ] 分析失败后记录错误原因
 - [ ] 补充 Model Gateway 单元测试
 - [ ] 补充 VLM mock 分析集成测试
-
-备注：第二阶段要求链路跑通，允许先使用 mock provider 或可配置 provider，不要求模型效果一次到位。
 
 ## 8. 素材标签与人工修正
 
@@ -185,32 +182,32 @@ Model Gateway 调用 VLM 或 mock provider
 - [ ] 为后续 pgvector 检索预留 repository 接口
 - [ ] 补充检索 API 测试
 
-备注：第二阶段先完成结构化字段检索与文本检索，pgvector 真实向量检索可以作为后续增强项。
-
 ## 10. 前端素材库
 
-- [ ] 调整素材列表页面字段
+- [x] 调整素材列表页面字段
 - [ ] 素材列表显示产品
-- [ ] 素材列表显示素材类型
-- [ ] 素材列表显示分析状态
-- [ ] 素材列表显示时长
+- [x] 素材列表显示素材类型
+- [x] 素材列表显示分析状态
+- [x] 素材列表显示时长
 - [ ] 素材列表显示景别
 - [ ] 素材列表显示运镜
 - [ ] 素材列表显示标签摘要
-- [ ] 增加产品筛选
-- [ ] 增加素材类型筛选
-- [ ] 增加状态筛选
+- [x] 增加产品筛选
+- [x] 增加素材类型筛选
+- [x] 增加状态筛选
 - [ ] 增加标签筛选
-- [ ] 增加素材详情页
-- [ ] 素材详情页显示视频基础信息
+- [x] 增加素材详情页
+- [x] 素材详情页显示视频基础信息
 - [ ] 素材详情页显示画面分析结果
-- [ ] 素材详情页显示抽帧预览
+- [x] 素材详情页显示抽帧预览
 - [ ] 素材详情页支持人工修正标签
 - [ ] 素材详情页支持归档素材
 - [ ] 素材详情页支持查看错误原因
-- [ ] 补充前端 API client
-- [ ] 补充前端构建验证
-- [ ] 补充 Playwright E2E 测试
+- [x] 补充前端 API client
+- [x] 补充前端构建验证
+- [x] 补充 Playwright E2E 测试
+
+备注：当前素材页已支持列表、筛选、详情弹窗与抽帧预览。
 
 ## 11. 产品与卖点增强
 
@@ -276,15 +273,15 @@ Model Gateway 调用 VLM 或 mock provider
 
 ## 15. 完成标准
 
-- [ ] 素材可绑定产品和素材类型
-- [ ] 素材可关联产品卖点
-- [ ] 素材基础技术信息可自动探测
-- [ ] 素材入库后可触发抽帧任务
-- [ ] 抽帧结果可保存并查询
+- [x] 素材可绑定产品和素材类型
+- [x] 素材可关联产品卖点
+- [x] 素材基础技术信息可自动探测
+- [x] 素材入库后可触发抽帧任务
+- [x] 抽帧结果可保存并查询
 - [ ] 素材可触发 VLM mock 或真实 provider 分析
 - [ ] 分析结果可写入素材 tags
 - [ ] 人工可修正素材 tags
-- [ ] 口播素材可保存人工句段信息
+- [x] 口播素材可保存人工句段信息
 - [ ] 素材可按产品、类型、状态、标签检索
 - [ ] 前端可完成素材查看、筛选、详情查看和人工修正
 - [ ] worker 任务状态可追踪

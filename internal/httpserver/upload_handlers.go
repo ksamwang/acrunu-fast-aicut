@@ -164,6 +164,22 @@ func (s *Server) handleGetAsset(c *gin.Context) {
 	OK(c, asset)
 }
 
+func (s *Server) handleListAssetFrames(c *gin.Context) {
+	assetID := c.Param("assetID")
+	asset, ok := s.productAssetService.GetAsset(assetID)
+	if !ok {
+		Fail(c, http.StatusNotFound, "not_found", "asset not found")
+		return
+	}
+
+	frames := s.productAssetService.ListAssetFrameSnapshots(assetID)
+	response := gin.H{
+		"asset_id": asset.ID,
+		"frames":   frames,
+	}
+	OK(c, response)
+}
+
 func uploadErrorMessage(err error) string {
 	if errors.Is(err, services.ErrUploadTokenInvalid) {
 		return "invalid upload token"

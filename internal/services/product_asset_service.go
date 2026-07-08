@@ -187,6 +187,17 @@ type AssetFilters struct {
 	UsabilityStatus string
 }
 
+type AssetFrameSnapshot struct {
+	ID          string    `json:"id"`
+	AssetID     string    `json:"asset_id"`
+	FrameIndex  int       `json:"frame_index"`
+	TimestampMs int       `json:"timestamp_ms"`
+	StorageKey  string    `json:"storage_key"`
+	Width       int       `json:"width,omitempty"`
+	Height      int       `json:"height,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error) {
 	if s.queries != nil {
 		return s.createAssetInPostgres(input)
@@ -313,6 +324,30 @@ func (s *ProductAssetService) GetAsset(id string) (Asset, bool) {
 
 	asset, ok := s.assets[id]
 	return asset, ok
+}
+
+func (s *ProductAssetService) ListAssetFrameSnapshots(assetID string) []AssetFrameSnapshot {
+	if s.queries == nil || s.assetRepo == nil {
+		return nil
+	}
+	rows, err := s.assetRepo.ListFrameSnapshotsByAsset(context.Background(), assetID)
+	if err != nil {
+		return nil
+	}
+	items := make([]AssetFrameSnapshot, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, AssetFrameSnapshot{
+			ID:          row.ID,
+			AssetID:     row.AssetID,
+			FrameIndex:  row.FrameIndex,
+			TimestampMs: row.TimestampMs,
+			StorageKey:  row.StorageKey,
+			Width:       row.Width,
+			Height:      row.Height,
+			CreatedAt:   row.CreatedAt,
+		})
+	}
+	return items
 }
 
 func (s *ProductAssetService) CreateProduct(input CreateProductInput) Product {

@@ -71,6 +71,17 @@ type SpeechSegmentRecord struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
+type AssetFrameSnapshotRecord struct {
+	ID          string    `json:"id"`
+	AssetID     string    `json:"asset_id"`
+	FrameIndex  int       `json:"frame_index"`
+	TimestampMs int       `json:"timestamp_ms"`
+	StorageKey  string    `json:"storage_key"`
+	Width       int       `json:"width,omitempty"`
+	Height      int       `json:"height,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type AssetFilters struct {
 	ProductID       string
 	SourceType      string
@@ -214,6 +225,18 @@ func (r *AssetRepository) ListSpeechSegmentsByAsset(ctx context.Context, assetID
 	return items, nil
 }
 
+func (r *AssetRepository) ListFrameSnapshotsByAsset(ctx context.Context, assetID string) ([]AssetFrameSnapshotRecord, error) {
+	rows, err := r.queries.ListAssetFrameSnapshotsByAsset(ctx, uuidParam(assetID))
+	if err != nil {
+		return nil, err
+	}
+	items := make([]AssetFrameSnapshotRecord, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, assetFrameSnapshotFromDB(row))
+	}
+	return items, nil
+}
+
 func assetFromDB(row db.Asset) AssetRecord {
 	return AssetRecord{
 		ID:                 uuidString(row.ID),
@@ -276,6 +299,19 @@ func speechSegmentFromDB(row db.SpeechSegment) SpeechSegmentRecord {
 		UpdatedByUserID: uuidString(row.UpdatedByUserID),
 		CreatedAt:       timeValue(row.CreatedAt),
 		UpdatedAt:       timeValue(row.UpdatedAt),
+	}
+}
+
+func assetFrameSnapshotFromDB(row db.AssetFrameSnapshot) AssetFrameSnapshotRecord {
+	return AssetFrameSnapshotRecord{
+		ID:          uuidString(row.ID),
+		AssetID:     uuidString(row.AssetID),
+		FrameIndex:  int(row.FrameIndex),
+		TimestampMs: int(row.TimestampMs),
+		StorageKey:  row.StorageKey,
+		Width:       int32Value(row.Width),
+		Height:      int32Value(row.Height),
+		CreatedAt:   timeValue(row.CreatedAt),
 	}
 }
 

@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import {
   Button,
   Card,
   ConfigProvider,
+  Descriptions,
+  Empty,
   Form,
   Input,
   InputNumber,
   Layout,
   Menu,
   Modal,
+  Select,
   Space,
   Table,
   Tag,
@@ -50,12 +53,43 @@ type SellingPoint = {
 
 type Asset = {
   id: string;
+  product_id: string;
+  asset_name?: string;
+  storage_key: string;
   file_name: string;
   source_type: string;
   status: string;
+  analysis_status?: string;
+  usability_status?: string;
+  manual_clean_status?: string;
   duration_ms?: number;
   width?: number;
   height?: number;
+  fps?: number;
+  codec?: string;
+  has_audio?: boolean;
+  audio_codec?: string;
+  bitrate_kbps?: number;
+  reviewer_notes?: string;
+  scene_description?: string;
+  shot_size?: string;
+  camera_movement?: string;
+};
+
+type AssetFrameSnapshot = {
+  id: string;
+  asset_id: string;
+  frame_index: number;
+  timestamp_ms: number;
+  storage_key: string;
+  width?: number;
+  height?: number;
+  created_at: string;
+};
+
+type AssetFrameResponse = {
+  asset_id: string;
+  frames: AssetFrameSnapshot[];
 };
 
 type Task = {
@@ -89,7 +123,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
 
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "请求失败");
+    throw new Error(payload?.error?.message ?? "Request failed");
   }
   return payload.data as T;
 }
@@ -103,7 +137,7 @@ function useResource<T>(path: string, token: string, deps: React.DependencyList 
     try {
       setData(await apiRequest<T>(path, {}, token));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "加载失败");
+      message.error(error instanceof Error ? error.message : "Load failed");
     } finally {
       setLoading(false);
     }
@@ -114,6 +148,24 @@ function useResource<T>(path: string, token: string, deps: React.DependencyList 
   }, deps);
 
   return { data, loading, reload };
+}
+
+function formatDuration(durationMs?: number) {
+  if (!durationMs) {
+    return "-";
+  }
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function formatTimestamp(durationMs: number) {
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const milliseconds = durationMs % 1000;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
 }
 
 function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
@@ -134,20 +186,20 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
               });
               onLogin(session);
             } catch (error) {
-              message.error(error instanceof Error ? error.message : "登录失败");
+              message.error(error instanceof Error ? error.message : "Login failed");
             } finally {
               setLoading(false);
             }
           }}
         >
-          <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
+          <Form.Item name="username" label="Username" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="password" label="密码" rules={[{ required: true }]}>
+          <Form.Item name="password" label="Password" rules={[{ required: true }]}>
             <Input.Password />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={loading} block data-testid="login-submit">
-            登录
+            Sign In
           </Button>
         </Form>
       </Card>
@@ -185,7 +237,7 @@ function ProductsPage({ token }: { token: string }) {
 
   const createSellingPoint = async () => {
     if (!selectedProductID) {
-      message.warning("请先选择产品");
+      message.warning("Select a product first");
       return;
     }
     const values = await sellingPointForm.validateFields();
@@ -204,8 +256,8 @@ function ProductsPage({ token }: { token: string }) {
 
   return (
     <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>产品管理</Typography.Title>
-      <Card title="产品列表" extra={<Button type="primary" onClick={() => setProductOpen(true)}>新建产品</Button>}>
+      <Typography.Title level={3}>Products</Typography.Title>
+      <Card title="Product List" extra={<Button type="primary" onClick={() => setProductOpen(true)}>New Product</Button>}>
         <Table<Product>
           rowKey="id"
           loading={products.loading}
@@ -213,51 +265,48 @@ function ProductsPage({ token }: { token: string }) {
           onRow={(record) => ({ onClick: () => setSelectedProductID(record.id) })}
           rowClassName={(record) => (record.id === selectedProductID ? "selected-row" : "")}
           columns={[
-            { title: "产品", dataIndex: "name" },
-            { title: "分类", dataIndex: "category" },
-            { title: "状态", dataIndex: "status", render: (status) => <Tag>{status}</Tag> }
+            { title: "Product", dataIndex: "name" },
+            { title: "Category", dataIndex: "category" },
+            { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> }
           ]}
         />
       </Card>
-      <Card
-        title="卖点管理"
-        extra={<Button disabled={!selectedProductID} onClick={() => setSellingPointOpen(true)}>新建卖点</Button>}
-      >
+      <Card title="Selling Points" extra={<Button disabled={!selectedProductID} onClick={() => setSellingPointOpen(true)}>New Selling Point</Button>}>
         <Table<SellingPoint>
           rowKey="id"
           loading={sellingPoints.loading}
           dataSource={selectedProductID ? sellingPoints.data ?? [] : []}
           columns={[
-            { title: "卖点", dataIndex: "title" },
-            { title: "优先级", dataIndex: "priority" },
-            { title: "状态", dataIndex: "status", render: (status) => <Tag>{status}</Tag> }
+            { title: "Title", dataIndex: "title" },
+            { title: "Priority", dataIndex: "priority" },
+            { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> }
           ]}
         />
       </Card>
 
-      <Modal title="新建产品" open={productOpen} onOk={createProduct} onCancel={() => setProductOpen(false)}>
+      <Modal title="New Product" open={productOpen} onOk={createProduct} onCancel={() => setProductOpen(false)}>
         <Form form={productForm} layout="vertical">
-          <Form.Item name="name" label="产品名称" rules={[{ required: true }]}>
+          <Form.Item name="name" label="Product Name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="category" label="分类">
+          <Form.Item name="category" label="Category">
             <Input />
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
       </Modal>
 
-      <Modal title="新建卖点" open={sellingPointOpen} onOk={createSellingPoint} onCancel={() => setSellingPointOpen(false)}>
+      <Modal title="New Selling Point" open={sellingPointOpen} onOk={createSellingPoint} onCancel={() => setSellingPointOpen(false)}>
         <Form form={sellingPointForm} layout="vertical">
-          <Form.Item name="title" label="卖点" rules={[{ required: true }]}>
+          <Form.Item name="title" label="Title" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="priority" label="优先级" initialValue={0}>
+          <Form.Item name="priority" label="Priority" initialValue={0}>
             <InputNumber min={0} />
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
@@ -267,33 +316,194 @@ function ProductsPage({ token }: { token: string }) {
 }
 
 function AssetsPage({ token }: { token: string }) {
-  const assets = useResource<Asset[]>("/api/assets", token);
+  const products = useResource<Product[]>("/api/products", token);
+  const [filters, setFilters] = useState({
+    productID: "",
+    sourceType: "",
+    status: ""
+  });
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
+  const [framesLoading, setFramesLoading] = useState(false);
+
+  const assetPath = useMemo(() => {
+    const params = new URLSearchParams();
+    if (filters.productID) {
+      params.set("product_id", filters.productID);
+    }
+    if (filters.sourceType) {
+      params.set("source_type", filters.sourceType);
+    }
+    if (filters.status) {
+      params.set("status", filters.status);
+    }
+    const query = params.toString();
+    return query ? `/api/assets?${query}` : "/api/assets";
+  }, [filters]);
+
+  const assets = useResource<Asset[]>(assetPath, token, [assetPath]);
+
+  useEffect(() => {
+    if (!selectedAsset) {
+      setFrames([]);
+      return;
+    }
+
+    const loadFrames = async () => {
+      setFramesLoading(true);
+      try {
+        const response = await apiRequest<AssetFrameResponse>(`/api/assets/${selectedAsset.id}/frames`, {}, token);
+        setFrames(response.frames);
+      } catch (error) {
+        setFrames([]);
+        message.error(error instanceof Error ? error.message : "Failed to load frame previews");
+      } finally {
+        setFramesLoading(false);
+      }
+    };
+
+    void loadFrames();
+  }, [selectedAsset, token]);
 
   return (
     <div data-testid="assets-page">
       <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>共享素材库</Typography.Title>
-      <Card title="本地 Agent 上传入口">
-        <Space direction="vertical" className="wide-space">
-          <Input defaultValue="http://127.0.0.1:58721" />
-          <Button type="primary">选择本地素材并预处理</Button>
-        </Space>
-      </Card>
-      <Card title="素材列表" extra={<Button onClick={assets.reload}>刷新</Button>}>
-        <Table<Asset>
-          rowKey="id"
-          loading={assets.loading}
-          dataSource={assets.data ?? []}
-          columns={[
-            { title: "文件", dataIndex: "file_name" },
-            { title: "类型", dataIndex: "source_type" },
-            { title: "状态", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
-            { title: "时长", dataIndex: "duration_ms" },
-            { title: "尺寸", render: (_, item) => (item.width && item.height ? `${item.width}x${item.height}` : "-") }
-          ]}
-        />
-      </Card>
+        <Typography.Title level={3}>Asset Library</Typography.Title>
+        <Card title="Local Agent Entry">
+          <Space direction="vertical" className="wide-space">
+            <Input defaultValue="http://127.0.0.1:58721" />
+            <Button type="primary">Open Local Agent</Button>
+          </Space>
+        </Card>
+        <Card title="Filters">
+          <Space wrap>
+            <Select
+              value={filters.productID || undefined}
+              placeholder="Product"
+              allowClear
+              style={{ minWidth: 180 }}
+              options={(products.data ?? []).map((product) => ({ value: product.id, label: product.name }))}
+              onChange={(value) => setFilters((current) => ({ ...current, productID: value ?? "" }))}
+            />
+            <Select
+              value={filters.sourceType || undefined}
+              placeholder="Source Type"
+              allowClear
+              style={{ minWidth: 160 }}
+              options={[
+                { value: "visual_only", label: "visual_only" },
+                { value: "talking_head", label: "talking_head" }
+              ]}
+              onChange={(value) => setFilters((current) => ({ ...current, sourceType: value ?? "" }))}
+            />
+            <Select
+              value={filters.status || undefined}
+              placeholder="Status"
+              allowClear
+              style={{ minWidth: 160 }}
+              options={[
+                { value: "ready", label: "ready" },
+                { value: "failed", label: "failed" },
+                { value: "uploaded", label: "uploaded" },
+                { value: "archived", label: "archived" }
+              ]}
+              onChange={(value) => setFilters((current) => ({ ...current, status: value ?? "" }))}
+            />
+            <Button onClick={() => setFilters({ productID: "", sourceType: "", status: "" })}>Reset</Button>
+            <Button onClick={assets.reload}>Refresh</Button>
+          </Space>
+        </Card>
+        <Card title="Assets">
+          <Table<Asset>
+            rowKey="id"
+            loading={assets.loading}
+            dataSource={assets.data ?? []}
+            pagination={false}
+            onRow={(record) => ({ onClick: () => setSelectedAsset(record) })}
+            columns={[
+              {
+                title: "Asset",
+                render: (_, asset) => (
+                  <Button type="link" className="table-link-button" onClick={() => setSelectedAsset(asset)}>
+                    {asset.asset_name || asset.file_name}
+                  </Button>
+                )
+              },
+              { title: "File", dataIndex: "file_name" },
+              { title: "Type", dataIndex: "source_type" },
+              { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
+              {
+                title: "Analysis",
+                dataIndex: "analysis_status",
+                render: (status) => (status ? <Tag color="blue">{status}</Tag> : "-")
+              },
+              { title: "Duration", render: (_, asset) => formatDuration(asset.duration_ms) },
+              {
+                title: "Resolution",
+                render: (_, asset) => (asset.width && asset.height ? `${asset.width}x${asset.height}` : "-")
+              }
+            ]}
+          />
+        </Card>
       </Space>
+
+      <Modal
+        title={selectedAsset ? `Asset Detail: ${selectedAsset.asset_name || selectedAsset.file_name}` : "Asset Detail"}
+        open={selectedAsset !== null}
+        footer={null}
+        width={960}
+        onCancel={() => setSelectedAsset(null)}
+      >
+        {selectedAsset ? (
+          <Space direction="vertical" size="large" className="wide-space" data-testid="asset-detail-modal">
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="File">{selectedAsset.file_name}</Descriptions.Item>
+              <Descriptions.Item label="Source Type">{selectedAsset.source_type}</Descriptions.Item>
+              <Descriptions.Item label="Status">{selectedAsset.status}</Descriptions.Item>
+              <Descriptions.Item label="Analysis">{selectedAsset.analysis_status || "-"}</Descriptions.Item>
+              <Descriptions.Item label="Duration">{formatDuration(selectedAsset.duration_ms)}</Descriptions.Item>
+              <Descriptions.Item label="Resolution">
+                {selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}x${selectedAsset.height}` : "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="FPS">{selectedAsset.fps ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="Codec">{selectedAsset.codec || "-"}</Descriptions.Item>
+              <Descriptions.Item label="Has Audio">{selectedAsset.has_audio ? "yes" : "no"}</Descriptions.Item>
+              <Descriptions.Item label="Audio Codec">{selectedAsset.audio_codec || "-"}</Descriptions.Item>
+              <Descriptions.Item label="Bitrate">{selectedAsset.bitrate_kbps ? `${selectedAsset.bitrate_kbps} kbps` : "-"}</Descriptions.Item>
+              <Descriptions.Item label="Manual Clean">{selectedAsset.manual_clean_status || "-"}</Descriptions.Item>
+              <Descriptions.Item label="Usability">{selectedAsset.usability_status || "-"}</Descriptions.Item>
+            </Descriptions>
+
+            <Card title="Analysis Summary">
+              <Space wrap>
+                {selectedAsset.shot_size ? <Tag>{selectedAsset.shot_size}</Tag> : null}
+                {selectedAsset.camera_movement ? <Tag>{selectedAsset.camera_movement}</Tag> : null}
+                {selectedAsset.scene_description ? <Typography.Text>{selectedAsset.scene_description}</Typography.Text> : <Typography.Text type="secondary">No analysis output yet.</Typography.Text>}
+              </Space>
+            </Card>
+
+            <Card title="Frame Previews" loading={framesLoading}>
+              {frames.length === 0 ? (
+                <Empty description="No extracted frames yet" />
+              ) : (
+                <div className="frame-grid">
+                  {frames.map((frame) => (
+                    <div key={frame.id} className="frame-card" data-testid="frame-card">
+                      <img
+                        className="frame-image"
+                        src={`/storage/${encodeURI(frame.storage_key)}`}
+                        alt={`frame-${frame.frame_index}`}
+                      />
+                      <Typography.Text strong>{formatTimestamp(frame.timestamp_ms)}</Typography.Text>
+                      <Typography.Text type="secondary">Frame #{frame.frame_index}</Typography.Text>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </Space>
+        ) : null}
+      </Modal>
     </div>
   );
 }
@@ -308,7 +518,7 @@ function TasksPage({ token }: { token: string }) {
       await apiRequest<Task>("/api/tasks/test", { method: "POST" }, token);
       await tasks.reload();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "创建任务失败");
+      message.error(error instanceof Error ? error.message : "Create task failed");
     } finally {
       setCreating(false);
     }
@@ -317,21 +527,21 @@ function TasksPage({ token }: { token: string }) {
   return (
     <div data-testid="tasks-page">
       <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>任务列表</Typography.Title>
-      <Card title="批量剪辑任务" extra={<Button type="primary" loading={creating} onClick={createTask}>创建测试任务</Button>}>
-        <Table<Task>
-          rowKey="id"
-          loading={tasks.loading}
-          dataSource={tasks.data ?? []}
-          columns={[
-            { title: "任务", dataIndex: "id" },
-            { title: "类型", dataIndex: "task_type" },
-            { title: "状态", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
-            { title: "重试", dataIndex: "retry_count" },
-            { title: "创建时间", dataIndex: "created_at" }
-          ]}
-        />
-      </Card>
+        <Typography.Title level={3}>Tasks</Typography.Title>
+        <Card title="Batch Edit Tasks" extra={<Button type="primary" loading={creating} onClick={createTask}>Create Test Task</Button>}>
+          <Table<Task>
+            rowKey="id"
+            loading={tasks.loading}
+            dataSource={tasks.data ?? []}
+            columns={[
+              { title: "Task ID", dataIndex: "id" },
+              { title: "Type", dataIndex: "task_type" },
+              { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
+              { title: "Retry", dataIndex: "retry_count" },
+              { title: "Created At", dataIndex: "created_at" }
+            ]}
+          />
+        </Card>
       </Space>
     </div>
   );
@@ -342,17 +552,17 @@ function SettingsPage({ token }: { token: string }) {
 
   return (
     <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>系统配置</Typography.Title>
-      <Card title="模型与并发配置" extra={<Button onClick={configs.reload}>刷新</Button>}>
+      <Typography.Title level={3}>System Settings</Typography.Title>
+      <Card title="Model and Concurrency" extra={<Button onClick={configs.reload}>Refresh</Button>}>
         <Table<SystemConfig>
           rowKey="key"
           loading={configs.loading}
           dataSource={configs.data ?? []}
           columns={[
-            { title: "配置项", dataIndex: "key" },
-            { title: "值", dataIndex: "value", render: (value) => JSON.stringify(value) },
-            { title: "类型", dataIndex: "type" },
-            { title: "说明", dataIndex: "description" }
+            { title: "Key", dataIndex: "key" },
+            { title: "Value", dataIndex: "value", render: (value) => JSON.stringify(value) },
+            { title: "Type", dataIndex: "type" },
+            { title: "Description", dataIndex: "description" }
           ]}
         />
       </Card>
@@ -363,10 +573,10 @@ function SettingsPage({ token }: { token: string }) {
 function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [view, setView] = useState<ViewKey>("products");
   const menuItems = [
-    { key: "products", label: "产品" },
-    { key: "assets", label: "素材" },
-    { key: "tasks", label: "任务" },
-    ...(session.user.role === "admin" ? [{ key: "settings", label: "系统配置" }] : [])
+    { key: "products", label: "Products" },
+    { key: "assets", label: "Assets" },
+    { key: "tasks", label: "Tasks" },
+    ...(session.user.role === "admin" ? [{ key: "settings", label: "Settings" }] : [])
   ];
 
   return (
@@ -380,7 +590,7 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
           <Space>
             <Tag color={session.user.role === "admin" ? "blue" : "default"}>{session.user.role}</Tag>
             <Typography.Text>{session.user.display_name}</Typography.Text>
-            <Button onClick={onLogout}>退出</Button>
+            <Button onClick={onLogout}>Sign Out</Button>
           </Space>
         </Layout.Header>
         <Layout.Content className="content">

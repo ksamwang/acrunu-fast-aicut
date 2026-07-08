@@ -106,8 +106,10 @@ func (s *Server) routes() {
 	protected.POST("/uploads/tokens", s.handleCreateUploadToken)
 	protected.GET("/assets", s.handleListAssets)
 	protected.GET("/assets/:assetID", s.handleGetAsset)
+	protected.GET("/assets/:assetID/frames", s.handleListAssetFrames)
 	protected.POST("/tasks/test", s.handleCreateTestTask)
 	protected.GET("/tasks", s.handleListTasks)
 
 	api.POST("/uploads/clean-shot", s.handleUploadCleanShot)
+	s.engine.Static("/storage", s.cfg.StorageRoot)
 }

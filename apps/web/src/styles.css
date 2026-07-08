@@ -58,3 +58,27 @@ body {
 .selected-row > td {
   background: #e6f4ff !important;
 }
+
+.table-link-button {
+  padding-left: 0;
+}
+
+.frame-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.frame-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.frame-image {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #eef2f6;
+}
