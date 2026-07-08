@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -121,6 +122,7 @@ type ProductAssetService struct {
 	products      map[string]Product
 	sellingPoints map[string]SellingPoint
 	assets        map[string]Asset
+	assetSellingPoints map[string][]string
 	queries       *db.Queries
 	assetRepo     *repository.AssetRepository
 }
@@ -130,6 +132,7 @@ func NewProductAssetService() *ProductAssetService {
 		products:      map[string]Product{},
 		sellingPoints: map[string]SellingPoint{},
 		assets:        map[string]Asset{},
+		assetSellingPoints: map[string][]string{},
 	}
 }
 
@@ -189,6 +192,11 @@ type AssetFilters struct {
 	Status          string
 	AnalysisStatus  string
 	UsabilityStatus string
+	SellingPointID  string
+	Tag             string
+	MinDurationMs   *int
+	MaxDurationMs   *int
+	HasAudio        *bool
 }
 
 type AssetFrameSnapshot struct {
@@ -311,6 +319,9 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 	}
 
 	s.assets[asset.ID] = asset
+	if len(input.SellingPointIDs) > 0 {
+		s.assetSellingPoints[asset.ID] = append([]string(nil), input.SellingPointIDs...)
+	}
 	return asset, nil
 }
 
@@ -337,6 +348,28 @@ func (s *ProductAssetService) ListAssets(filters AssetFilters) []Asset {
 			continue
 		}
 		if filters.UsabilityStatus != "" && asset.UsabilityStatus != filters.UsabilityStatus {
+			continue
+		}
+		if filters.SellingPointID != "" && !containsSliceValue(s.assetSellingPoints[asset.ID], filters.SellingPointID) {
+			continue
+		}
+		if filters.Tag != "" &&
+			asset.SceneDescription != filters.Tag &&
+			asset.ShotSize != filters.Tag &&
+			asset.CameraMovement != filters.Tag &&
+			!containsIgnoreCase(asset.SceneDescription, filters.Tag) &&
+			!containsSliceValue(asset.Subjects, filters.Tag) &&
+			!containsSliceValue(asset.SceneTags, filters.Tag) &&
+			!containsSliceValue(asset.QualityTags, filters.Tag) {
+			continue
+		}
+		if filters.MinDurationMs != nil && asset.DurationMs < *filters.MinDurationMs {
+			continue
+		}
+		if filters.MaxDurationMs != nil && asset.DurationMs > *filters.MaxDurationMs {
+			continue
+		}
+		if filters.HasAudio != nil && asset.HasAudio != *filters.HasAudio {
 			continue
 		}
 		assets = append(assets, asset)
@@ -833,6 +866,11 @@ func (s *ProductAssetService) listAssetsFromPostgres(filters AssetFilters) []Ass
 		Status:          filters.Status,
 		AnalysisStatus:  filters.AnalysisStatus,
 		UsabilityStatus: filters.UsabilityStatus,
+		SellingPointID:  filters.SellingPointID,
+		Tag:             filters.Tag,
+		MinDurationMs:   filters.MinDurationMs,
+		MaxDurationMs:   filters.MaxDurationMs,
+		HasAudio:        filters.HasAudio,
 	})
 	if err != nil {
 		return nil
@@ -1181,4 +1219,17 @@ func firstNonEmpty(value string, fallback string) string {
 func isForeignKeyProductError(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
+}
+
+func containsIgnoreCase(value string, keyword string) bool {
+	return strings.Contains(strings.ToLower(value), strings.ToLower(keyword))
+}
+
+func containsSliceValue(values []string, keyword string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, keyword) {
+			return true
+		}
+	}
+	return false
 }

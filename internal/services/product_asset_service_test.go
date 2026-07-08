@@ -98,3 +98,68 @@ func TestUpdateAssetReviewInMemory(t *testing.T) {
 		t.Fatalf("expected updated_by_user_id editor-1, got %s", updated.UpdatedByUserID)
 	}
 }
+
+func TestListAssetsSupportsTagDurationAudioAndSellingPointFilters(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	sellingPoint, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{
+		Title:    "Auto Wake",
+		Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("create selling point failed: %v", err)
+	}
+
+	_, err = service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		DurationMs:        3200,
+		HasAudio:          true,
+		SceneDescription:  "auto wake product shot",
+		SceneTags:         []string{"indoor", "demo"},
+		SellingPointIDs:   []string{sellingPoint.ID},
+	})
+	if err != nil {
+		t.Fatalf("create asset 1 failed: %v", err)
+	}
+
+	_, err = service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "b.mp4",
+		StorageKey:        "assets/b.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		DurationMs:        900,
+		HasAudio:          false,
+		SceneDescription:  "speaker intro",
+		SceneTags:         []string{"talking_head"},
+	})
+	if err != nil {
+		t.Fatalf("create asset 2 failed: %v", err)
+	}
+
+	minDuration := 2000
+	hasAudio := true
+	filtered := service.ListAssets(AssetFilters{
+		SellingPointID: sellingPoint.ID,
+		Tag:            "demo",
+		MinDurationMs:  &minDuration,
+		HasAudio:       &hasAudio,
+	})
+
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered asset, got %d", len(filtered))
+	}
+	if filtered[0].FileName != "a.mp4" {
+		t.Fatalf("expected filtered asset a.mp4, got %s", filtered[0].FileName)
+	}
+}

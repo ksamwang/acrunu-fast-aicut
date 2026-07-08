@@ -88,6 +88,11 @@ type AssetFilters struct {
 	Status          string
 	AnalysisStatus  string
 	UsabilityStatus string
+	SellingPointID  string
+	Tag             string
+	MinDurationMs   *int
+	MaxDurationMs   *int
+	HasAudio        *bool
 }
 
 type SpeechSegmentFilters struct {
@@ -139,6 +144,11 @@ func (r *AssetRepository) List(ctx context.Context, filters AssetFilters) ([]Ass
 		Status:          textParam(filters.Status),
 		AnalysisStatus:  textParam(filters.AnalysisStatus),
 		UsabilityStatus: textParam(filters.UsabilityStatus),
+		SellingPointID:  nullableUUIDParam(filters.SellingPointID),
+		Tag:             textParam(filters.Tag),
+		MinDurationMs:   int4PtrParam(filters.MinDurationMs),
+		MaxDurationMs:   int4PtrParam(filters.MaxDurationMs),
+		HasAudio:        boolPtrParam(filters.HasAudio),
 	})
 	if err != nil {
 		return nil, err
@@ -347,6 +357,20 @@ func textParam(value string) pgtype.Text {
 		return pgtype.Text{}
 	}
 	return pgtype.Text{String: value, Valid: true}
+}
+
+func int4PtrParam(value *int) pgtype.Int4 {
+	if value == nil {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: int32(*value), Valid: true}
+}
+
+func boolPtrParam(value *bool) pgtype.Bool {
+	if value == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *value, Valid: true}
 }
 
 func int32Value(value pgtype.Int4) int {

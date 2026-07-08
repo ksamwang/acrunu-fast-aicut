@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,6 +153,11 @@ func (s *Server) handleListAssets(c *gin.Context) {
 		Status:          c.Query("status"),
 		AnalysisStatus:  c.Query("analysis_status"),
 		UsabilityStatus: c.Query("usability_status"),
+		SellingPointID:  c.Query("selling_point_id"),
+		Tag:             c.Query("tag"),
+		MinDurationMs:   parseOptionalInt(c.Query("min_duration_ms")),
+		MaxDurationMs:   parseOptionalInt(c.Query("max_duration_ms")),
+		HasAudio:        parseOptionalBool(c.Query("has_audio")),
 	}))
 }
 
@@ -207,4 +213,26 @@ func firstNonEmptyForm(value string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func parseOptionalInt(value string) *int {
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+func parseOptionalBool(value string) *bool {
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
 }

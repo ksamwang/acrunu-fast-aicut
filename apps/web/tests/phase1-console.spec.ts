@@ -25,6 +25,21 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     quality_tags: [] as string[],
     reviewer_notes: ""
   };
+  const filteredAsset = {
+    ...asset,
+    id: "asset-2",
+    asset_name: "mute-shot",
+    file_name: "mute-shot.mp4",
+    source_type: "talking_head",
+    has_audio: false,
+    duration_ms: 900,
+    scene_description: "speaker intro",
+    shot_size: "medium_close_up",
+    camera_movement: "handheld",
+    subjects: ["speaker"],
+    scene_tags: ["talking_head"],
+    quality_tags: ["low_light"] as string[]
+  };
 
   await page.route("**/api/**", async (route) => {
     const url = route.request().url();
@@ -70,6 +85,24 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     }
 
     if (url.includes("/api/products")) {
+      if (url.includes("/selling-points")) {
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: [
+              {
+                id: "sp-1",
+                product_id: "product-1",
+                title: "Auto Wake",
+                priority: 1,
+                status: "active"
+              }
+            ]
+          })
+        });
+        return;
+      }
+
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
@@ -110,7 +143,15 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
-          data: [asset]
+          data:
+            url.includes("selling_point_id=sp-1") ||
+            url.includes("tag=demo") ||
+            url.includes("min_duration_ms=2000") ||
+            url.includes("has_audio=true")
+              ? [asset]
+              : url.includes("has_audio=false")
+                ? [filteredAsset]
+                : [asset, filteredAsset]
         })
       });
       return;
@@ -166,11 +207,22 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await expect(page.getByTestId("assets-page")).toBeVisible();
   await expect(page.getByText("clean-shot.mp4")).toBeVisible();
   await expect(page.getByRole("cell", { name: "ready" }).first()).toBeVisible();
-  await expect(page.getByText("Smart Light")).toBeVisible();
-  await expect(page.getByText("320x568")).toBeVisible();
-  await expect(page.getByText("close_up")).toBeVisible();
-  await expect(page.getByText("static")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Smart Light" }).first()).toBeVisible();
+  await expect(page.getByRole("cell", { name: "320x568" }).first()).toBeVisible();
+  await expect(page.getByRole("cell", { name: "close_up" }).first()).toBeVisible();
+  await expect(page.getByRole("cell", { name: "static" }).first()).toBeVisible();
   await expect(page.getByText("indoor, demo")).toBeVisible();
+  await expect(page.getByText("mute-shot.mp4")).toBeVisible();
+  await page.getByTestId("asset-filter-product").click();
+  await page.getByTitle("Smart Light").click();
+  await page.getByTestId("asset-filter-selling-point").click();
+  await page.getByTitle("Auto Wake").click();
+  await page.getByTestId("asset-filter-tag").fill("demo");
+  await page.getByTestId("asset-filter-min-duration").fill("2000");
+  await page.getByTestId("asset-filter-has-audio").click();
+  await page.getByTitle("audio only").click();
+  await expect(page.getByText("clean-shot.mp4")).toBeVisible();
+  await expect(page.getByText("mute-shot.mp4")).toHaveCount(0);
   await page.getByRole("button", { name: "clean-shot" }).click();
   await expect(page.getByTestId("asset-detail-modal")).toBeVisible();
   await expect(page.getByTestId("asset-analysis-panel")).toBeVisible();

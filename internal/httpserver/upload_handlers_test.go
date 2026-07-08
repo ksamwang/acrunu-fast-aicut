@@ -21,3 +21,21 @@ func TestFirstNonEmptyForm(t *testing.T) {
 		t.Fatalf("expected manual, got %s", got)
 	}
 }
+
+func TestParseOptionalInt(t *testing.T) {
+	if got := parseOptionalInt(""); got != nil {
+		t.Fatalf("expected nil for empty value, got %v", *got)
+	}
+	if got := parseOptionalInt("1200"); got == nil || *got != 1200 {
+		t.Fatalf("expected 1200, got %#v", got)
+	}
+}
+
+func TestParseOptionalBool(t *testing.T) {
+	if got := parseOptionalBool(""); got != nil {
+		t.Fatalf("expected nil for empty value, got %v", *got)
+	}
+	if got := parseOptionalBool("true"); got == nil || !*got {
+		t.Fatalf("expected true, got %#v", got)
+	}
+}

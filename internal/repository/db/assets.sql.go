@@ -274,6 +274,33 @@ WHERE product_id = COALESCE($1, product_id)
   AND status = COALESCE($3, status)
   AND analysis_status = COALESCE($4, analysis_status)
   AND usability_status = COALESCE($5, usability_status)
+  AND (
+    $6::uuid IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM asset_selling_points asp
+      WHERE asp.asset_id = assets.id
+        AND asp.selling_point_id = $6::uuid
+    )
+  )
+  AND (
+    $7::text IS NULL
+    OR scene_description ILIKE '%' || $7::text || '%'
+    OR shot_size = $7::text
+    OR camera_movement = $7::text
+    OR subjects ? $7::text
+    OR scene_tags ? $7::text
+    OR quality_tags ? $7::text
+  )
+  AND (
+    $8::int IS NULL
+    OR COALESCE(duration_ms, 0) >= $8::int
+  )
+  AND (
+    $9::int IS NULL
+    OR COALESCE(duration_ms, 0) <= $9::int
+  )
+  AND has_audio = COALESCE($10, has_audio)
 ORDER BY created_at DESC
 `
 
@@ -283,6 +310,11 @@ type ListAssetsParams struct {
 	Status          pgtype.Text `json:"status"`
 	AnalysisStatus  pgtype.Text `json:"analysis_status"`
 	UsabilityStatus pgtype.Text `json:"usability_status"`
+	SellingPointID  pgtype.UUID `json:"selling_point_id"`
+	Tag             pgtype.Text `json:"tag"`
+	MinDurationMs   pgtype.Int4 `json:"min_duration_ms"`
+	MaxDurationMs   pgtype.Int4 `json:"max_duration_ms"`
+	HasAudio        pgtype.Bool `json:"has_audio"`
 }
 
 func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset, error) {
@@ -292,6 +324,11 @@ func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset
 		arg.Status,
 		arg.AnalysisStatus,
 		arg.UsabilityStatus,
+		arg.SellingPointID,
+		arg.Tag,
+		arg.MinDurationMs,
+		arg.MaxDurationMs,
+		arg.HasAudio,
 	)
 	if err != nil {
 		return nil, err

@@ -58,6 +58,33 @@ WHERE product_id = COALESCE(sqlc.narg('product_id'), product_id)
   AND status = COALESCE(sqlc.narg('status'), status)
   AND analysis_status = COALESCE(sqlc.narg('analysis_status'), analysis_status)
   AND usability_status = COALESCE(sqlc.narg('usability_status'), usability_status)
+  AND (
+    sqlc.narg('selling_point_id')::uuid IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM asset_selling_points asp
+      WHERE asp.asset_id = assets.id
+        AND asp.selling_point_id = sqlc.narg('selling_point_id')::uuid
+    )
+  )
+  AND (
+    sqlc.narg('tag')::text IS NULL
+    OR scene_description ILIKE '%' || sqlc.narg('tag')::text || '%'
+    OR shot_size = sqlc.narg('tag')::text
+    OR camera_movement = sqlc.narg('tag')::text
+    OR subjects ? sqlc.narg('tag')::text
+    OR scene_tags ? sqlc.narg('tag')::text
+    OR quality_tags ? sqlc.narg('tag')::text
+  )
+  AND (
+    sqlc.narg('min_duration_ms')::int IS NULL
+    OR COALESCE(duration_ms, 0) >= sqlc.narg('min_duration_ms')::int
+  )
+  AND (
+    sqlc.narg('max_duration_ms')::int IS NULL
+    OR COALESCE(duration_ms, 0) <= sqlc.narg('max_duration_ms')::int
+  )
+  AND has_audio = COALESCE(sqlc.narg('has_audio'), has_audio)
 ORDER BY created_at DESC;
 
 -- name: UpdateAssetStatus :exec

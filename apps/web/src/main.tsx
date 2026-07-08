@@ -346,10 +346,21 @@ function ProductsPage({ token }: { token: string }) {
 
 function AssetsPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token);
+  const [productForSellingPoints, setProductForSellingPoints] = useState<string>("");
+  const sellingPoints = useResource<SellingPoint[]>(
+    productForSellingPoints ? `/api/products/${productForSellingPoints}/selling-points` : "/api/products/none/selling-points",
+    token,
+    [productForSellingPoints]
+  );
   const [filters, setFilters] = useState({
     productID: "",
+    sellingPointID: "",
     sourceType: "",
-    status: ""
+    status: "",
+    tag: "",
+    minDurationMs: "",
+    maxDurationMs: "",
+    hasAudio: ""
   });
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
@@ -363,11 +374,26 @@ function AssetsPage({ token }: { token: string }) {
     if (filters.productID) {
       params.set("product_id", filters.productID);
     }
+    if (filters.sellingPointID) {
+      params.set("selling_point_id", filters.sellingPointID);
+    }
     if (filters.sourceType) {
       params.set("source_type", filters.sourceType);
     }
     if (filters.status) {
       params.set("status", filters.status);
+    }
+    if (filters.tag) {
+      params.set("tag", filters.tag);
+    }
+    if (filters.minDurationMs) {
+      params.set("min_duration_ms", filters.minDurationMs);
+    }
+    if (filters.maxDurationMs) {
+      params.set("max_duration_ms", filters.maxDurationMs);
+    }
+    if (filters.hasAudio) {
+      params.set("has_audio", filters.hasAudio);
     }
     const query = params.toString();
     return query ? `/api/assets?${query}` : "/api/assets";
@@ -463,14 +489,30 @@ function AssetsPage({ token }: { token: string }) {
         <Card title="Filters">
           <Space wrap>
             <Select
+              data-testid="asset-filter-product"
               value={filters.productID || undefined}
               placeholder="Product"
               allowClear
               style={{ minWidth: 180 }}
               options={(products.data ?? []).map((product) => ({ value: product.id, label: product.name }))}
-              onChange={(value) => setFilters((current) => ({ ...current, productID: value ?? "" }))}
+              onChange={(value) => {
+                const nextValue = value ?? "";
+                setFilters((current) => ({ ...current, productID: nextValue, sellingPointID: "" }));
+                setProductForSellingPoints(nextValue);
+              }}
             />
             <Select
+              data-testid="asset-filter-selling-point"
+              value={filters.sellingPointID || undefined}
+              placeholder="Selling Point"
+              allowClear
+              style={{ minWidth: 180 }}
+              disabled={!filters.productID}
+              options={(sellingPoints.data ?? []).map((item) => ({ value: item.id, label: item.title }))}
+              onChange={(value) => setFilters((current) => ({ ...current, sellingPointID: value ?? "" }))}
+            />
+            <Select
+              data-testid="asset-filter-source-type"
               value={filters.sourceType || undefined}
               placeholder="Source Type"
               allowClear
@@ -482,6 +524,7 @@ function AssetsPage({ token }: { token: string }) {
               onChange={(value) => setFilters((current) => ({ ...current, sourceType: value ?? "" }))}
             />
             <Select
+              data-testid="asset-filter-status"
               value={filters.status || undefined}
               placeholder="Status"
               allowClear
@@ -494,7 +537,56 @@ function AssetsPage({ token }: { token: string }) {
               ]}
               onChange={(value) => setFilters((current) => ({ ...current, status: value ?? "" }))}
             />
-            <Button onClick={() => setFilters({ productID: "", sourceType: "", status: "" })}>Reset</Button>
+            <Input
+              data-testid="asset-filter-tag"
+              value={filters.tag}
+              placeholder="Tag or keyword"
+              style={{ width: 180 }}
+              onChange={(event) => setFilters((current) => ({ ...current, tag: event.target.value }))}
+            />
+            <Input
+              data-testid="asset-filter-min-duration"
+              value={filters.minDurationMs}
+              placeholder="Min ms"
+              style={{ width: 120 }}
+              onChange={(event) => setFilters((current) => ({ ...current, minDurationMs: event.target.value }))}
+            />
+            <Input
+              data-testid="asset-filter-max-duration"
+              value={filters.maxDurationMs}
+              placeholder="Max ms"
+              style={{ width: 120 }}
+              onChange={(event) => setFilters((current) => ({ ...current, maxDurationMs: event.target.value }))}
+            />
+            <Select
+              data-testid="asset-filter-has-audio"
+              value={filters.hasAudio || undefined}
+              placeholder="Has Audio"
+              allowClear
+              style={{ minWidth: 140 }}
+              options={[
+                { value: "true", label: "audio only" },
+                { value: "false", label: "mute only" }
+              ]}
+              onChange={(value) => setFilters((current) => ({ ...current, hasAudio: value ?? "" }))}
+            />
+            <Button
+              onClick={() => {
+                setFilters({
+                  productID: "",
+                  sellingPointID: "",
+                  sourceType: "",
+                  status: "",
+                  tag: "",
+                  minDurationMs: "",
+                  maxDurationMs: "",
+                  hasAudio: ""
+                });
+                setProductForSellingPoints("");
+              }}
+            >
+              Reset
+            </Button>
             <Button onClick={assets.reload}>Refresh</Button>
           </Space>
         </Card>
