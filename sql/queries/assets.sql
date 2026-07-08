@@ -1,6 +1,7 @@
 -- name: CreateAsset :one
 INSERT INTO assets (
     product_id,
+    asset_name,
     storage_key,
     file_name,
     file_ext,
@@ -8,22 +9,41 @@ INSERT INTO assets (
     file_size,
     checksum,
     source_type,
+    ingestion_source,
     duration_ms,
     width,
     height,
     fps,
     codec,
     status,
+    analysis_status,
+    usability_status,
     manual_clean_status,
+    source_path,
     source_original_name,
     source_in_ms,
     source_out_ms,
+    has_audio,
+    audio_codec,
+    bitrate_kbps,
+    scene_description,
+    shot_size,
+    camera_movement,
+    subjects,
+    scene_tags,
+    quality_tags,
+    model_result,
+    reviewer_notes,
+    analysis_error,
+    analyzed_at,
     metadata,
     created_by_user_id,
     updated_by_user_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+    $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+    $31, $32, $33, $34, $35, $36, $37, $38, $38
 )
 RETURNING *;
 
@@ -36,6 +56,8 @@ SELECT * FROM assets
 WHERE product_id = COALESCE(sqlc.narg('product_id'), product_id)
   AND source_type = COALESCE(sqlc.narg('source_type'), source_type)
   AND status = COALESCE(sqlc.narg('status'), status)
+  AND analysis_status = COALESCE(sqlc.narg('analysis_status'), analysis_status)
+  AND usability_status = COALESCE(sqlc.narg('usability_status'), usability_status)
 ORDER BY created_at DESC;
 
 -- name: UpdateAssetStatus :exec
@@ -52,6 +74,42 @@ SET duration_ms = $2,
     height = $4,
     fps = $5,
     codec = $6,
-    updated_by_user_id = $7,
+    has_audio = $7,
+    audio_codec = $8,
+    bitrate_kbps = $9,
+    updated_by_user_id = $10,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UpdateAssetAnalysis :exec
+UPDATE assets
+SET analysis_status = $2,
+    usability_status = $3,
+    scene_description = $4,
+    shot_size = $5,
+    camera_movement = $6,
+    subjects = $7,
+    scene_tags = $8,
+    quality_tags = $9,
+    model_result = $10,
+    analysis_error = $11,
+    analyzed_at = $12,
+    updated_by_user_id = $13,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UpdateAssetReview :exec
+UPDATE assets
+SET reviewer_notes = $2,
+    usability_status = $3,
+    updated_by_user_id = $4,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: ArchiveAsset :exec
+UPDATE assets
+SET status = 'archived',
+    archived_at = now(),
+    updated_by_user_id = $2,
     updated_at = now()
 WHERE id = $1;
