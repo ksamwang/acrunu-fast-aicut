@@ -123,7 +123,9 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		ManualCleanStatus: manualCleanStatus,
 		SourcePath:        sourcePath,
 		SourceOriginalName: firstNonEmptyForm(sourceOriginalName, header.Filename),
-		HasAudio:          false,
+		HasAudio:          probeResult.HasAudio,
+		AudioCodec:        probeResult.AudioCodec,
+		BitrateKbps:       probeResult.BitrateKbps,
 		ReviewerNotes:     reviewerNotes,
 		SellingPointIDs:   sellingPointIDs,
 		CreatedByUserID:   token.UserID,
@@ -134,6 +136,9 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	}
 
 	response := gin.H{"asset": asset}
+	if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(asset.ID, asset.StorageKey, asset.DurationMs); enqueueErr != nil {
+		response["frame_task_error"] = enqueueErr.Error()
+	}
 	if probeErr != nil {
 		response["probe_error"] = probeErr.Error()
 	}

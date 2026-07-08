@@ -16,10 +16,16 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	taskService := services.NewConfiguredTaskService(context.Background(), cfg, logger)
 	defer taskService.Close()
+	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
+	defer productAssetService.Close()
+	workerHandler := services.NewWorkerHandler(
+		taskService.Service,
+		services.NewAssetProcessingService(cfg.StorageRoot, productAssetService.Service.Queries()),
+	)
 
 	if cfg.QueueBackend == "file" {
 		logger.Info("worker starting", "queue_backend", cfg.QueueBackend, "storage_root", cfg.StorageRoot)
-		if err := queue.RunFileWorker(context.Background(), cfg.StorageRoot, taskService.Service, 500*time.Millisecond); err != nil {
+		if err := queue.RunFileWorker(context.Background(), cfg.StorageRoot, workerHandler, 500*time.Millisecond); err != nil {
 			logger.Error("worker stopped", "error", err)
 			os.Exit(1)
 		}
@@ -27,7 +33,7 @@ func main() {
 	}
 
 	server := queue.NewServer(cfg.RedisAddr, cfg.WorkerConcurrency)
-	mux := queue.NewServeMux(taskService.Service)
+	mux := queue.NewServeMux(workerHandler)
 
 	logger.Info("worker starting", "queue_backend", cfg.QueueBackend, "redis", cfg.RedisAddr, "concurrency", cfg.WorkerConcurrency)
 	if err := server.Run(mux); err != nil {

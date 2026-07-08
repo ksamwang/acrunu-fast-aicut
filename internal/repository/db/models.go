@@ -54,6 +54,17 @@ type Asset struct {
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
 }
 
+type AssetFrameSnapshot struct {
+	ID          pgtype.UUID        `json:"id"`
+	AssetID     pgtype.UUID        `json:"asset_id"`
+	FrameIndex  int32              `json:"frame_index"`
+	TimestampMs int32              `json:"timestamp_ms"`
+	StorageKey  string             `json:"storage_key"`
+	Width       pgtype.Int4        `json:"width"`
+	Height      pgtype.Int4        `json:"height"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type AssetSellingPoint struct {
 	AssetID        pgtype.UUID        `json:"asset_id"`
 	SellingPointID pgtype.UUID        `json:"selling_point_id"`

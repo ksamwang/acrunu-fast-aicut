@@ -15,6 +15,9 @@ type ProbeResult struct {
 	Height     int
 	FPS        float64
 	Codec      string
+	HasAudio   bool
+	AudioCodec string
+	BitrateKbps int
 }
 
 type probeOutput struct {
@@ -27,6 +30,7 @@ type probeOutput struct {
 	} `json:"streams"`
 	Format struct {
 		Duration string `json:"duration"`
+		BitRate  string `json:"bit_rate"`
 	} `json:"format"`
 }
 
@@ -53,17 +57,26 @@ func Probe(ctx context.Context, filePath string) (ProbeResult, error) {
 
 	result := ProbeResult{
 		DurationMs: secondsStringToMs(parsed.Format.Duration),
+		BitrateKbps: bitsPerSecondStringToKbps(parsed.Format.BitRate),
 	}
 
 	for _, stream := range parsed.Streams {
-		if stream.CodecType != "video" {
-			continue
+		switch stream.CodecType {
+		case "video":
+			if result.Width != 0 || result.Height != 0 || result.Codec != "" {
+				continue
+			}
+			result.Width = stream.Width
+			result.Height = stream.Height
+			result.Codec = stream.CodecName
+			result.FPS = parseFrameRate(stream.AvgFrameRate)
+		case "audio":
+			if result.HasAudio {
+				continue
+			}
+			result.HasAudio = true
+			result.AudioCodec = stream.CodecName
 		}
-		result.Width = stream.Width
-		result.Height = stream.Height
-		result.Codec = stream.CodecName
-		result.FPS = parseFrameRate(stream.AvgFrameRate)
-		break
 	}
 
 	return result, nil
@@ -99,4 +112,12 @@ func parseFrameRate(value string) float64 {
 		return 0
 	}
 	return numerator / denominator
+}
+
+func bitsPerSecondStringToKbps(value string) int {
+	bitsPerSecond, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0
+	}
+	return int(bitsPerSecond / 1000)
 }

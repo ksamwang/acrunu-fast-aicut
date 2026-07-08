@@ -11,6 +11,7 @@ import (
 
 type TestTaskHandler interface {
 	HandleTestTask(ctx context.Context, payload TestTaskPayload) error
+	HandleAssetExtractFrames(ctx context.Context, payload AssetExtractFramesPayload) error
 }
 
 func NewServer(redisAddr string, concurrency int) *asynq.Server {
@@ -28,6 +29,13 @@ func NewServeMux(handler TestTaskHandler) *asynq.ServeMux {
 			return err
 		}
 		return handler.HandleTestTask(ctx, payload)
+	})
+	mux.HandleFunc(TypeAssetExtractFrames, func(ctx context.Context, task *asynq.Task) error {
+		var payload AssetExtractFramesPayload
+		if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+			return err
+		}
+		return handler.HandleAssetExtractFrames(ctx, payload)
 	})
 	return mux
 }
@@ -67,6 +75,12 @@ func handleFileTask(ctx context.Context, task FileTask, handler TestTaskHandler)
 			return err
 		}
 		return handler.HandleTestTask(ctx, payload)
+	case TypeAssetExtractFrames:
+		var payload AssetExtractFramesPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			return err
+		}
+		return handler.HandleAssetExtractFrames(ctx, payload)
 	default:
 		return nil
 	}

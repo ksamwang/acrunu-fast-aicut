@@ -136,6 +136,10 @@ func NewProductAssetServiceWithQueries(queries *db.Queries) *ProductAssetService
 	return service
 }
 
+func (s *ProductAssetService) Queries() *db.Queries {
+	return s.queries
+}
+
 type CreateAssetInput struct {
 	ProductID         string
 	AssetName         string

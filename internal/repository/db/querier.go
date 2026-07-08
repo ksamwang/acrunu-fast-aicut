@@ -21,6 +21,7 @@ type Querier interface {
 	CreateSellingPoint(ctx context.Context, arg CreateSellingPointParams) (ProductSellingPoint, error)
 	CreateSpeechSegment(ctx context.Context, arg CreateSpeechSegmentParams) (SpeechSegment, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteAssetFrameSnapshotsByAsset(ctx context.Context, assetID pgtype.UUID) error
 	GetAssetByID(ctx context.Context, id pgtype.UUID) (Asset, error)
 	GetGenerationTaskByID(ctx context.Context, id pgtype.UUID) (GenerationTask, error)
 	GetProductByID(ctx context.Context, id pgtype.UUID) (Product, error)
@@ -28,6 +29,7 @@ type Querier interface {
 	GetSystemConfigByKey(ctx context.Context, configKey string) (SystemConfig, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	ListAssetFrameSnapshotsByAsset(ctx context.Context, assetID pgtype.UUID) ([]AssetFrameSnapshot, error)
 	ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset, error)
 	ListGenerationTasks(ctx context.Context, status pgtype.Text) ([]GenerationTask, error)
 	ListProducts(ctx context.Context, status pgtype.Text) ([]Product, error)
@@ -47,6 +49,7 @@ type Querier interface {
 	UpdateSpeechSegment(ctx context.Context, arg UpdateSpeechSegmentParams) (SpeechSegment, error)
 	UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) error
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
+	UpsertAssetFrameSnapshot(ctx context.Context, arg UpsertAssetFrameSnapshotParams) (AssetFrameSnapshot, error)
 	UpsertSystemConfig(ctx context.Context, arg UpsertSystemConfigParams) (SystemConfig, error)
 }
 
