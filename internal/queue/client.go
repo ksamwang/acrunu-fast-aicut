@@ -1,22 +1,36 @@
 package queue
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/hibiken/asynq"
 )
 
 type Client struct {
-	client *asynq.Client
+	backend string
+	client  *asynq.Client
+	file    *FileQueue
 }
 
-func NewClient(redisAddr string) *Client {
+func NewClient(redisAddr string, backend string, storageRoot string) *Client {
+	if backend == "file" {
+		return &Client{
+			backend: backend,
+			file:    NewFileQueue(storageRoot),
+		}
+	}
 	return &Client{
-		client: asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr}),
+		backend: "redis",
+		client:  asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr}),
 	}
 }
 
 func (c *Client) Close() error {
+	if c.client == nil {
+		return nil
+	}
 	return c.client.Close()
 }
 
@@ -26,6 +40,12 @@ func (c *Client) EnqueueTestTask(taskID string) error {
 		return err
 	}
 
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeTestTask, payload)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
 	_, err = c.client.Enqueue(asynq.NewTask(TypeTestTask, payload))
 	return err
 }

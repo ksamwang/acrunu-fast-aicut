@@ -184,7 +184,7 @@ worker 消费任务并更新状态
 - [x] 支持失败原因记录
 - [x] 支持重试次数记录
 
-备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。已抽象任务状态存储并接入 PostgreSQL task store，`DATABASE_URL` 可连接时使用 `generation_tasks`，不可用时回退 `storage/temp/tasks.json`。当前执行环境未安装 PostgreSQL 和 Redis，数据库写入与队列消费运行态仍待验证。
+备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。已抽象任务状态存储并接入 PostgreSQL task store，`DATABASE_URL` 可连接时使用 `generation_tasks`，不可用时回退 `storage/temp/tasks.json`。已新增本地开发用 `QUEUE_BACKEND=file`，在无 Redis 环境下验证 API 与独立 worker 可通过文件队列完成测试任务入队、消费和状态更新；Redis 队列与数据库写入运行态仍待依赖可用后验证。
 
 ## 12. 前端基础
 
@@ -207,7 +207,7 @@ worker 消费任务并更新状态
 
 - [ ] 启动 Docker Compose
 - [x] 启动 API
-- [ ] 启动 worker
+- [x] 启动 worker
 - [x] 启动 Web Console
 - [x] 启动 local-agent
 - [x] 创建 admin 用户
@@ -218,11 +218,11 @@ worker 消费任务并更新状态
 - [x] 上传 clean shot 到服务端
 - [x] 服务端写入素材库
 - [ ] 前端可查看素材列表
-- [ ] API 创建测试异步任务
-- [ ] worker 消费测试任务
+- [x] API 创建测试异步任务
+- [x] worker 消费测试任务
 - [ ] 前端可查看任务状态
 
-备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。Docker Compose、PostgreSQL、Redis、worker 和前端点击交互闭环仍待验证。
+备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。已使用 `QUEUE_BACKEND=file` 启动独立 worker，验证 `/api/tasks/test` 创建任务后 worker 消费并将任务状态更新为 `completed`。Docker Compose、PostgreSQL、Redis 和前端点击交互闭环仍待验证。
 
 ## 14. 第一阶段暂不包含
 
@@ -240,7 +240,7 @@ worker 消费任务并更新状态
 ## 15. 完成标准
 
 - [x] Go API 可启动
-- [ ] Go worker 可启动
+- [x] Go worker 可启动
 - [x] Web Console 可启动
 - [x] Local Agent 可启动
 - [ ] PostgreSQL + pgvector 可用
@@ -251,5 +251,5 @@ worker 消费任务并更新状态
 - [x] 产品和卖点基础管理可用
 - [x] clean shot 上传链路可用
 - [x] 素材基础入库可用
-- [ ] 异步任务入队和消费可用
+- [x] 异步任务入队和消费可用
 - [ ] 前端可查看素材和任务状态

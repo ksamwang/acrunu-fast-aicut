@@ -49,7 +49,7 @@ func New(opts Options) *Server {
 		uploadTokenService:  services.NewUploadTokenService(),
 		localStore:          storage.NewLocalStore(opts.Config.StorageRoot),
 		taskService:         taskService,
-		queueClient:         queue.NewClient(opts.Config.RedisAddr),
+		queueClient:         queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
 	}
 
 	server.routes()

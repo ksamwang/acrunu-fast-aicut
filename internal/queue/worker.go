@@ -3,6 +3,8 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
 	"github.com/hibiken/asynq"
 )
@@ -28,4 +30,44 @@ func NewServeMux(handler TestTaskHandler) *asynq.ServeMux {
 		return handler.HandleTestTask(ctx, payload)
 	})
 	return mux
+}
+
+func RunFileWorker(ctx context.Context, storageRoot string, handler TestTaskHandler, pollInterval time.Duration) error {
+	if pollInterval <= 0 {
+		pollInterval = 500 * time.Millisecond
+	}
+
+	fileQueue := NewFileQueue(storageRoot)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		task, err := fileQueue.Dequeue(ctx)
+		if err != nil {
+			if !errors.Is(err, ErrFileQueueEmpty) {
+				return err
+			}
+		} else if err := handleFileTask(ctx, task, handler); err != nil {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func handleFileTask(ctx context.Context, task FileTask, handler TestTaskHandler) error {
+	switch task.Type {
+	case TypeTestTask:
+		var payload TestTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			return err
+		}
+		return handler.HandleTestTask(ctx, payload)
+	default:
+		return nil
+	}
 }

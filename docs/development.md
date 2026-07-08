@@ -42,6 +42,14 @@ docker compose up --build
 docker compose up postgres redis
 ```
 
+无 Redis 的本地开发环境可临时使用文件队列验证 API 与 worker 的异步链路：
+
+```powershell
+$env:QUEUE_BACKEND="file"
+```
+
+文件队列只用于本地开发验证，生产和 Docker Compose 默认仍使用 Redis。
+
 ## 4. 检查 ffmpeg
 
 Windows PowerShell：

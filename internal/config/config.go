@@ -10,6 +10,7 @@ type Config struct {
 	APIAddr           string
 	LocalAgentAddr    string
 	DatabaseURL       string
+	QueueBackend      string
 	RedisAddr         string
 	WorkerConcurrency int
 	AdminUsername     string
@@ -23,6 +24,7 @@ func Load() Config {
 		APIAddr:           env("API_ADDR", ":8080"),
 		LocalAgentAddr:    env("LOCAL_AGENT_ADDR", "127.0.0.1:58721"),
 		DatabaseURL:       env("DATABASE_URL", ""),
+		QueueBackend:      env("QUEUE_BACKEND", "redis"),
 		RedisAddr:         env("REDIS_ADDR", "localhost:6379"),
 		WorkerConcurrency: envInt("WORKER_CONCURRENCY", 4),
 		AdminUsername:     env("ADMIN_USERNAME", "admin"),
