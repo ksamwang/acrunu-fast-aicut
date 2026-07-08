@@ -82,3 +82,8 @@ body {
   border-radius: 8px;
   background: #eef2f6;
 }
+
+.summary-text {
+  display: inline-block;
+  max-width: 180px;
+}

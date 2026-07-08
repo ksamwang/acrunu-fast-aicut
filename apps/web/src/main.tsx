@@ -74,6 +74,10 @@ type Asset = {
   scene_description?: string;
   shot_size?: string;
   camera_movement?: string;
+  subjects?: string[];
+  scene_tags?: string[];
+  quality_tags?: string[];
+  analysis_error?: string;
 };
 
 type AssetFrameSnapshot = {
@@ -166,6 +170,20 @@ function formatTimestamp(durationMs: number) {
   const seconds = totalSeconds % 60;
   const milliseconds = durationMs % 1000;
   return `${minutes}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
+}
+
+function renderTagList(items?: string[], emptyText = "-") {
+  if (!items || items.length === 0) {
+    return <Typography.Text type="secondary">{emptyText}</Typography.Text>;
+  }
+
+  return (
+    <Space wrap size={[6, 6]}>
+      {items.map((item) => (
+        <Tag key={item}>{item}</Tag>
+      ))}
+    </Space>
+  );
 }
 
 function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
@@ -342,6 +360,13 @@ function AssetsPage({ token }: { token: string }) {
   }, [filters]);
 
   const assets = useResource<Asset[]>(assetPath, token, [assetPath]);
+  const productNameByID = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const product of products.data ?? []) {
+      map.set(product.id, product.name);
+    }
+    return map;
+  }, [products.data]);
 
   useEffect(() => {
     if (!selectedAsset) {
@@ -430,6 +455,10 @@ function AssetsPage({ token }: { token: string }) {
                 )
               },
               { title: "File", dataIndex: "file_name" },
+              {
+                title: "Product",
+                render: (_, asset) => productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"
+              },
               { title: "Type", dataIndex: "source_type" },
               { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
               {
@@ -438,6 +467,28 @@ function AssetsPage({ token }: { token: string }) {
                 render: (status) => (status ? <Tag color="blue">{status}</Tag> : "-")
               },
               { title: "Duration", render: (_, asset) => formatDuration(asset.duration_ms) },
+              {
+                title: "Shot Size",
+                dataIndex: "shot_size",
+                render: (value) => value || "-"
+              },
+              {
+                title: "Movement",
+                dataIndex: "camera_movement",
+                render: (value) => value || "-"
+              },
+              {
+                title: "Tags",
+                render: (_, asset) => (
+                  <Typography.Text className="summary-text">
+                    {asset.scene_tags && asset.scene_tags.length > 0
+                      ? asset.scene_tags.slice(0, 3).join(", ")
+                      : asset.subjects && asset.subjects.length > 0
+                        ? asset.subjects.slice(0, 3).join(", ")
+                        : "-"}
+                  </Typography.Text>
+                )
+              },
               {
                 title: "Resolution",
                 render: (_, asset) => (asset.width && asset.height ? `${asset.width}x${asset.height}` : "-")
@@ -475,11 +526,29 @@ function AssetsPage({ token }: { token: string }) {
             </Descriptions>
 
             <Card title="Analysis Summary">
-              <Space wrap>
-                {selectedAsset.shot_size ? <Tag>{selectedAsset.shot_size}</Tag> : null}
-                {selectedAsset.camera_movement ? <Tag>{selectedAsset.camera_movement}</Tag> : null}
-                {selectedAsset.scene_description ? <Typography.Text>{selectedAsset.scene_description}</Typography.Text> : <Typography.Text type="secondary">No analysis output yet.</Typography.Text>}
-              </Space>
+              <Descriptions bordered column={1} size="small" data-testid="asset-analysis-panel">
+                <Descriptions.Item label="Scene Description">
+                  {selectedAsset.scene_description || <Typography.Text type="secondary">No analysis output yet.</Typography.Text>}
+                </Descriptions.Item>
+                <Descriptions.Item label="Shot Size">
+                  {selectedAsset.shot_size || "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Camera Movement">
+                  {selectedAsset.camera_movement || "-"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Subjects">
+                  {renderTagList(selectedAsset.subjects, "No detected subjects")}
+                </Descriptions.Item>
+                <Descriptions.Item label="Scene Tags">
+                  {renderTagList(selectedAsset.scene_tags, "No scene tags")}
+                </Descriptions.Item>
+                <Descriptions.Item label="Quality Tags">
+                  {renderTagList(selectedAsset.quality_tags, "No quality issues")}
+                </Descriptions.Item>
+                <Descriptions.Item label="Analysis Error">
+                  {selectedAsset.analysis_error || <Typography.Text type="secondary">None</Typography.Text>}
+                </Descriptions.Item>
+              </Descriptions>
             </Card>
 
             <Card title="Frame Previews" loading={framesLoading}>

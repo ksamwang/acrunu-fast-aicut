@@ -47,7 +47,16 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     if (url.includes("/api/products")) {
       await route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({ data: [] })
+        body: JSON.stringify({
+          data: [
+            {
+              id: "product-1",
+              name: "Smart Light",
+              category: "auto",
+              status: "active"
+            }
+          ]
+        })
       });
       return;
     }
@@ -65,13 +74,20 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
               file_name: "clean-shot.mp4",
               source_type: "visual_only",
               status: "ready",
-              analysis_status: "pending_analysis",
+              analysis_status: "ready",
+              usability_status: "usable",
               duration_ms: 2066,
               width: 320,
               height: 568,
               has_audio: true,
               audio_codec: "aac",
-              bitrate_kbps: 3200
+              bitrate_kbps: 3200,
+              scene_description: "product close-up with stable framing",
+              shot_size: "close_up",
+              camera_movement: "static",
+              subjects: ["product"],
+              scene_tags: ["indoor", "demo"],
+              quality_tags: []
             }
           ]
         })
@@ -128,10 +144,17 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await page.locator(".ant-menu-item").nth(1).click();
   await expect(page.getByTestId("assets-page")).toBeVisible();
   await expect(page.getByText("clean-shot.mp4")).toBeVisible();
-  await expect(page.getByText("ready")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "ready" }).first()).toBeVisible();
+  await expect(page.getByText("Smart Light")).toBeVisible();
   await expect(page.getByText("320x568")).toBeVisible();
+  await expect(page.getByText("close_up")).toBeVisible();
+  await expect(page.getByText("static")).toBeVisible();
+  await expect(page.getByText("indoor, demo")).toBeVisible();
   await page.getByRole("button", { name: "clean-shot" }).click();
   await expect(page.getByTestId("asset-detail-modal")).toBeVisible();
+  await expect(page.getByTestId("asset-analysis-panel")).toBeVisible();
+  await expect(page.getByText("product close-up with stable framing")).toBeVisible();
+  await expect(page.getByText("No quality issues")).toBeVisible();
   await expect(page.getByText("0:00.500")).toBeVisible();
   await expect(page.getByTestId("frame-card")).toBeVisible();
   await page.locator(".ant-modal-close").click();
