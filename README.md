@@ -167,6 +167,39 @@ go run .\apps\worker\main.go
 - 本地 worker
 - 本地 web
 
+## 服务端部署
+
+开发阶段可以用脚本将当前已提交的代码同步到服务器，并重建服务端 `api` 和 `worker` 容器。
+
+先提交本地改动：
+
+```powershell
+git status
+git add .
+git commit -m "更新说明"
+```
+
+然后在 VSCode 本机 PowerShell 里执行：
+
+```powershell
+.\scripts\deploy-server.ps1
+```
+
+脚本默认配置：
+
+- 服务器：`192.168.1.10`
+- 用户：`deploy`
+- 远程目录：`/opt/acrunu-fast-aicut`
+- 重建服务：`api`、`worker`
+
+如果本次包含数据库迁移，并且服务器已安装 `goose`，可以执行：
+
+```powershell
+.\scripts\deploy-server.ps1 -RunMigrations
+```
+
+脚本使用 `git archive HEAD` 打包已提交代码，不会同步本机 `.env`、`storage/`、未跟踪文件和临时产物。服务端 `.env` 需要在服务器上单独维护。
+
 ## 数据库迁移
 
 当前迁移不是 API 启动时自动执行，需要手动运行。
