@@ -433,6 +433,25 @@ func (s *ProductAssetService) ListAssetFrameSnapshots(assetID string) []AssetFra
 	return items
 }
 
+func (s *ProductAssetService) FindDuplicateAssetsByChecksum(checksum string, excludeAssetID string) []Asset {
+	if checksum == "" {
+		return nil
+	}
+
+	assets := s.ListAssets(AssetFilters{})
+	duplicates := make([]Asset, 0)
+	for _, asset := range assets {
+		if asset.ID == excludeAssetID {
+			continue
+		}
+		if !strings.EqualFold(asset.Checksum, checksum) {
+			continue
+		}
+		duplicates = append(duplicates, asset)
+	}
+	return duplicates
+}
+
 func (s *ProductAssetService) ListAssetSellingPoints(assetID string) ([]SellingPoint, error) {
 	asset, ok := s.GetAsset(assetID)
 	if !ok {

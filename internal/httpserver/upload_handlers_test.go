@@ -1,11 +1,14 @@
 package httpserver
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
@@ -194,5 +197,74 @@ func TestHandleListAssetsSupportsKeywordDiscardedAndSort(t *testing.T) {
 	}
 	if response.Data.Items[0].ID != assetA.ID {
 		t.Fatalf("expected asset a after filtering, got %+v", response.Data.Items[0])
+	}
+}
+
+func TestHandleUploadCleanShotDetectsDuplicates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	uploadOnce := func(filename string) map[string]any {
+		token, err := server.uploadTokenService.Create(product.ID, "user-1", 30*time.Minute)
+		if err != nil {
+			t.Fatalf("create upload token failed: %v", err)
+		}
+
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		if err := writer.WriteField("source_type", "visual_only"); err != nil {
+			t.Fatalf("write source_type failed: %v", err)
+		}
+		if err := writer.WriteField("asset_name", filename); err != nil {
+			t.Fatalf("write asset_name failed: %v", err)
+		}
+		part, err := writer.CreateFormFile("file", filename)
+		if err != nil {
+			t.Fatalf("create form file failed: %v", err)
+		}
+		if _, err := part.Write([]byte("duplicate-content")); err != nil {
+			t.Fatalf("write file content failed: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close writer failed: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/uploads/clean-shot", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		req.Header.Set("X-Upload-Token", token.Token)
+		recorder := httptest.NewRecorder()
+		server.engine.ServeHTTP(recorder, req)
+
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+		}
+
+		var response struct {
+			Data map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("unmarshal upload response failed: %v", err)
+		}
+		return response.Data
+	}
+
+	first := uploadOnce("first.txt")
+	if first["is_duplicate"] != false {
+		t.Fatalf("expected first upload not duplicate, got %#v", first["is_duplicate"])
+	}
+
+	second := uploadOnce("second.txt")
+	if second["is_duplicate"] != true {
+		t.Fatalf("expected second upload duplicate, got %#v", second["is_duplicate"])
+	}
+	duplicates, ok := second["duplicate_assets"].([]any)
+	if !ok || len(duplicates) != 1 {
+		t.Fatalf("expected one duplicate asset in response, got %#v", second["duplicate_assets"])
 	}
 }

@@ -145,6 +145,11 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	}
 
 	response := gin.H{"asset": asset}
+	duplicates := s.productAssetService.FindDuplicateAssetsByChecksum(checksum, asset.ID)
+	response["is_duplicate"] = len(duplicates) > 0
+	if len(duplicates) > 0 {
+		response["duplicate_assets"] = duplicates
+	}
 	frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), token.UserID, asset.ProductID, servicesQueueExtractPayload(asset))
 	if taskErr != nil {
 		response["frame_task_error"] = taskErr.Error()

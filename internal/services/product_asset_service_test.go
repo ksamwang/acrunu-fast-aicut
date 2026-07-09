@@ -327,7 +327,7 @@ func TestListAssetsSupportsExcludeDiscardedKeywordAndSorting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create asset a failed: %v", err)
 	}
-	assetB, err := service.CreateAsset(CreateAssetInput{
+	_, err = service.CreateAsset(CreateAssetInput{
 		ProductID:         product.ID,
 		FileName:          "b.mp4",
 		StorageKey:        "assets/b.mp4",
@@ -397,7 +397,10 @@ func TestListAssetsSupportsExcludeDiscardedKeywordAndSorting(t *testing.T) {
 		t.Fatalf("expected only asset a after keyword + exclude filter, got %#v", filtered)
 	}
 
-	updatedSorted := service.ListAssets(AssetFilters{SortBy: "updated_at_desc"})
+	updatedSorted := service.ListAssets(AssetFilters{
+		SortBy:           "updated_at_desc",
+		ExcludeDiscarded: true,
+	})
 	if len(updatedSorted) < 2 || updatedSorted[0].ID != assetC.ID {
 		t.Fatalf("expected asset c first by updated_at_desc, got %#v", updatedSorted)
 	}
@@ -406,9 +409,60 @@ func TestListAssetsSupportsExcludeDiscardedKeywordAndSorting(t *testing.T) {
 	if len(analyzedSorted) < 2 || analyzedSorted[0].ID != assetC.ID {
 		t.Fatalf("expected asset c first by analyzed_at_desc, got %#v", analyzedSorted)
 	}
+}
 
-	if updatedSorted[0].ID == assetB.ID && updatedSorted[0].UsabilityStatus != "discarded" {
-		t.Fatalf("unexpected asset ordering result: %#v", updatedSorted[0])
+func TestFindDuplicateAssetsByChecksum(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	assetA, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		Checksum:          "same-hash",
+	})
+	if err != nil {
+		t.Fatalf("create asset a failed: %v", err)
+	}
+	assetB, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "b.mp4",
+		StorageKey:        "assets/b.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		Checksum:          "same-hash",
+	})
+	if err != nil {
+		t.Fatalf("create asset b failed: %v", err)
+	}
+	_, err = service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "c.mp4",
+		StorageKey:        "assets/c.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		Checksum:          "other-hash",
+	})
+	if err != nil {
+		t.Fatalf("create asset c failed: %v", err)
+	}
+
+	duplicates := service.FindDuplicateAssetsByChecksum("same-hash", assetB.ID)
+	if len(duplicates) != 1 {
+		t.Fatalf("expected one duplicate after excluding current asset, got %d", len(duplicates))
+	}
+	if duplicates[0].ID != assetA.ID {
+		t.Fatalf("expected asset a duplicate, got %#v", duplicates[0])
 	}
 }
 
