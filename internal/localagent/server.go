@@ -1,48 +1,31 @@
 package localagent
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/ksamwang/acrunu-fast-aicut/internal/ffmpeg"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 )
 
 type Options struct {
-	Addr   string
-	Logger *slog.Logger
+	Addr          string
+	Logger        *slog.Logger
+	WorkspaceRoot string
+	Processor     Processor
 }
 
 type Server struct {
-	addr   string
-	logger *slog.Logger
-}
-
-type preprocessRequest struct {
-	SourcePath  string `json:"source_path"`
-	SourceInMs  int    `json:"source_in_ms"`
-	SourceOutMs int    `json:"source_out_ms"`
-	SourceType  string `json:"source_type"`
-	UploadURL   string `json:"upload_url"`
-	UploadToken string `json:"upload_token"`
-}
-
-type preprocessResponse struct {
-	OutputPath string             `json:"output_path"`
-	Checksum   string             `json:"checksum"`
-	Probe      ffmpeg.ProbeResult `json:"probe"`
-	UploadCode int                `json:"upload_code"`
+	addr      string
+	logger    *slog.Logger
+	workspace *Workspace
 }
 
 func New(opts Options) *Server {
@@ -53,20 +36,42 @@ func New(opts Options) *Server {
 		opts.Logger = slog.Default()
 	}
 
-	return &Server{
-		addr:   opts.Addr,
-		logger: opts.Logger,
+	workspaceRoot := opts.WorkspaceRoot
+	if workspaceRoot == "" {
+		workspaceRoot = filepath.Join(os.TempDir(), "aicut-local-workspace")
 	}
+	workspace, err := NewWorkspace(workspaceRoot, opts.Processor)
+	if err != nil {
+		panic(fmt.Errorf("create local workspace: %w", err))
+	}
+
+	return &Server{
+		addr:      opts.Addr,
+		logger:    opts.Logger,
+		workspace: workspace,
+	}
+}
+
+func NewDefaultProcessor(provider string, model string, timeout time.Duration, maxRetries int) Processor {
+	return NewProcessor(modelgateway.NewAnalyzer(modelgateway.Config{
+		Provider:   provider,
+		Model:      model,
+		Timeout:    timeout,
+		MaxRetries: maxRetries,
+	}, nil))
 }
 
 func (s *Server) Run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealth)
-	mux.HandleFunc("/preprocess", s.handlePreprocess)
+	mux.HandleFunc("/workspace/import", s.handleWorkspaceImport)
+	mux.HandleFunc("/workspace/items", s.handleWorkspaceItems)
+	mux.HandleFunc("/workspace/items/", s.handleWorkspaceItemRoute)
+	mux.HandleFunc("/workspace/clear", s.handleWorkspaceClear)
 
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           s.withLogging(mux),
+		Handler:           s.withMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -74,138 +79,232 @@ func (s *Server) Run() error {
 	return server.ListenAndServe()
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
-func (s *Server) handlePreprocess(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleWorkspaceImport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 		return
 	}
 
-	var req preprocessRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid multipart form"})
+		return
+	}
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "missing files"})
+		return
+	}
+
+	items, err := s.workspace.ImportFiles(r.Context(), files)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": s.enrichItems(r, items)})
+}
+
+func (s *Server) handleWorkspaceItems(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": s.enrichItems(r, s.workspace.ListItems())})
+}
+
+func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/workspace/items/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+
+	itemID := parts[0]
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleWorkspaceItemDetail(w, r, itemID)
+		case http.MethodPut:
+			s.handleWorkspaceItemSave(w, r, itemID)
+		default:
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		}
+		return
+	}
+
+	switch parts[1] {
+	case "prepare":
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemPrepare(w, r, itemID)
+	case "source":
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemFile(w, r, itemID, "source", 0)
+	case "clean-shot":
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemFile(w, r, itemID, "clean-shot", 0)
+	case "frames":
+		if r.Method != http.MethodGet || len(parts) != 3 {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+			return
+		}
+		index, err := strconv.Atoi(parts[2])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid frame index"})
+			return
+		}
+		s.handleWorkspaceItemFile(w, r, itemID, "frame", index)
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+	}
+}
+
+func (s *Server) handleWorkspaceItemDetail(w http.ResponseWriter, r *http.Request, itemID string) {
+	item, ok := s.workspace.GetItem(itemID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "workspace item not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
+
+func (s *Server) handleWorkspaceItemSave(w http.ResponseWriter, r *http.Request, itemID string) {
+	var input WorkspaceSaveInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
 		return
 	}
-	if err := validatePreprocessRequest(req); err != nil {
+	item, err := s.workspace.SaveItem(itemID, input)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
 
-	outputPath := filepath.Join(os.TempDir(), "aicut-clean-shot-"+uuid.NewString()+filepath.Ext(req.SourcePath))
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
-	defer cancel()
+func (s *Server) handleWorkspaceItemPrepare(w http.ResponseWriter, r *http.Request, itemID string) {
+	item, err := s.workspace.PrepareItem(context.Background(), itemID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
 
-	if err := ffmpeg.Cut(ctx, req.SourcePath, outputPath, req.SourceInMs, req.SourceOutMs); err != nil {
+func (s *Server) handleWorkspaceItemFile(w http.ResponseWriter, r *http.Request, itemID string, kind string, frameIndex int) {
+	item, ok := s.workspace.GetItem(itemID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "workspace item not found"})
+		return
+	}
+
+	var path string
+	switch kind {
+	case "source":
+		path = item.SourcePath
+	case "clean-shot":
+		path = item.CleanShotPath
+	case "frame":
+		for _, frame := range item.FrameSnapshots {
+			if frame.FrameIndex == frameIndex {
+				path = frame.ImagePath
+				break
+			}
+		}
+	}
+
+	if path == "" {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "file not found"})
+		return
+	}
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleWorkspaceClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		return
+	}
+	if err := s.workspace.Clear(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
-
-	probe, err := ffmpeg.Probe(ctx, outputPath)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
-	}
-
-	checksum, err := fileChecksum(outputPath)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
-	}
-
-	uploadCode, err := uploadCleanShot(ctx, req.UploadURL, req.UploadToken, req.SourceType, outputPath)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, preprocessResponse{
-		OutputPath: outputPath,
-		Checksum:   checksum,
-		Probe:      probe,
-		UploadCode: uploadCode,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"cleared": true})
 }
 
-func validatePreprocessRequest(req preprocessRequest) error {
-	if req.SourcePath == "" {
-		return fmt.Errorf("source_path is required")
+func (s *Server) enrichItems(r *http.Request, items []WorkspaceItem) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, s.enrichItem(r, item))
 	}
-	if req.SourceOutMs <= req.SourceInMs {
-		return fmt.Errorf("invalid source range")
-	}
-	if req.SourceType != "visual_only" && req.SourceType != "talking_head" {
-		return fmt.Errorf("invalid source_type")
-	}
-	if req.UploadURL == "" {
-		return fmt.Errorf("upload_url is required")
-	}
-	if req.UploadToken == "" {
-		return fmt.Errorf("upload_token is required")
-	}
-	return nil
+	return result
 }
 
-func fileChecksum(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
+func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any {
+	data := map[string]any{
+		"id":                 item.ID,
+		"status":             item.Status,
+		"asset_name":         item.AssetName,
+		"source_type":        item.SourceType,
+		"original_file_name": item.OriginalFileName,
+		"source_file_name":   item.SourceFileName,
+		"source_file_size":   item.SourceFileSize,
+		"source_in_ms":       item.SourceInMs,
+		"source_out_ms":      item.SourceOutMs,
+		"transcript":         item.Transcript,
+		"reviewer_notes":     item.ReviewerNotes,
+		"probe":              item.Probe,
+		"analysis":           item.Analysis,
+		"last_error":         item.LastError,
+		"created_at":         item.CreatedAt,
+		"updated_at":         item.UpdatedAt,
+		"submitted_at":       item.SubmittedAt,
+		"checksum":           item.Checksum,
+		"source_url":         s.fileURL(r, item.ID, "source", 0),
+		"clean_shot_url":     s.fileURL(r, item.ID, "clean-shot", 0),
 	}
-	defer file.Close()
 
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, file); err != nil {
-		return "", err
+	frames := make([]map[string]any, 0, len(item.FrameSnapshots))
+	for _, frame := range item.FrameSnapshots {
+		frames = append(frames, map[string]any{
+			"frame_index":  frame.FrameIndex,
+			"timestamp_ms": frame.TimestampMs,
+			"image_url":    s.fileURL(r, item.ID, "frame", frame.FrameIndex),
+		})
 	}
-	return hex.EncodeToString(hasher.Sum(nil)), nil
+	data["frame_snapshots"] = frames
+	return data
 }
 
-func uploadCleanShot(ctx context.Context, uploadURL string, uploadToken string, sourceType string, path string) (int, error) {
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
+func (s *Server) fileURL(r *http.Request, itemID string, kind string, frameIndex int) string {
+	base := "http://" + r.Host
+	switch kind {
+	case "source":
+		return base + "/workspace/items/" + itemID + "/source"
+	case "clean-shot":
+		return base + "/workspace/items/" + itemID + "/clean-shot"
+	case "frame":
+		return fmt.Sprintf("%s/workspace/items/%s/frames/%d", base, itemID, frameIndex)
+	default:
+		return ""
+	}
+}
 
-	if err := writer.WriteField("source_type", sourceType); err != nil {
-		return 0, err
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	part, err := writer.CreateFormFile("file", filepath.Base(path))
-	if err != nil {
-		return 0, err
-	}
-	if _, err := io.Copy(part, file); err != nil {
-		return 0, err
-	}
-	if err := writer.Close(); err != nil {
-		return 0, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, &body)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("X-Upload-Token", uploadToken)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		responseBody, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(responseBody))
-	}
-
-	return resp.StatusCode, nil
+func (s *Server) withMiddleware(next http.Handler) http.Handler {
+	return s.withLogging(s.withCORS(next))
 }
 
 func (s *Server) withLogging(next http.Handler) http.Handler {
@@ -213,6 +312,19 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		s.logger.Info("local agent request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
+	})
+}
+
+func (s *Server) withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

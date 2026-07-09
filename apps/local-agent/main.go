@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/localagent"
@@ -13,8 +14,15 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	server := localagent.New(localagent.Options{
-		Addr:   cfg.LocalAgentAddr,
-		Logger: logger,
+		Addr:          cfg.LocalAgentAddr,
+		Logger:        logger,
+		WorkspaceRoot: filepath.Join(cfg.StorageRoot, "local-agent-workspace"),
+		Processor: localagent.NewDefaultProcessor(
+			cfg.VLMProvider,
+			cfg.VLMModel,
+			cfg.ModelGatewayTimeout,
+			cfg.VLMMaxRetries,
+		),
 	})
 
 	if err := server.Run(); err != nil {

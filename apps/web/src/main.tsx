@@ -23,6 +23,7 @@ import {
   message
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import { PreprocessPage } from "./preprocess-page";
 import "./styles.css";
 
 type User = {
@@ -190,7 +191,7 @@ type ModelSelectOption = {
   label: string;
 };
 
-type ViewKey = "products" | "assets" | "tasks" | "settings";
+type ViewKey = "products" | "preprocess" | "assets" | "tasks" | "settings";
 
 const roleLabels: Record<string, string> = {
   admin: "管理员",
@@ -2421,6 +2422,7 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
   const [view, setView] = useState<ViewKey>("products");
   const menuItems = [
     { key: "products", label: "产品" },
+    { key: "preprocess", label: "预处理" },
     { key: "assets", label: "素材" },
     { key: "tasks", label: "任务" },
     ...(session.user.role === "admin" ? [{ key: "settings", label: "设置" }] : [])
@@ -2444,6 +2446,7 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
         </Layout.Header>
         <Layout.Content className="content">
           {view === "products" && <ProductsPage token={session.token} />}
+          {view === "preprocess" && <PreprocessPage />}
           {view === "assets" && <AssetsPage token={session.token} />}
           {view === "tasks" && <TasksPage token={session.token} />}
           {view === "settings" && session.user.role === "admin" && <SettingsPage token={session.token} />}
