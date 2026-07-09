@@ -86,6 +86,8 @@ type Asset = {
   scene_tags?: string[];
   quality_tags?: string[];
   analysis_error?: string;
+  updated_at?: string;
+  analyzed_at?: string;
 };
 
 type AssetSellingPointPayload = {
@@ -464,9 +466,12 @@ function AssetsPage({ token }: { token: string }) {
     sourceType: "",
     status: "",
     tag: "",
+    keyword: "",
     minDurationMs: "",
     maxDurationMs: "",
-    hasAudio: ""
+    hasAudio: "",
+    excludeDiscarded: "",
+    sortBy: ""
   });
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(20);
@@ -497,6 +502,9 @@ function AssetsPage({ token }: { token: string }) {
     if (filters.tag) {
       params.set("tag", filters.tag);
     }
+    if (filters.keyword) {
+      params.set("keyword", filters.keyword);
+    }
     if (filters.minDurationMs) {
       params.set("min_duration_ms", filters.minDurationMs);
     }
@@ -505,6 +513,12 @@ function AssetsPage({ token }: { token: string }) {
     }
     if (filters.hasAudio) {
       params.set("has_audio", filters.hasAudio);
+    }
+    if (filters.excludeDiscarded) {
+      params.set("exclude_discarded", filters.excludeDiscarded);
+    }
+    if (filters.sortBy) {
+      params.set("sort_by", filters.sortBy);
     }
     params.set("page", String(assetPage));
     params.set("page_size", String(assetPageSize));
@@ -729,11 +743,21 @@ function AssetsPage({ token }: { token: string }) {
             <Input
               data-testid="asset-filter-tag"
               value={filters.tag}
-              placeholder="Tag or keyword"
+              placeholder="Tag"
               style={{ width: 180 }}
               onChange={(event) => {
                 setAssetPage(1);
                 setFilters((current) => ({ ...current, tag: event.target.value }));
+              }}
+            />
+            <Input
+              data-testid="asset-filter-keyword"
+              value={filters.keyword}
+              placeholder="Scene keyword"
+              style={{ width: 180 }}
+              onChange={(event) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, keyword: event.target.value }));
               }}
             />
             <Input
@@ -771,6 +795,35 @@ function AssetsPage({ token }: { token: string }) {
                 setFilters((current) => ({ ...current, hasAudio: value ?? "" }));
               }}
             />
+            <Select
+              data-testid="asset-filter-exclude-discarded"
+              value={filters.excludeDiscarded || undefined}
+              placeholder="Availability"
+              allowClear
+              style={{ minWidth: 160 }}
+              options={[
+                { value: "true", label: "exclude discarded" }
+              ]}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, excludeDiscarded: value ?? "" }));
+              }}
+            />
+            <Select
+              data-testid="asset-filter-sort"
+              value={filters.sortBy || undefined}
+              placeholder="Sort"
+              allowClear
+              style={{ minWidth: 180 }}
+              options={[
+                { value: "updated_at_desc", label: "recently updated" },
+                { value: "analyzed_at_desc", label: "recently analyzed" }
+              ]}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, sortBy: value ?? "" }));
+              }}
+            />
             <Button
               onClick={() => {
                 setAssetPage(1);
@@ -781,9 +834,12 @@ function AssetsPage({ token }: { token: string }) {
                   sourceType: "",
                   status: "",
                   tag: "",
+                  keyword: "",
                   minDurationMs: "",
                   maxDurationMs: "",
-                  hasAudio: ""
+                  hasAudio: "",
+                  excludeDiscarded: "",
+                  sortBy: ""
                 });
                 setProductForSellingPoints("");
               }}

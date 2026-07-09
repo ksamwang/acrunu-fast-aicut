@@ -34,6 +34,8 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     scene_tags: ["indoor", "demo"],
     quality_tags: [] as string[],
     reviewer_notes: "",
+    updated_at: "2026-07-08T00:00:01Z",
+    analyzed_at: "2026-07-08T00:00:01Z",
     archived_at: undefined as string | undefined
   };
   const filteredAsset = {
@@ -47,9 +49,12 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     scene_description: "speaker intro",
     shot_size: "medium_close_up",
     camera_movement: "handheld",
+    usability_status: "discarded",
     subjects: ["speaker"],
     scene_tags: ["talking_head"],
-    quality_tags: ["low_light"] as string[]
+    quality_tags: ["low_light"] as string[],
+    updated_at: "2026-07-08T00:00:02Z",
+    analyzed_at: "2026-07-08T00:00:02Z"
   };
 
   await page.route("**/api/**", async (route) => {
@@ -245,8 +250,8 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
-          data: {
-            items:
+          data: (() => {
+            let items =
               url.includes("selling_point_id=sp-1") ||
               url.includes("tag=demo") ||
               url.includes("min_duration_ms=2000") ||
@@ -254,18 +259,28 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
                 ? [asset]
                 : url.includes("has_audio=false")
                   ? [filteredAsset]
-                  : [asset, filteredAsset],
-            total:
-              url.includes("selling_point_id=sp-1") ||
-              url.includes("tag=demo") ||
-              url.includes("min_duration_ms=2000") ||
-              url.includes("has_audio=true") ||
-              url.includes("has_audio=false")
-                ? 1
-                : 2,
-            page: 1,
-            page_size: 20
-          }
+                  : [asset, filteredAsset];
+
+            if (url.includes("keyword=stable")) {
+              items = [asset];
+            }
+            if (url.includes("exclude_discarded=true")) {
+              items = items.filter((item) => item.usability_status !== "discarded");
+            }
+            if (url.includes("sort_by=updated_at_desc")) {
+              items = [...items].sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
+            }
+            if (url.includes("sort_by=analyzed_at_desc")) {
+              items = [...items].sort((left, right) => String(right.analyzed_at).localeCompare(String(left.analyzed_at)));
+            }
+
+            return {
+              items,
+              total: items.length,
+              page: 1,
+              page_size: 20
+            };
+          })()
         })
       });
       return;
@@ -406,6 +421,19 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await page.getByTitle("audio only").click();
   await expect(page.getByText("clean-shot.mp4")).toBeVisible();
   await expect(page.getByText("mute-shot.mp4")).toHaveCount(0);
+  await page.getByRole("button", { name: "Reset" }).click();
+  await page.getByTestId("asset-filter-exclude-discarded").click();
+  await page.getByTitle("exclude discarded").click();
+  await expect(page.getByText("clean-shot.mp4")).toBeVisible();
+  await expect(page.getByText("mute-shot.mp4")).toHaveCount(0);
+  await page.getByRole("button", { name: "Reset" }).click();
+  await page.getByTestId("asset-filter-keyword").fill("stable");
+  await expect(page.getByText("clean-shot.mp4")).toBeVisible();
+  await expect(page.getByText("mute-shot.mp4")).toHaveCount(0);
+  await page.getByRole("button", { name: "Reset" }).click();
+  await page.getByTestId("asset-filter-sort").click();
+  await page.getByTitle("recently updated").click();
+  await expect(page.getByRole("cell", { name: "mute-shot" }).first()).toBeVisible();
   await page.getByRole("button", { name: "clean-shot" }).click();
   await expect(page.getByTestId("asset-detail-modal")).toBeVisible();
   await expect(page.getByTestId("asset-analysis-panel")).toBeVisible();

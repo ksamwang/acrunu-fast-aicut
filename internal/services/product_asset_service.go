@@ -193,16 +193,19 @@ type CreateAssetInput struct {
 }
 
 type AssetFilters struct {
-	ProductID       string
-	SourceType      string
-	Status          string
-	AnalysisStatus  string
-	UsabilityStatus string
-	SellingPointID  string
-	Tag             string
-	MinDurationMs   *int
-	MaxDurationMs   *int
-	HasAudio        *bool
+	ProductID        string
+	SourceType       string
+	Status           string
+	AnalysisStatus   string
+	UsabilityStatus  string
+	SellingPointID   string
+	Tag              string
+	Keyword          string
+	MinDurationMs    *int
+	MaxDurationMs    *int
+	HasAudio         *bool
+	ExcludeDiscarded bool
+	SortBy           string
 }
 
 type AssetFrameSnapshot struct {
@@ -391,10 +394,7 @@ func (s *ProductAssetService) ListAssets(filters AssetFilters) []Asset {
 		}
 		assets = append(assets, asset)
 	}
-	sort.Slice(assets, func(i, j int) bool {
-		return assets[i].CreatedAt.After(assets[j].CreatedAt)
-	})
-	return assets
+	return postProcessAssets(assets, filters)
 }
 
 func (s *ProductAssetService) GetAsset(id string) (Asset, bool) {
@@ -1085,7 +1085,41 @@ func (s *ProductAssetService) listAssetsFromPostgres(filters AssetFilters) []Ass
 	for _, row := range rows {
 		items = append(items, assetFromDBRecord(row))
 	}
-	return items
+	return postProcessAssets(items, filters)
+}
+
+func postProcessAssets(items []Asset, filters AssetFilters) []Asset {
+	filtered := make([]Asset, 0, len(items))
+	for _, asset := range items {
+		if filters.ExcludeDiscarded && strings.EqualFold(asset.UsabilityStatus, "discarded") {
+			continue
+		}
+		if filters.Keyword != "" && !containsIgnoreCase(asset.SceneDescription, filters.Keyword) {
+			continue
+		}
+		filtered = append(filtered, asset)
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		switch filters.SortBy {
+		case "updated_at_desc":
+			if filtered[i].UpdatedAt.Equal(filtered[j].UpdatedAt) {
+				return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
+			}
+			return filtered[i].UpdatedAt.After(filtered[j].UpdatedAt)
+		case "analyzed_at_desc":
+			left := derefTime(filtered[i].AnalyzedAt)
+			right := derefTime(filtered[j].AnalyzedAt)
+			if left.Equal(right) {
+				return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
+			}
+			return left.After(right)
+		default:
+			return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
+		}
+	})
+
+	return filtered
 }
 
 func (s *ProductAssetService) getAssetFromPostgres(id string) (Asset, bool) {

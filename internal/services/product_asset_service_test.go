@@ -1,6 +1,9 @@
 package services
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestListAssetsAppliesFiltersInMemory(t *testing.T) {
 	service := NewProductAssetService()
@@ -304,6 +307,108 @@ func TestUpdateAssetSellingPointsRejectsWrongProductSellingPoint(t *testing.T) {
 	}
 	if err != ErrSellingPointNotFound {
 		t.Fatalf("expected ErrSellingPointNotFound, got %v", err)
+	}
+}
+
+func TestListAssetsSupportsExcludeDiscardedKeywordAndSorting(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	assetA, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SceneDescription:  "stable product close-up",
+	})
+	if err != nil {
+		t.Fatalf("create asset a failed: %v", err)
+	}
+	assetB, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "b.mp4",
+		StorageKey:        "assets/b.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "discarded",
+		ManualCleanStatus: "cleaned",
+		SceneDescription:  "speaker intro clip",
+	})
+	if err != nil {
+		t.Fatalf("create asset b failed: %v", err)
+	}
+	assetC, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "c.mp4",
+		StorageKey:        "assets/c.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SceneDescription:  "garage walkaround",
+	})
+	if err != nil {
+		t.Fatalf("create asset c failed: %v", err)
+	}
+
+	if _, err := service.UpdateAssetReview(assetA.ID, AssetReviewUpdate{
+		SceneDescription: assetA.SceneDescription,
+		UpdatedByUserID:  "editor-a",
+	}); err != nil {
+		t.Fatalf("update asset a review failed: %v", err)
+	}
+	if _, err := service.UpdateAssetReview(assetC.ID, AssetReviewUpdate{
+		SceneDescription: assetC.SceneDescription,
+		UpdatedByUserID:  "editor-c",
+	}); err != nil {
+		t.Fatalf("update asset c review failed: %v", err)
+	}
+
+	now := time.Now()
+	if err := service.UpdateAssetAnalysis(assetA.ID, AssetAnalysisUpdate{
+		AnalysisStatus:   "ready",
+		UsabilityStatus:  "usable",
+		SceneDescription: "stable product close-up",
+		AnalyzedAt:       now.Add(-2 * time.Minute),
+		UpdatedByUserID:  "analyzer-a",
+	}); err != nil {
+		t.Fatalf("update asset a analysis failed: %v", err)
+	}
+	if err := service.UpdateAssetAnalysis(assetC.ID, AssetAnalysisUpdate{
+		AnalysisStatus:   "ready",
+		UsabilityStatus:  "usable",
+		SceneDescription: "garage walkaround",
+		AnalyzedAt:       now.Add(-1 * time.Minute),
+		UpdatedByUserID:  "analyzer-c",
+	}); err != nil {
+		t.Fatalf("update asset c analysis failed: %v", err)
+	}
+
+	filtered := service.ListAssets(AssetFilters{
+		ExcludeDiscarded: true,
+		Keyword:          "stable product",
+	})
+	if len(filtered) != 1 || filtered[0].ID != assetA.ID {
+		t.Fatalf("expected only asset a after keyword + exclude filter, got %#v", filtered)
+	}
+
+	updatedSorted := service.ListAssets(AssetFilters{SortBy: "updated_at_desc"})
+	if len(updatedSorted) < 2 || updatedSorted[0].ID != assetC.ID {
+		t.Fatalf("expected asset c first by updated_at_desc, got %#v", updatedSorted)
+	}
+
+	analyzedSorted := service.ListAssets(AssetFilters{SortBy: "analyzed_at_desc"})
+	if len(analyzedSorted) < 2 || analyzedSorted[0].ID != assetC.ID {
+		t.Fatalf("expected asset c first by analyzed_at_desc, got %#v", analyzedSorted)
+	}
+
+	if updatedSorted[0].ID == assetB.ID && updatedSorted[0].UsabilityStatus != "discarded" {
+		t.Fatalf("unexpected asset ordering result: %#v", updatedSorted[0])
 	}
 }
 

@@ -117,3 +117,82 @@ func TestHandleListAssetsSupportsPagination(t *testing.T) {
 		t.Fatalf("expected 1 paged item, got %d", len(response.Data.Items))
 	}
 }
+
+func TestHandleListAssetsSupportsKeywordDiscardedAndSort(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	assetA, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SceneDescription:  "stable product close-up",
+	})
+	if err != nil {
+		t.Fatalf("create asset a failed: %v", err)
+	}
+	assetB, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "b.mp4",
+		StorageKey:        "assets/b.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "discarded",
+		ManualCleanStatus: "cleaned",
+		SceneDescription:  "speaker intro",
+	})
+	if err != nil {
+		t.Fatalf("create asset b failed: %v", err)
+	}
+	if _, err := productAssetService.UpdateAssetReview(assetA.ID, services.AssetReviewUpdate{
+		SceneDescription: assetA.SceneDescription,
+		UpdatedByUserID:  "editor-a",
+	}); err != nil {
+		t.Fatalf("update asset a review failed: %v", err)
+	}
+	if _, err := productAssetService.UpdateAssetReview(assetB.ID, services.AssetReviewUpdate{
+		SceneDescription: assetB.SceneDescription,
+		UpdatedByUserID:  "editor-b",
+	}); err != nil {
+		t.Fatalf("update asset b review failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/assets?keyword=stable&exclude_discarded=true&sort_by=updated_at_desc", nil)
+	req.Header.Set("Authorization", "Bearer "+makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	}))
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data assetListResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if response.Data.Total != 1 || len(response.Data.Items) != 1 {
+		t.Fatalf("expected one filtered asset, got %+v", response.Data)
+	}
+	if response.Data.Items[0].ID != assetA.ID {
+		t.Fatalf("expected asset a after filtering, got %+v", response.Data.Items[0])
+	}
+}

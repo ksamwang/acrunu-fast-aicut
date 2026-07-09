@@ -170,16 +170,19 @@ func (s *Server) handleListAssets(c *gin.Context) {
 	page := parsePositiveInt(c.Query("page"), 1)
 	pageSize := parsePositiveInt(c.Query("page_size"), 20)
 	assets := s.productAssetService.ListAssets(services.AssetFilters{
-		ProductID:       c.Query("product_id"),
-		SourceType:      c.Query("source_type"),
-		Status:          c.Query("status"),
-		AnalysisStatus:  c.Query("analysis_status"),
-		UsabilityStatus: c.Query("usability_status"),
-		SellingPointID:  c.Query("selling_point_id"),
-		Tag:             c.Query("tag"),
-		MinDurationMs:   parseOptionalInt(c.Query("min_duration_ms")),
-		MaxDurationMs:   parseOptionalInt(c.Query("max_duration_ms")),
-		HasAudio:        parseOptionalBool(c.Query("has_audio")),
+		ProductID:        c.Query("product_id"),
+		SourceType:       c.Query("source_type"),
+		Status:           c.Query("status"),
+		AnalysisStatus:   c.Query("analysis_status"),
+		UsabilityStatus:  c.Query("usability_status"),
+		SellingPointID:   c.Query("selling_point_id"),
+		Tag:              c.Query("tag"),
+		Keyword:          c.Query("keyword"),
+		MinDurationMs:    parseOptionalInt(c.Query("min_duration_ms")),
+		MaxDurationMs:    parseOptionalInt(c.Query("max_duration_ms")),
+		HasAudio:         parseOptionalBool(c.Query("has_audio")),
+		ExcludeDiscarded: parseOptionalBoolDefaultFalse(c.Query("exclude_discarded")),
+		SortBy:           c.Query("sort_by"),
 	})
 
 	start := (page - 1) * pageSize
@@ -284,6 +287,11 @@ func parsePositiveInt(value string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func parseOptionalBoolDefaultFalse(value string) bool {
+	parsed := parseOptionalBool(value)
+	return parsed != nil && *parsed
 }
 
 func servicesQueueExtractPayload(asset services.Asset) queue.AssetExtractFramesPayload {
