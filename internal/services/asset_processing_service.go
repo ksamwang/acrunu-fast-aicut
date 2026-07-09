@@ -64,7 +64,7 @@ func (s *AssetProcessingService) HandleAssetExtractFrames(ctx context.Context, p
 func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, payload queue.AssetExtractFramesPayload) error {
 	inputPath := s.localStore.FullPath(payload.StorageKey)
 	outputDir := filepath.Join(s.storageRoot, "frames", payload.AssetID)
-	timestamps := buildFrameTimestamps(payload.DurationMs, 3)
+	timestamps := buildFrameTimestamps(payload.DurationMs, frameCountForDuration(payload.DurationMs))
 
 	frames, err := ffmpeg.ExtractFrames(ctx, inputPath, outputDir, timestamps)
 	if err != nil {
@@ -246,6 +246,21 @@ func (s *AssetProcessingService) runTrackedTask(ctx context.Context, taskID stri
 		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
 	)
 	return nil
+}
+
+func frameCountForDuration(durationMs int) int {
+	switch {
+	case durationMs <= 0:
+		return 1
+	case durationMs <= 1500:
+		return 1
+	case durationMs <= 5000:
+		return 3
+	case durationMs <= 15000:
+		return 5
+	default:
+		return 7
+	}
 }
 
 func buildFrameTimestamps(durationMs int, frameCount int) []int {

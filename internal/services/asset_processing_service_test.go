@@ -56,6 +56,28 @@ func TestBuildFrameTimestamps(t *testing.T) {
 	}
 }
 
+func TestFrameCountForDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration int
+		want     int
+	}{
+		{name: "zero duration", duration: 0, want: 1},
+		{name: "very short clip", duration: 1200, want: 1},
+		{name: "short clip", duration: 3000, want: 3},
+		{name: "medium clip", duration: 9000, want: 5},
+		{name: "long clip", duration: 20000, want: 7},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := frameCountForDuration(tt.duration); got != tt.want {
+				t.Fatalf("expected %d, got %d", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 	service := NewProductAssetService()
 	product := service.CreateProduct(CreateProductInput{Name: "P1"})
