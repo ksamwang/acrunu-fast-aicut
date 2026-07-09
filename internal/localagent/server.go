@@ -144,6 +144,12 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 			return
 		}
 		s.handleWorkspaceItemPrepare(w, r, itemID)
+	case "submit":
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemSubmit(w, r, itemID)
 	case "source":
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
@@ -204,6 +210,20 @@ func (s *Server) handleWorkspaceItemPrepare(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
 }
 
+func (s *Server) handleWorkspaceItemSubmit(w http.ResponseWriter, r *http.Request, itemID string) {
+	var input WorkspaceSubmitInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
+		return
+	}
+	item, err := s.workspace.SubmitItem(context.Background(), itemID, input)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
+
 func (s *Server) handleWorkspaceItemFile(w http.ResponseWriter, r *http.Request, itemID string, kind string, frameIndex int) {
 	item, ok := s.workspace.GetItem(itemID)
 	if !ok {
@@ -257,6 +277,8 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 	data := map[string]any{
 		"id":                 item.ID,
 		"status":             item.Status,
+		"product_id":         item.ProductID,
+		"submitted_asset_id": item.SubmittedAssetID,
 		"asset_name":         item.AssetName,
 		"source_type":        item.SourceType,
 		"original_file_name": item.OriginalFileName,

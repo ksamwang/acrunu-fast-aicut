@@ -434,3 +434,103 @@ func TestHandleUploadCleanShotPersistsProbeFailureWithoutFrameTask(t *testing.T)
 		t.Fatalf("expected probe_error in response")
 	}
 }
+
+func TestHandleUploadCleanShotPreprocessedSubmissionSkipsServerAnalysis(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	server := New(Options{
+		Config:              config.Config{StorageRoot: tempDir, QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	token, err := server.uploadTokenService.Create(product.ID, "user-1", 30*time.Minute)
+	if err != nil {
+		t.Fatalf("create upload token failed: %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	fields := map[string]string{
+		"submission_mode":     "preprocessed",
+		"source_type":         "talking_head",
+		"asset_name":          "prepared-shot",
+		"source_in_ms":        "0",
+		"source_out_ms":       "5200",
+		"duration_ms":         "5200",
+		"width":               "1080",
+		"height":              "1920",
+		"fps":                 "30",
+		"codec":               "h264",
+		"has_audio":           "true",
+		"audio_codec":         "aac",
+		"bitrate_kbps":        "3200",
+		"analysis_status":     "ready",
+		"usability_status":    "usable",
+		"scene_description":   "presenter talks to camera",
+		"shot_size":           "medium_close_up",
+		"camera_movement":     "static",
+		"subjects_json":       `["person","product"]`,
+		"scene_tags_json":     `["talking_head","indoor"]`,
+		"quality_tags_json":   `[]`,
+		"model_result_json":   `{"provider":"mock","frame_count":3}`,
+		"transcript":          "[00:00:00:00]-[00:00:02:00] 大家好。",
+		"manual_clean_status": "cleaned",
+	}
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write field %s failed: %v", key, err)
+		}
+	}
+	part, err := writer.CreateFormFile("file", "prepared.mp4")
+	if err != nil {
+		t.Fatalf("create form file failed: %v", err)
+	}
+	if _, err := part.Write([]byte("prepared-video")); err != nil {
+		t.Fatalf("write file content failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/uploads/clean-shot", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Upload-Token", token.Token)
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal upload response failed: %v", err)
+	}
+	if _, exists := response.Data["frame_task_id"]; exists {
+		t.Fatalf("expected no frame task for preprocessed submission, got %#v", response.Data["frame_task_id"])
+	}
+
+	assetPayload, ok := response.Data["asset"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected asset payload, got %#v", response.Data["asset"])
+	}
+	assetID, _ := assetPayload["id"].(string)
+	asset, ok := productAssetService.GetAsset(assetID)
+	if !ok {
+		t.Fatalf("expected asset to be stored")
+	}
+	if asset.AnalysisStatus != "ready" {
+		t.Fatalf("expected analysis status ready, got %s", asset.AnalysisStatus)
+	}
+	if asset.SceneDescription != "presenter talks to camera" {
+		t.Fatalf("unexpected scene description: %+v", asset)
+	}
+	if asset.ShotSize != "medium_close_up" || asset.CameraMovement != "static" {
+		t.Fatalf("expected preprocessed labels to persist, got %+v", asset)
+	}
+}

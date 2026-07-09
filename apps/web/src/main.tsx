@@ -2446,7 +2446,7 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
         </Layout.Header>
         <Layout.Content className="content">
           {view === "products" && <ProductsPage token={session.token} />}
-          {view === "preprocess" && <PreprocessPage />}
+          {view === "preprocess" && <PreprocessPage token={session.token} />}
           {view === "assets" && <AssetsPage token={session.token} />}
           {view === "tasks" && <TasksPage token={session.token} />}
           {view === "settings" && session.user.role === "admin" && <SettingsPage token={session.token} />}

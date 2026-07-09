@@ -1,6 +1,7 @@
 package localagent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +32,8 @@ const (
 type WorkspaceItem struct {
 	ID               string                   `json:"id"`
 	Status           string                   `json:"status"`
+	ProductID        string                   `json:"product_id,omitempty"`
+	SubmittedAssetID string                   `json:"submitted_asset_id,omitempty"`
 	AssetName        string                   `json:"asset_name,omitempty"`
 	SourceType       string                   `json:"source_type,omitempty"`
 	OriginalFileName string                   `json:"original_file_name"`
@@ -76,6 +80,13 @@ type WorkspaceSaveInput struct {
 	SourceOutMs   int    `json:"source_out_ms"`
 	Transcript    string `json:"transcript"`
 	ReviewerNotes string `json:"reviewer_notes"`
+}
+
+type WorkspaceSubmitInput struct {
+	ProductID       string   `json:"product_id"`
+	UploadURL       string   `json:"upload_url"`
+	UploadToken     string   `json:"upload_token"`
+	SellingPointIDs []string `json:"selling_point_ids"`
 }
 
 type Workspace struct {
@@ -218,18 +229,70 @@ func (w *Workspace) Clear() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if err := os.RemoveAll(filepath.Join(w.root, "items")); err != nil {
-		return err
+	nextItems := map[string]WorkspaceItem{}
+	nextOrder := make([]string, 0, len(w.order))
+	for _, id := range w.order {
+		item, ok := w.items[id]
+		if !ok {
+			continue
+		}
+		if item.Status == workspaceStatusSubmitted {
+			nextItems[id] = item
+			nextOrder = append(nextOrder, id)
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(w.root, "items", id))
 	}
-	if err := os.MkdirAll(filepath.Join(w.root, "items"), 0755); err != nil {
-		return err
-	}
-	w.items = map[string]WorkspaceItem{}
-	w.order = nil
-	if err := os.Remove(w.statePath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
+
+	w.items = nextItems
+	w.order = nextOrder
 	return w.persistLocked()
+}
+
+func (w *Workspace) SubmitItem(ctx context.Context, itemID string, input WorkspaceSubmitInput) (WorkspaceItem, error) {
+	w.mu.Lock()
+	item, ok := w.items[itemID]
+	if !ok {
+		w.mu.Unlock()
+		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
+	}
+	w.mu.Unlock()
+
+	if item.Status != workspaceStatusReadyToSubmit {
+		return WorkspaceItem{}, fmt.Errorf("workspace item is not ready to submit")
+	}
+	if err := validateSubmitInput(input); err != nil {
+		return WorkspaceItem{}, err
+	}
+
+	submittedAssetID, err := w.submitPreparedItem(ctx, item, input)
+	if err != nil {
+		w.mu.Lock()
+		current := w.items[itemID]
+		current.LastError = err.Error()
+		current.UpdatedAt = time.Now()
+		w.items[itemID] = current
+		_ = w.persistLocked()
+		w.mu.Unlock()
+		return WorkspaceItem{}, err
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	now := time.Now()
+	item = w.items[itemID]
+	item.Status = workspaceStatusSubmitted
+	item.ProductID = input.ProductID
+	item.SubmittedAssetID = submittedAssetID
+	item.SubmittedAt = &now
+	item.LastError = ""
+	item.UpdatedAt = now
+	w.items[itemID] = item
+	if err := w.persistLocked(); err != nil {
+		return WorkspaceItem{}, err
+	}
+	return item, nil
 }
 
 func (w *Workspace) load() error {
@@ -406,6 +469,123 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 	return item, nil
 }
 
+func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, input WorkspaceSubmitInput) (string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	fields := map[string]string{
+		"submission_mode":      "preprocessed",
+		"source_type":          item.SourceType,
+		"manual_clean_status":  "cleaned",
+		"usability_status":     firstNonEmpty(itemAnalysisUsability(item), "usable"),
+		"asset_name":           firstNonEmpty(item.AssetName, item.OriginalFileName),
+		"source_path":          item.SourcePath,
+		"source_original_name": item.OriginalFileName,
+		"reviewer_notes":       item.ReviewerNotes,
+		"product_id":           input.ProductID,
+		"source_in_ms":         fmt.Sprintf("%d", item.SourceInMs),
+		"source_out_ms":        fmt.Sprintf("%d", item.SourceOutMs),
+		"duration_ms":          fmt.Sprintf("%d", item.Probe.DurationMs),
+		"width":                fmt.Sprintf("%d", item.Probe.Width),
+		"height":               fmt.Sprintf("%d", item.Probe.Height),
+		"fps":                  fmt.Sprintf("%.3f", item.Probe.FPS),
+		"codec":                item.Probe.Codec,
+		"has_audio":            fmt.Sprintf("%t", item.Probe.HasAudio),
+		"audio_codec":          item.Probe.AudioCodec,
+		"bitrate_kbps":         fmt.Sprintf("%d", item.Probe.BitrateKbps),
+		"checksum":             item.Checksum,
+		"analysis_status":      "ready",
+		"scene_description":    itemAnalysisSceneDescription(item),
+		"shot_size":            itemAnalysisShotSize(item),
+		"camera_movement":      itemAnalysisCameraMovement(item),
+	}
+	for key, value := range fields {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if err := writer.WriteField(key, value); err != nil {
+			return "", err
+		}
+	}
+	if len(input.SellingPointIDs) > 0 {
+		if err := writer.WriteField("selling_point_ids", strings.Join(input.SellingPointIDs, ",")); err != nil {
+			return "", err
+		}
+	}
+	if len(item.Transcript) > 0 {
+		if err := writer.WriteField("transcript", item.Transcript); err != nil {
+			return "", err
+		}
+	}
+	if item.Analysis != nil {
+		if err := writer.WriteField("subjects_json", mustJSONString(item.Analysis.Subjects)); err != nil {
+			return "", err
+		}
+		if err := writer.WriteField("scene_tags_json", mustJSONString(item.Analysis.SceneTags)); err != nil {
+			return "", err
+		}
+		if err := writer.WriteField("quality_tags_json", mustJSONString(item.Analysis.QualityTags)); err != nil {
+			return "", err
+		}
+		if err := writer.WriteField("model_result_json", mustJSONString(item.Analysis.ModelResult)); err != nil {
+			return "", err
+		}
+	}
+
+	file, err := os.Open(item.CleanShotPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	part, err := writer.CreateFormFile("file", item.CleanShotName)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, input.UploadURL, &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Upload-Token", input.UploadToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("submit failed with status %d: %s", resp.StatusCode, string(responseBody))
+	}
+
+	var payload struct {
+		Data struct {
+			Asset struct {
+				ID string `json:"id"`
+			} `json:"asset"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(responseBody, &payload); err != nil {
+		return "", err
+	}
+	if payload.Data.Asset.ID == "" {
+		return "", fmt.Errorf("submit succeeded but asset id is missing")
+	}
+	return payload.Data.Asset.ID, nil
+}
+
 func validateSaveInput(input WorkspaceSaveInput) error {
 	if input.SourceType != "visual_only" && input.SourceType != "talking_head" {
 		return fmt.Errorf("invalid source type")
@@ -425,6 +605,19 @@ func validateItemForPrepare(item WorkspaceItem) error {
 	}
 	if item.SourceType == "talking_head" && strings.TrimSpace(item.Transcript) == "" {
 		return fmt.Errorf("transcript is required for talking head")
+	}
+	return nil
+}
+
+func validateSubmitInput(input WorkspaceSubmitInput) error {
+	if strings.TrimSpace(input.ProductID) == "" {
+		return fmt.Errorf("product_id is required")
+	}
+	if strings.TrimSpace(input.UploadURL) == "" {
+		return fmt.Errorf("upload_url is required")
+	}
+	if strings.TrimSpace(input.UploadToken) == "" {
+		return fmt.Errorf("upload_token is required")
 	}
 	return nil
 }
@@ -476,4 +669,50 @@ func sortSnapshots(frames []WorkspaceFrameSnapshot) {
 	sort.Slice(frames, func(i, j int) bool {
 		return frames[i].FrameIndex < frames[j].FrameIndex
 	})
+}
+
+func itemAnalysisUsability(item WorkspaceItem) string {
+	if item.Analysis == nil {
+		return ""
+	}
+	return item.Analysis.UsabilityStatus
+}
+
+func itemAnalysisSceneDescription(item WorkspaceItem) string {
+	if item.Analysis == nil {
+		return ""
+	}
+	return item.Analysis.SceneDescription
+}
+
+func itemAnalysisShotSize(item WorkspaceItem) string {
+	if item.Analysis == nil {
+		return ""
+	}
+	return item.Analysis.ShotSize
+}
+
+func itemAnalysisCameraMovement(item WorkspaceItem) string {
+	if item.Analysis == nil {
+		return ""
+	}
+	return item.Analysis.CameraMovement
+}
+
+func mustJSONString(value any) string {
+	if value == nil {
+		return "null"
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "null"
+	}
+	return string(encoded)
+}
+
+func firstNonEmpty(value string, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
 }

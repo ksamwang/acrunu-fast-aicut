@@ -19,6 +19,16 @@ import {
 
 const LOCAL_AGENT_BASE_URL = "http://127.0.0.1:58721";
 
+type Product = {
+  id: string;
+  name: string;
+};
+
+type UploadToken = {
+  token: string;
+  product_id: string;
+};
+
 type WorkspaceProbe = {
   duration_ms?: number;
   width?: number;
@@ -49,6 +59,8 @@ type WorkspaceAnalysis = {
 type WorkspaceItem = {
   id: string;
   status: "pending" | "saved" | "ready_to_submit" | "submitted";
+  product_id?: string;
+  submitted_asset_id?: string;
   asset_name?: string;
   source_type?: "visual_only" | "talking_head";
   original_file_name: string;
@@ -109,6 +121,22 @@ async function localAgentRequest<T>(path: string, options: RequestInit = {}): Pr
   return payload as T;
 }
 
+async function apiRequest<T>(path: string, token: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${token}`,
+      ...options.headers
+    }
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error?.message ?? "服务端请求失败");
+  }
+  return payload.data as T;
+}
+
 function formatDuration(durationMs?: number) {
   if (!durationMs) {
     return "-";
@@ -138,15 +166,18 @@ function formatDateTime(value?: string) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
-export function PreprocessPage() {
+export function PreprocessPage({ token }: { token: string }) {
   const [items, setItems] = useState<WorkspaceItem[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
+  const [submitProductID, setSubmitProductID] = useState<string>("");
   const [form] = Form.useForm();
 
   const loadItems = async () => {
@@ -164,6 +195,17 @@ export function PreprocessPage() {
   useEffect(() => {
     void loadItems();
   }, []);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await apiRequest<Product[]>("/api/products", token);
+        setProducts(result ?? []);
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : "加载产品列表失败");
+      }
+    })();
+  }, [token]);
 
   const selectedIndex = useMemo(
     () => items.findIndex((item) => item.id === selectedItemID),
@@ -183,6 +225,7 @@ export function PreprocessPage() {
       transcript: selectedItem.transcript ?? "",
       reviewer_notes: selectedItem.reviewer_notes ?? ""
     });
+    setSubmitProductID(selectedItem.product_id ?? "");
   }, [form, selectedItem]);
 
   const importFiles = async () => {
@@ -238,7 +281,7 @@ export function PreprocessPage() {
     const values = await form.validateFields();
     setPreparing(true);
     try {
-      const saved = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}`, {
+      await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values)
@@ -246,14 +289,7 @@ export function PreprocessPage() {
       const prepared = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/prepare`, {
         method: "POST"
       });
-      setItems((current) =>
-        current.map((item) => {
-          if (item.id === saved.item.id) {
-            return prepared.item;
-          }
-          return item;
-        })
-      );
+      setItems((current) => current.map((item) => (item.id === prepared.item.id ? prepared.item : item)));
       setSelectedItemID(prepared.item.id);
       message.success("本地预处理已完成，当前状态为待提交");
     } catch (error) {
@@ -267,13 +303,58 @@ export function PreprocessPage() {
     setClearing(true);
     try {
       await localAgentRequest("/workspace/clear", { method: "POST" });
-      setItems([]);
+      await loadItems();
       setSelectedItemID(null);
-      message.success("本地预处理工作区已清空");
+      message.success("未提交项已从本地预处理工作区清空");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "清空工作区失败");
     } finally {
       setClearing(false);
+    }
+  };
+
+  const submitItem = async () => {
+    if (!selectedItem) {
+      return;
+    }
+    if (selectedItem.status !== "ready_to_submit") {
+      message.warning("只有待提交项才能正式入库");
+      return;
+    }
+    if (!submitProductID) {
+      message.warning("请先选择产品");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const uploadToken = await apiRequest<UploadToken>(
+        "/api/uploads/tokens",
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({ product_id: submitProductID })
+        }
+      );
+
+      const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: submitProductID,
+          upload_url: `${window.location.origin}/api/uploads/clean-shot`,
+          upload_token: uploadToken.token,
+          selling_point_ids: []
+        })
+      });
+
+      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      setSelectedItemID(response.item.id);
+      message.success("素材已正式提交入库");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "提交入库失败");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -295,7 +376,7 @@ export function PreprocessPage() {
         type="info"
         showIcon
         message="这里是本地预处理工作区，不是服务端素材库"
-        description="原始视频、处理中间态、仅保存未提交的结果都只保留在本地 Agent 工作区，服务端不会读取或分析这些对象。"
+        description="原始视频、处理中间态、仅保存未提交的结果都只保留在本地 Agent 工作区。只有正式提交后，服务端才会创建素材资产。"
       />
 
       <Card
@@ -304,7 +385,7 @@ export function PreprocessPage() {
           <Space>
             <Button onClick={() => void loadItems()}>刷新列表</Button>
             <Button danger loading={clearing} onClick={() => void clearWorkspace()}>
-              清空工作区
+              清空未提交项
             </Button>
           </Space>
         }
@@ -320,9 +401,7 @@ export function PreprocessPage() {
             <Button type="primary" loading={importing} onClick={() => void importFiles()}>
               导入到工作区
             </Button>
-            <Typography.Text type="secondary">
-              已选择 {selectedFiles.length} 个文件
-            </Typography.Text>
+            <Typography.Text type="secondary">已选择 {selectedFiles.length} 个文件</Typography.Text>
           </Space>
         </Space>
       </Card>
@@ -358,13 +437,17 @@ export function PreprocessPage() {
               render: (_, item) => formatDuration(item.probe.duration_ms)
             },
             {
+              title: "提交结果",
+              render: (_, item) => (item.submitted_asset_id ? item.submitted_asset_id : "-")
+            },
+            {
               title: "更新时间",
               dataIndex: "updated_at",
               render: (value?: string) => formatDateTime(value)
             },
             {
               title: "错误",
-              render: (_, item) => item.last_error ? <Typography.Text type="danger">{item.last_error}</Typography.Text> : "-"
+              render: (_, item) => (item.last_error ? <Typography.Text type="danger">{item.last_error}</Typography.Text> : "-")
             }
           ]}
         />
@@ -395,6 +478,15 @@ export function PreprocessPage() {
             </Space>
 
             {selectedItem.last_error ? <Alert type="error" showIcon message={selectedItem.last_error} /> : null}
+
+            {selectedItem.status === "submitted" ? (
+              <Alert
+                type="success"
+                showIcon
+                message="该项已经正式入库"
+                description={`素材 ID：${selectedItem.submitted_asset_id || "-"}，产品 ID：${selectedItem.product_id || "-"}`}
+              />
+            ) : null}
 
             <div className="preprocess-preview-grid">
               <Card size="small" title="原始视频">
@@ -443,9 +535,33 @@ export function PreprocessPage() {
                 }
               </Form.Item>
               <Form.Item name="reviewer_notes" label="备注">
-                <Input.TextArea rows={3} placeholder="记录本地预处理备注，不会自动进入服务端素材库" />
+                <Input.TextArea rows={3} placeholder="记录本地预处理备注" />
               </Form.Item>
             </Form>
+
+            <Card size="small" title="正式提交">
+              <Space direction="vertical" className="wide-space">
+                <Select
+                  placeholder="选择产品后再提交入库"
+                  value={submitProductID || undefined}
+                  onChange={setSubmitProductID}
+                  options={products.map((product) => ({ value: product.id, label: product.name }))}
+                />
+                <Space wrap>
+                  <Button
+                    type="primary"
+                    loading={submitting}
+                    disabled={selectedItem.status !== "ready_to_submit"}
+                    onClick={() => void submitItem()}
+                  >
+                    提交入库
+                  </Button>
+                  <Typography.Text type="secondary">
+                    只有“待提交”状态的项才能正式进入服务端素材库
+                  </Typography.Text>
+                </Space>
+              </Space>
+            </Card>
 
             <Card size="small" title="本地分析结果">
               <Descriptions bordered size="small" column={2}>
@@ -457,9 +573,7 @@ export function PreprocessPage() {
                 <Descriptions.Item label="帧率">{selectedItem.probe.fps || "-"}</Descriptions.Item>
                 <Descriptions.Item label="视频编码">{selectedItem.probe.codec || "-"}</Descriptions.Item>
                 <Descriptions.Item label="音频编码">{selectedItem.probe.audio_codec || "-"}</Descriptions.Item>
-                <Descriptions.Item label="画面描述">
-                  {selectedItem.analysis?.scene_description || "-"}
-                </Descriptions.Item>
+                <Descriptions.Item label="画面描述">{selectedItem.analysis?.scene_description || "-"}</Descriptions.Item>
                 <Descriptions.Item label="景别">
                   {selectedItem.analysis?.shot_size ? shotSizeLabels[selectedItem.analysis.shot_size] ?? selectedItem.analysis.shot_size : "-"}
                 </Descriptions.Item>

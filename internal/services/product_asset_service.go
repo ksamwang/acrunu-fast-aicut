@@ -131,6 +131,7 @@ type ProductAssetService struct {
 	products           map[string]Product
 	sellingPoints      map[string]SellingPoint
 	assets             map[string]Asset
+	speechSegments     map[string][]repository.SpeechSegmentRecord
 	assetSellingPoints map[string][]string
 	queries            *db.Queries
 	assetRepo          *repository.AssetRepository
@@ -141,6 +142,7 @@ func NewProductAssetService() *ProductAssetService {
 		products:           map[string]Product{},
 		sellingPoints:      map[string]SellingPoint{},
 		assets:             map[string]Asset{},
+		speechSegments:     map[string][]repository.SpeechSegmentRecord{},
 		assetSellingPoints: map[string][]string{},
 	}
 }
@@ -190,10 +192,23 @@ type CreateAssetInput struct {
 	Subjects           []string
 	SceneTags          []string
 	QualityTags        []string
+	ModelLabels        map[string]any
+	ModelResult        map[string]any
 	ReviewerNotes      string
 	AnalysisError      string
 	SellingPointIDs    []string
 	CreatedByUserID    string
+}
+
+type CreateSpeechSegmentInput struct {
+	AssetID         string
+	StartMs         int
+	EndMs           int
+	Transcript      string
+	Confidence      *float64
+	Source          string
+	Status          string
+	CreatedByUserID string
 }
 
 type AssetFilters struct {
@@ -335,8 +350,8 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 		Subjects:           append([]string(nil), input.Subjects...),
 		SceneTags:          append([]string(nil), input.SceneTags...),
 		QualityTags:        append([]string(nil), input.QualityTags...),
-		ModelLabels:        map[string]any{},
-		ModelResult:        map[string]any{},
+		ModelLabels:        cloneObjectMap(input.ModelLabels),
+		ModelResult:        cloneObjectMap(input.ModelResult),
 		ReviewOverrides:    map[string]any{},
 		ReviewerNotes:      input.ReviewerNotes,
 		AnalysisError:      input.AnalysisError,
@@ -351,6 +366,42 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 		s.assetSellingPoints[asset.ID] = append([]string(nil), input.SellingPointIDs...)
 	}
 	return asset, nil
+}
+
+func (s *ProductAssetService) CreateSpeechSegment(input CreateSpeechSegmentInput) (repository.SpeechSegmentRecord, error) {
+	if s.assetRepo == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		record := repository.SpeechSegmentRecord{
+			ID:              uuid.NewString(),
+			AssetID:         input.AssetID,
+			StartMs:         input.StartMs,
+			EndMs:           input.EndMs,
+			Transcript:      input.Transcript,
+			Source:          firstNonEmpty(input.Source, "local-agent"),
+			Status:          firstNonEmpty(input.Status, "ready"),
+			CreatedByUserID: input.CreatedByUserID,
+			UpdatedByUserID: input.CreatedByUserID,
+			CreatedAt:       time.Now(),
+			UpdatedAt:       time.Now(),
+		}
+		if input.Confidence != nil {
+			record.Confidence = *input.Confidence
+		}
+		s.speechSegments[input.AssetID] = append(s.speechSegments[input.AssetID], record)
+		return record, nil
+	}
+	return s.assetRepo.CreateSpeechSegment(context.Background(), repository.CreateSpeechSegmentInput{
+		AssetID:         input.AssetID,
+		StartMs:         input.StartMs,
+		EndMs:           input.EndMs,
+		Transcript:      input.Transcript,
+		Confidence:      input.Confidence,
+		Source:          firstNonEmpty(input.Source, "local-agent"),
+		Status:          firstNonEmpty(input.Status, "ready"),
+		CreatedByUserID: input.CreatedByUserID,
+	})
 }
 
 func (s *ProductAssetService) ListAssets(filters AssetFilters) []Asset {
@@ -1019,6 +1070,8 @@ func (s *ProductAssetService) createAssetInPostgres(input CreateAssetInput) (Ass
 	subjectsJSON := mustJSON(input.Subjects, []string{})
 	sceneTagsJSON := mustJSON(input.SceneTags, []string{})
 	qualityTagsJSON := mustJSON(input.QualityTags, []string{})
+	modelLabelsJSON := mustJSON(input.ModelLabels, map[string]any{})
+	modelResultJSON := mustJSON(input.ModelResult, map[string]any{})
 
 	row, err := s.queries.CreateAsset(context.Background(), db.CreateAssetParams{
 		ProductID:          assetNullableUUIDParam(input.ProductID),
@@ -1054,8 +1107,8 @@ func (s *ProductAssetService) createAssetInPostgres(input CreateAssetInput) (Ass
 		Subjects:           subjectsJSON,
 		SceneTags:          sceneTagsJSON,
 		QualityTags:        qualityTagsJSON,
-		ModelLabels:        []byte(`{}`),
-		ModelResult:        []byte(`{}`),
+		ModelLabels:        modelLabelsJSON,
+		ModelResult:        modelResultJSON,
 		ReviewOverrides:    []byte(`{}`),
 		ReviewerNotes:      assetTextParam(input.ReviewerNotes),
 		AnalysisError:      assetTextParam(input.AnalysisError),
