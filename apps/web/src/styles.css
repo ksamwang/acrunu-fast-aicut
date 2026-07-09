@@ -126,3 +126,10 @@ body {
 .settings-inner-card .ant-card-body {
   padding-bottom: 8px;
 }
+
+.products-modal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}

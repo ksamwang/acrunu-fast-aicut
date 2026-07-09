@@ -7,6 +7,7 @@ import {
   ConfigProvider,
   Descriptions,
   Divider,
+  Drawer,
   Empty,
   Form,
   Input,
@@ -393,7 +394,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
   );
 }
 
-function ProductsPage({ token }: { token: string }) {
+function LegacyProductsPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token);
   const [selectedProductID, setSelectedProductID] = useState<string | null>(null);
   const [selectedSellingPointID, setSelectedSellingPointID] = useState<string | null>(null);
@@ -554,6 +555,283 @@ function ProductsPage({ token }: { token: string }) {
           </Form.Item>
         </Form>
       </Modal>
+    </Space>
+  );
+}
+
+function ProductsPage({ token }: { token: string }) {
+  const products = useResource<Product[]>("/api/products", token);
+  const [selectedProductID, setSelectedProductID] = useState<string | null>(null);
+  const [selectedSellingPointID, setSelectedSellingPointID] = useState<string | null>(null);
+  const [productStatsMap, setProductStatsMap] = useState<Record<string, ProductStats>>({});
+  const [productStatsLoading, setProductStatsLoading] = useState(false);
+  const sellingPoints = useResource<SellingPoint[]>(
+    selectedProductID ? `/api/products/${selectedProductID}/selling-points` : null,
+    token,
+    [selectedProductID]
+  );
+  const sellingPointAssets = useResource<Asset[]>(
+    selectedSellingPointID ? `/api/selling-points/${selectedSellingPointID}/assets` : null,
+    token,
+    [selectedSellingPointID]
+  );
+  const [productOpen, setProductOpen] = useState(false);
+  const [sellingPointOpen, setSellingPointOpen] = useState(false);
+  const [sellingPointManagerOpen, setSellingPointManagerOpen] = useState(false);
+  const [sellingPointAssetsOpen, setSellingPointAssetsOpen] = useState(false);
+  const [productForm] = Form.useForm();
+  const [sellingPointForm] = Form.useForm();
+
+  useEffect(() => {
+    const productList = products.data ?? [];
+    if (productList.length === 0) {
+      setProductStatsMap({});
+      setProductStatsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setProductStatsLoading(true);
+
+    void Promise.all(
+      productList.map(async (product) => {
+        const stats = await apiRequest<ProductStats>(`/api/products/${product.id}/stats`, {}, token);
+        return [product.id, stats] as const;
+      })
+    )
+      .then((entries) => {
+        if (!cancelled) {
+          setProductStatsMap(Object.fromEntries(entries));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          message.error(error instanceof Error ? error.message : "加载产品统计失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setProductStatsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [products.data, token]);
+
+  const createProduct = async () => {
+    const values = await productForm.validateFields();
+    await apiRequest<Product>(
+      "/api/products",
+      {
+        method: "POST",
+        body: JSON.stringify({ ...values, metadata: {} })
+      },
+      token
+    );
+    setProductOpen(false);
+    productForm.resetFields();
+    await products.reload();
+  };
+
+  const createSellingPoint = async () => {
+    if (!selectedProductID) {
+      message.warning("请先选择产品");
+      return;
+    }
+    const values = await sellingPointForm.validateFields();
+    await apiRequest<SellingPoint>(
+      `/api/products/${selectedProductID}/selling-points`,
+      {
+        method: "POST",
+        body: JSON.stringify(values)
+      },
+      token
+    );
+    setSellingPointOpen(false);
+    sellingPointForm.resetFields();
+    await sellingPoints.reload();
+  };
+
+  const selectedProduct = (products.data ?? []).find((product) => product.id === selectedProductID) ?? null;
+  const selectedSellingPoint = (sellingPoints.data ?? []).find((item) => item.id === selectedSellingPointID) ?? null;
+  const productRows = (products.data ?? []).map((product) => ({
+    ...product,
+    stats: productStatsMap[product.id]
+  }));
+
+  const openSellingPointManager = (productID: string) => {
+    setSelectedProductID(productID);
+    setSelectedSellingPointID(null);
+    setSellingPointManagerOpen(true);
+  };
+
+  const openSellingPointAssets = (sellingPointID: string) => {
+    setSelectedSellingPointID(sellingPointID);
+    setSellingPointAssetsOpen(true);
+  };
+
+  return (
+    <Space direction="vertical" size="middle" className="page-stack">
+      <Typography.Title level={3}>产品</Typography.Title>
+      <Card title="产品列表" extra={<Button type="primary" onClick={() => setProductOpen(true)}>新建产品</Button>}>
+        <Table<(Product & { stats?: ProductStats })>
+          rowKey="id"
+          loading={products.loading || productStatsLoading}
+          dataSource={productRows}
+          columns={[
+            { title: "产品", dataIndex: "name", width: 220 },
+            { title: "分类", dataIndex: "category", render: (value) => value || "-" },
+            { title: "状态", dataIndex: "status", width: 120, render: (status) => <Tag>{translateValue(status, productStatusLabels)}</Tag> },
+            {
+              title: "素材数",
+              width: 100,
+              render: (_, record) => <span data-testid={record.id === selectedProductID ? "product-asset-count" : undefined}>{record.stats?.asset_count ?? "-"}</span>
+            },
+            {
+              title: "可用素材",
+              width: 120,
+              render: (_, record) => <span data-testid={record.id === selectedProductID ? "product-usable-asset-count" : undefined}>{record.stats?.usable_asset_count ?? "-"}</span>
+            },
+            {
+              title: "待分析",
+              width: 100,
+              render: (_, record) => <span data-testid={record.id === selectedProductID ? "product-pending-analysis-count" : undefined}>{record.stats?.pending_analysis_count ?? "-"}</span>
+            },
+            {
+              title: "操作",
+              key: "actions",
+              width: 220,
+              render: (_, record) => (
+                <Space size="small" wrap>
+                  <Button type="link" className="table-link-button" onClick={() => openSellingPointManager(record.id)}>
+                    卖点管理
+                  </Button>
+                </Space>
+              )
+            }
+          ]}
+        />
+      </Card>
+
+      <Modal title="新建产品" open={productOpen} onOk={createProduct} onCancel={() => setProductOpen(false)} okText="确认" cancelText="取消">
+        <Form form={productForm} layout="vertical">
+          <Form.Item name="name" label="产品名称" rules={[{ required: true, message: "请输入产品名称" }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="category" label="分类">
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={selectedProduct ? `卖点管理：${selectedProduct.name}` : "卖点管理"}
+        open={sellingPointManagerOpen}
+        onCancel={() => {
+          setSellingPointManagerOpen(false);
+          setSelectedSellingPointID(null);
+        }}
+        footer={null}
+        width={960}
+      >
+        <Space direction="vertical" size="middle" className="wide-space">
+          <Descriptions
+            bordered
+            size="small"
+            column={3}
+            items={[
+              { key: "name", label: "产品", children: selectedProduct?.name ?? "-" },
+              { key: "category", label: "分类", children: selectedProduct?.category || "-" },
+              { key: "status", label: "状态", children: selectedProduct ? translateValue(selectedProduct.status, productStatusLabels) : "-" }
+            ]}
+          />
+
+          <div className="products-modal-toolbar">
+            <Typography.Text type="secondary">在这里管理当前产品的卖点，并按卖点查看关联素材。</Typography.Text>
+            <Button
+              type="primary"
+              disabled={!selectedProductID}
+              onClick={() => {
+                sellingPointForm.resetFields();
+                setSellingPointOpen(true);
+              }}
+            >
+              新建卖点
+            </Button>
+          </div>
+
+          <Table<SellingPoint>
+            rowKey="id"
+            loading={sellingPoints.loading}
+            dataSource={selectedProductID ? sellingPoints.data ?? [] : []}
+            pagination={false}
+            locale={{ emptyText: "当前产品还没有卖点" }}
+            columns={[
+              { title: "标题", dataIndex: "title" },
+              { title: "优先级", dataIndex: "priority", width: 100 },
+              { title: "关联素材数", dataIndex: "asset_count", width: 120, render: (value) => value ?? 0 },
+              { title: "状态", dataIndex: "status", width: 120, render: (status) => <Tag>{translateValue(status, productStatusLabels)}</Tag> },
+              {
+                title: "操作",
+                key: "actions",
+                width: 160,
+                render: (_, record) => (
+                  <Button type="link" className="table-link-button" onClick={() => openSellingPointAssets(record.id)}>
+                    查看关联素材
+                  </Button>
+                )
+              }
+            ]}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        title={selectedProduct ? `新建卖点：${selectedProduct.name}` : "新建卖点"}
+        open={sellingPointOpen}
+        onOk={createSellingPoint}
+        onCancel={() => setSellingPointOpen(false)}
+        okText="确认"
+        cancelText="取消"
+      >
+        <Form form={sellingPointForm} layout="vertical">
+          <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入卖点标题" }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="priority" label="优先级" initialValue={0}>
+            <InputNumber min={0} />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Drawer
+        title={selectedSellingPoint ? `关联素材：${selectedSellingPoint.title}` : "关联素材"}
+        open={sellingPointAssetsOpen}
+        onClose={() => setSellingPointAssetsOpen(false)}
+        width={820}
+      >
+        <Table<Asset>
+          rowKey="id"
+          loading={sellingPointAssets.loading}
+          dataSource={sellingPointAssets.data ?? []}
+          pagination={false}
+          locale={{ emptyText: "当前卖点还没有关联素材" }}
+          columns={[
+            { title: "素材", render: (_, asset) => asset.asset_name || asset.file_name },
+            { title: "类型", dataIndex: "source_type", width: 120, render: (value) => translateValue(value, sourceTypeLabels) },
+            { title: "状态", dataIndex: "status", width: 120, render: (status) => <Tag>{translateValue(status, assetStatusLabels)}</Tag> },
+            { title: "分析状态", dataIndex: "analysis_status", width: 120, render: (status) => translateValue(status, analysisStatusLabels) }
+          ]}
+        />
+      </Drawer>
     </Space>
   );
 }
