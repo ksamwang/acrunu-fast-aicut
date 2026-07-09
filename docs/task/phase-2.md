@@ -46,7 +46,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 补充 repository 封装
 - [x] 补充数据模型单元测试
 
-备注：已新增 `000009_expand_assets_for_phase_2.sql`、`000010_create_asset_selling_points.sql`、`000011_create_speech_segments.sql`、`000012_create_asset_frame_snapshots.sql`。
+备注：已新增 `000009_expand_assets_for_phase_2.sql`、`000010_create_asset_selling_points.sql`、`000011_create_speech_segments.sql`、`000012_create_asset_frame_snapshots.sql`、`000013_add_asset_label_sources.sql`、`000014_add_assets_likely_has_speech.sql`、`000015_add_assets_embedding.sql`、`000016_expand_generation_task_types.sql`。
 
 ## 3. 口播素材句段模型
 
@@ -236,28 +236,30 @@ Model Gateway 调用 VLM 或 mock provider
 
 ## 13. 验证闭环
 
-- [ ] 启动 Docker Compose
-- [ ] 启动 API
-- [ ] 启动 worker
-- [ ] 启动 Web Console
-- [ ] 登录 Web Console
-- [ ] 创建或选择产品
-- [ ] 创建或选择产品卖点
-- [ ] 上传 visual-only clean shot
-- [ ] 上传 talking-head clean shot
-- [ ] 服务端保存素材文件
-- [ ] 服务端写入素材记录
-- [ ] 服务端完成 ffprobe 探测
-- [ ] worker 完成抽帧任务
-- [ ] worker 完成 VLM mock 分析任务
-- [ ] 前端可查看素材分析状态
-- [ ] 前端可查看素材标签
-- [ ] 前端可人工修正素材标签
-- [ ] 前端可按产品筛选素材
-- [ ] 前端可按标签筛选素材
-- [ ] 前端可按素材类型筛选素材
-- [ ] API 可按条件检索素材
-- [ ] 数据库中可查到素材 tags
+- [x] 启动 Docker Compose
+- [x] 启动 API
+- [x] 启动 worker
+- [x] 启动 Web Console
+- [x] 登录 Web Console
+- [x] 创建或选择产品
+- [x] 创建或选择产品卖点
+- [x] 上传 visual-only clean shot
+- [x] 上传 talking-head clean shot
+- [x] 服务端保存素材文件
+- [x] 服务端写入素材记录
+- [x] 服务端完成 ffprobe 探测
+- [x] worker 完成抽帧任务
+- [x] worker 完成 VLM mock 分析任务
+- [x] 前端可查看素材分析状态
+- [x] 前端可查看素材标签
+- [x] 前端可人工修正素材标签
+- [x] 前端可按产品筛选素材
+- [x] 前端可按标签筛选素材
+- [x] 前端可按素材类型筛选素材
+- [x] API 可按条件检索素材
+- [x] 数据库中可查到素材 tags
+
+备注：已于 2026-07-09 在 `10.168.10.23` 使用 Docker Compose 验证第二阶段闭环，实际完成了产品/卖点创建、两类素材上传、`ffprobe` 探测、抽帧、VLM mock 分析、人工标签修正、前端查看与筛选，以及数据库落库核对。
 
 ## 14. 第二阶段暂不包含
 
@@ -285,4 +287,4 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 素材可按产品、类型、状态、标签检索
 - [x] 前端可完成素材查看、筛选、详情查看和人工修正
 - [x] worker 任务状态可追踪
-- [ ] Docker Compose 环境可跑通完整第二阶段闭环
+- [x] Docker Compose 环境可跑通完整第二阶段闭环
