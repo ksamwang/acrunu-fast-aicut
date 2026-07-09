@@ -10,6 +10,14 @@
 - [第二阶段：素材库、分析与检索闭环](./phase-2.md)
 - [第三阶段：文案、配音、编排与 `edit_plan` 闭环](./phase-3.md)
 
+另外维护一份只记录近期已确认结论的任务清单：
+
+- [已确认任务清单：素材预处理与素材库边界](./confirmed-material-library-checklist.md)
+
+说明：
+- `phase-3.md` 当前不作为最近这轮素材库与预处理讨论的依据
+- 与预处理工作区、素材库边界、3 帧 VLM 输入相关的最新确认，以 `confirmed-material-library-checklist.md` 为准
+
 使用规则：
 
 - 这里只写实施任务，不重复做产品和架构讨论
