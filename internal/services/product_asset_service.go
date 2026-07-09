@@ -81,7 +81,9 @@ type Asset struct {
 	Subjects           []string       `json:"subjects,omitempty"`
 	SceneTags          []string       `json:"scene_tags,omitempty"`
 	QualityTags        []string       `json:"quality_tags,omitempty"`
+	ModelLabels        map[string]any `json:"model_labels,omitempty"`
 	ModelResult        map[string]any `json:"model_result,omitempty"`
+	ReviewOverrides    map[string]any `json:"review_overrides,omitempty"`
 	ReviewerNotes      string         `json:"reviewer_notes,omitempty"`
 	AnalysisError      string         `json:"analysis_error,omitempty"`
 	CreatedByUserID    string         `json:"created_by_user_id"`
@@ -235,6 +237,7 @@ type AssetAnalysisUpdate struct {
 	Subjects         []string
 	SceneTags        []string
 	QualityTags      []string
+	ModelLabels      map[string]any
 	ModelResult      map[string]any
 	AnalysisError    string
 	AnalyzedAt       time.Time
@@ -329,7 +332,9 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 		Subjects:           append([]string(nil), input.Subjects...),
 		SceneTags:          append([]string(nil), input.SceneTags...),
 		QualityTags:        append([]string(nil), input.QualityTags...),
+		ModelLabels:        map[string]any{},
 		ModelResult:        map[string]any{},
+		ReviewOverrides:    map[string]any{},
 		ReviewerNotes:      input.ReviewerNotes,
 		AnalysisError:      input.AnalysisError,
 		CreatedByUserID:    input.CreatedByUserID,
@@ -550,22 +555,15 @@ func (s *ProductAssetService) UpdateAssetAnalysis(assetID string, update AssetAn
 	}
 
 	asset.AnalysisStatus = update.AnalysisStatus
-	if update.UsabilityStatus != "" {
-		asset.UsabilityStatus = update.UsabilityStatus
-	}
-	asset.SceneDescription = update.SceneDescription
-	asset.ShotSize = update.ShotSize
-	asset.CameraMovement = update.CameraMovement
-	asset.Subjects = append([]string(nil), update.Subjects...)
-	asset.SceneTags = append([]string(nil), update.SceneTags...)
-	asset.QualityTags = append([]string(nil), update.QualityTags...)
-	asset.ModelResult = update.ModelResult
+	asset.ModelLabels = cloneObjectMap(resolveModelLabels(update))
+	asset.ModelResult = cloneObjectMap(update.ModelResult)
 	asset.AnalysisError = update.AnalysisError
 	asset.UpdatedByUserID = update.UpdatedByUserID
 	if !update.AnalyzedAt.IsZero() {
 		analyzedAt := update.AnalyzedAt
 		asset.AnalyzedAt = &analyzedAt
 	}
+	applyAssetEffectiveLabels(&asset, asset.ModelLabels, asset.ReviewOverrides)
 	asset.UpdatedAt = time.Now()
 	s.assets[assetID] = asset
 	return nil
@@ -584,13 +582,8 @@ func (s *ProductAssetService) UpdateAssetReview(assetID string, update AssetRevi
 		return Asset{}, ErrAssetNotFound
 	}
 
-	asset.SceneDescription = update.SceneDescription
-	asset.ShotSize = update.ShotSize
-	asset.CameraMovement = update.CameraMovement
-	asset.Subjects = append([]string(nil), update.Subjects...)
-	asset.SceneTags = append([]string(nil), update.SceneTags...)
-	asset.QualityTags = append([]string(nil), update.QualityTags...)
-	asset.UsabilityStatus = firstNonEmpty(update.UsabilityStatus, asset.UsabilityStatus)
+	asset.ReviewOverrides = cloneObjectMap(buildReviewOverrides(update))
+	applyAssetEffectiveLabels(&asset, asset.ModelLabels, asset.ReviewOverrides)
 	asset.ReviewerNotes = update.ReviewerNotes
 	asset.UpdatedByUserID = update.UpdatedByUserID
 	asset.UpdatedAt = time.Now()
@@ -1057,12 +1050,15 @@ func (s *ProductAssetService) createAssetInPostgres(input CreateAssetInput) (Ass
 		Subjects:           subjectsJSON,
 		SceneTags:          sceneTagsJSON,
 		QualityTags:        qualityTagsJSON,
+		ModelLabels:        []byte(`{}`),
 		ModelResult:        []byte(`{}`),
+		ReviewOverrides:    []byte(`{}`),
 		ReviewerNotes:      assetTextParam(input.ReviewerNotes),
 		AnalysisError:      assetTextParam(input.AnalysisError),
 		AnalyzedAt:         pgtype.Timestamptz{},
 		Metadata:           []byte(`{}`),
 		CreatedByUserID:    assetNullableUUIDParam(input.CreatedByUserID),
+		UpdatedByUserID:    assetNullableUUIDParam(input.CreatedByUserID),
 	})
 	if err != nil {
 		if isForeignKeyProductError(err) {
@@ -1153,16 +1149,24 @@ func (s *ProductAssetService) getAssetFromPostgres(id string) (Asset, bool) {
 }
 
 func (s *ProductAssetService) updateAssetAnalysisInPostgres(assetID string, update AssetAnalysisUpdate) error {
+	current, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return ErrAssetNotFound
+	}
+	modelLabels := resolveModelLabels(update)
+	effective := mergeLabelMaps(modelLabels, current.ReviewOverrides)
+
 	return s.queries.UpdateAssetAnalysis(context.Background(), db.UpdateAssetAnalysisParams{
 		ID:               assetNullableUUIDParam(assetID),
 		AnalysisStatus:   firstNonEmpty(update.AnalysisStatus, "ready"),
-		UsabilityStatus:  firstNonEmpty(update.UsabilityStatus, "usable"),
-		SceneDescription: assetTextParam(update.SceneDescription),
-		ShotSize:         assetTextParam(update.ShotSize),
-		CameraMovement:   assetTextParam(update.CameraMovement),
-		Subjects:         mustJSON(update.Subjects, []string{}),
-		SceneTags:        mustJSON(update.SceneTags, []string{}),
-		QualityTags:      mustJSON(update.QualityTags, []string{}),
+		UsabilityStatus:  firstNonEmpty(stringValueFromMap(effective, "usability_status"), "usable"),
+		SceneDescription: assetTextParam(stringValueFromMap(effective, "scene_description")),
+		ShotSize:         assetTextParam(stringValueFromMap(effective, "shot_size")),
+		CameraMovement:   assetTextParam(stringValueFromMap(effective, "camera_movement")),
+		Subjects:         mustJSON(stringSliceValueFromMap(effective, "subjects"), []string{}),
+		SceneTags:        mustJSON(stringSliceValueFromMap(effective, "scene_tags"), []string{}),
+		QualityTags:      mustJSON(stringSliceValueFromMap(effective, "quality_tags"), []string{}),
+		ModelLabels:      mustJSON(modelLabels, map[string]any{}),
 		ModelResult:      mustJSON(update.ModelResult, map[string]any{}),
 		AnalysisError:    assetTextParam(update.AnalysisError),
 		AnalyzedAt:       pgtype.Timestamptz{Time: update.AnalyzedAt, Valid: !update.AnalyzedAt.IsZero()},
@@ -1176,16 +1180,20 @@ func (s *ProductAssetService) updateAssetReviewInPostgres(assetID string, update
 		return Asset{}, ErrAssetNotFound
 	}
 
+	reviewOverrides := buildReviewOverrides(update)
+	effective := mergeLabelMaps(current.ModelLabels, reviewOverrides)
+
 	err := s.queries.UpdateAssetAnalysis(context.Background(), db.UpdateAssetAnalysisParams{
 		ID:               assetNullableUUIDParam(assetID),
 		AnalysisStatus:   firstNonEmpty(current.AnalysisStatus, "ready"),
-		UsabilityStatus:  firstNonEmpty(update.UsabilityStatus, current.UsabilityStatus),
-		SceneDescription: assetTextParam(update.SceneDescription),
-		ShotSize:         assetTextParam(update.ShotSize),
-		CameraMovement:   assetTextParam(update.CameraMovement),
-		Subjects:         mustJSON(update.Subjects, []string{}),
-		SceneTags:        mustJSON(update.SceneTags, []string{}),
-		QualityTags:      mustJSON(update.QualityTags, []string{}),
+		UsabilityStatus:  firstNonEmpty(stringValueFromMap(effective, "usability_status"), current.UsabilityStatus),
+		SceneDescription: assetTextParam(stringValueFromMap(effective, "scene_description")),
+		ShotSize:         assetTextParam(stringValueFromMap(effective, "shot_size")),
+		CameraMovement:   assetTextParam(stringValueFromMap(effective, "camera_movement")),
+		Subjects:         mustJSON(stringSliceValueFromMap(effective, "subjects"), []string{}),
+		SceneTags:        mustJSON(stringSliceValueFromMap(effective, "scene_tags"), []string{}),
+		QualityTags:      mustJSON(stringSliceValueFromMap(effective, "quality_tags"), []string{}),
+		ModelLabels:      mustJSON(current.ModelLabels, map[string]any{}),
 		ModelResult:      mustJSON(current.ModelResult, map[string]any{}),
 		AnalysisError:    assetTextParam(current.AnalysisError),
 		AnalyzedAt:       pgtype.Timestamptz{Time: derefTime(current.AnalyzedAt), Valid: current.AnalyzedAt != nil},
@@ -1198,7 +1206,8 @@ func (s *ProductAssetService) updateAssetReviewInPostgres(assetID string, update
 	if err := s.queries.UpdateAssetReview(context.Background(), db.UpdateAssetReviewParams{
 		ID:              assetNullableUUIDParam(assetID),
 		ReviewerNotes:   assetTextParam(update.ReviewerNotes),
-		UsabilityStatus: firstNonEmpty(update.UsabilityStatus, current.UsabilityStatus),
+		ReviewOverrides: mustJSON(reviewOverrides, map[string]any{}),
+		UsabilityStatus: firstNonEmpty(stringValueFromMap(effective, "usability_status"), current.UsabilityStatus),
 		UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
 	}); err != nil {
 		return Asset{}, err
@@ -1355,6 +1364,7 @@ func AssetAnalysisUpdateFromResult(result modelgateway.AnalyzeAssetResult, analy
 		Subjects:         append([]string(nil), result.Subjects...),
 		SceneTags:        append([]string(nil), result.SceneTags...),
 		QualityTags:      append([]string(nil), result.QualityTags...),
+		ModelLabels:      modelLabelsFromResult(result),
 		ModelResult:      result.ModelResult,
 		AnalyzedAt:       analyzedAt,
 	}
@@ -1441,7 +1451,9 @@ func assetFromDBRecord(row repository.AssetRecord) Asset {
 		Subjects:           decodeStringList(row.Subjects),
 		SceneTags:          decodeStringList(row.SceneTags),
 		QualityTags:        decodeStringList(row.QualityTags),
+		ModelLabels:        jsonObject(row.ModelLabels),
 		ModelResult:        jsonObject(row.ModelResult),
+		ReviewOverrides:    jsonObject(row.ReviewOverrides),
 		ReviewerNotes:      row.ReviewerNotes,
 		AnalysisError:      row.AnalysisError,
 		CreatedByUserID:    row.CreatedByUserID,
@@ -1488,7 +1500,9 @@ func assetFromDBRow(row db.Asset) Asset {
 		Subjects:           decodeStringList(row.Subjects),
 		SceneTags:          decodeStringList(row.SceneTags),
 		QualityTags:        decodeStringList(row.QualityTags),
+		ModelLabels:        jsonObject(row.ModelLabels),
 		ModelResult:        jsonObject(row.ModelResult),
+		ReviewOverrides:    jsonObject(row.ReviewOverrides),
 		ReviewerNotes:      assetTextString(row.ReviewerNotes),
 		AnalysisError:      assetTextString(row.AnalysisError),
 		CreatedByUserID:    assetUUIDString(row.CreatedByUserID),
@@ -1597,6 +1611,120 @@ func jsonObject(value []byte) map[string]any {
 		return map[string]any{}
 	}
 	return decoded
+}
+
+func cloneObjectMap(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(value))
+	for key, item := range value {
+		switch typed := item.(type) {
+		case []string:
+			cloned[key] = append([]string(nil), typed...)
+		case []any:
+			copied := make([]any, len(typed))
+			copy(copied, typed)
+			cloned[key] = copied
+		default:
+			cloned[key] = typed
+		}
+	}
+	return cloned
+}
+
+func modelLabelsFromResult(result modelgateway.AnalyzeAssetResult) map[string]any {
+	return map[string]any{
+		"scene_description": result.SceneDescription,
+		"shot_size":         result.ShotSize,
+		"camera_movement":   result.CameraMovement,
+		"subjects":          append([]string(nil), result.Subjects...),
+		"scene_tags":        append([]string(nil), result.SceneTags...),
+		"quality_tags":      append([]string(nil), result.QualityTags...),
+		"usability_status":  result.UsabilityStatus,
+	}
+}
+
+func resolveModelLabels(update AssetAnalysisUpdate) map[string]any {
+	if len(update.ModelLabels) > 0 {
+		return cloneObjectMap(update.ModelLabels)
+	}
+	return map[string]any{
+		"scene_description": update.SceneDescription,
+		"shot_size":         update.ShotSize,
+		"camera_movement":   update.CameraMovement,
+		"subjects":          append([]string(nil), update.Subjects...),
+		"scene_tags":        append([]string(nil), update.SceneTags...),
+		"quality_tags":      append([]string(nil), update.QualityTags...),
+		"usability_status":  update.UsabilityStatus,
+	}
+}
+
+func buildReviewOverrides(update AssetReviewUpdate) map[string]any {
+	return map[string]any{
+		"scene_description": update.SceneDescription,
+		"shot_size":         update.ShotSize,
+		"camera_movement":   update.CameraMovement,
+		"subjects":          append([]string(nil), update.Subjects...),
+		"scene_tags":        append([]string(nil), update.SceneTags...),
+		"quality_tags":      append([]string(nil), update.QualityTags...),
+		"usability_status":  update.UsabilityStatus,
+	}
+}
+
+func mergeLabelMaps(base map[string]any, override map[string]any) map[string]any {
+	merged := cloneObjectMap(base)
+	for key, value := range override {
+		merged[key] = value
+	}
+	return merged
+}
+
+func applyAssetEffectiveLabels(asset *Asset, modelLabels map[string]any, reviewOverrides map[string]any) {
+	effective := mergeLabelMaps(modelLabels, reviewOverrides)
+	asset.SceneDescription = stringValueFromMap(effective, "scene_description")
+	asset.ShotSize = stringValueFromMap(effective, "shot_size")
+	asset.CameraMovement = stringValueFromMap(effective, "camera_movement")
+	asset.Subjects = stringSliceValueFromMap(effective, "subjects")
+	asset.SceneTags = stringSliceValueFromMap(effective, "scene_tags")
+	asset.QualityTags = stringSliceValueFromMap(effective, "quality_tags")
+	if value := stringValueFromMap(effective, "usability_status"); value != "" {
+		asset.UsabilityStatus = value
+	}
+}
+
+func stringValueFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	switch value := values[key].(type) {
+	case string:
+		return value
+	default:
+		return ""
+	}
+}
+
+func stringSliceValueFromMap(values map[string]any, key string) []string {
+	if values == nil {
+		return nil
+	}
+	switch value := values[key].(type) {
+	case []string:
+		return append([]string(nil), value...)
+	case []any:
+		items := make([]string, 0, len(value))
+		for _, item := range value {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			items = append(items, text)
+		}
+		return items
+	default:
+		return nil
+	}
 }
 
 func decodeStringList(value []byte) []string {

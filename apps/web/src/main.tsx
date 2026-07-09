@@ -85,7 +85,9 @@ type Asset = {
   subjects?: string[];
   scene_tags?: string[];
   quality_tags?: string[];
+  model_labels?: Record<string, unknown>;
   model_result?: Record<string, unknown>;
+  review_overrides?: Record<string, unknown>;
   analysis_error?: string;
   updated_at?: string;
   analyzed_at?: string;
@@ -1075,6 +1077,20 @@ function AssetsPage({ token }: { token: string }) {
                         <pre className="json-block">{JSON.stringify(selectedAsset.model_result, null, 2)}</pre>
                       ) : (
                         <Typography.Text type="secondary">No raw model output</Typography.Text>
+                      )}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Model Labels">
+                      {selectedAsset.model_labels && Object.keys(selectedAsset.model_labels).length > 0 ? (
+                        <pre className="json-block">{JSON.stringify(selectedAsset.model_labels, null, 2)}</pre>
+                      ) : (
+                        <Typography.Text type="secondary">No normalized model labels</Typography.Text>
+                      )}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Review Overrides">
+                      {selectedAsset.review_overrides && Object.keys(selectedAsset.review_overrides).length > 0 ? (
+                        <pre className="json-block">{JSON.stringify(selectedAsset.review_overrides, null, 2)}</pre>
+                      ) : (
+                        <Typography.Text type="secondary">No manual overrides</Typography.Text>
                       )}
                     </Descriptions.Item>
                   </Descriptions>

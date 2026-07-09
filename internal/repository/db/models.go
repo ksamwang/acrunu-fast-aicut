@@ -52,6 +52,8 @@ type Asset struct {
 	AnalysisError      pgtype.Text        `json:"analysis_error"`
 	AnalyzedAt         pgtype.Timestamptz `json:"analyzed_at"`
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
+	ModelLabels        []byte             `json:"model_labels"`
+	ReviewOverrides    []byte             `json:"review_overrides"`
 }
 
 type AssetFrameSnapshot struct {

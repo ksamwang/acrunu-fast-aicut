@@ -107,6 +107,12 @@ func TestUpdateAssetReviewInMemory(t *testing.T) {
 	if updated.SceneDescription != "manual description" {
 		t.Fatalf("expected scene description updated, got %s", updated.SceneDescription)
 	}
+	if updated.ModelLabels["scene_description"] != "model description" {
+		t.Fatalf("expected model labels preserved, got %#v", updated.ModelLabels)
+	}
+	if updated.ReviewOverrides["scene_description"] != "manual description" {
+		t.Fatalf("expected review overrides stored, got %#v", updated.ReviewOverrides)
+	}
 	if updated.UsabilityStatus != "needs_review" {
 		t.Fatalf("expected usability_status needs_review, got %s", updated.UsabilityStatus)
 	}
@@ -121,6 +127,86 @@ func TestUpdateAssetReviewInMemory(t *testing.T) {
 	}
 	if provider, ok := updated.ModelResult["provider"].(string); !ok || provider != "mock" {
 		t.Fatalf("expected model result provider preserved, got %#v", updated.ModelResult)
+	}
+}
+
+func TestUpdateAssetAnalysisReappliesReviewOverridesInMemory(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	if err := service.UpdateAssetAnalysis(asset.ID, AssetAnalysisUpdate{
+		AnalysisStatus:   "ready",
+		UsabilityStatus:  "usable",
+		SceneDescription: "model v1",
+		ShotSize:         "medium_shot",
+		CameraMovement:   "static",
+		Subjects:         []string{"product"},
+		SceneTags:        []string{"demo"},
+		QualityTags:      []string{},
+		ModelResult:      map[string]any{"provider": "mock", "version": 1},
+		UpdatedByUserID:  "analyzer-1",
+	}); err != nil {
+		t.Fatalf("seed analysis failed: %v", err)
+	}
+
+	if _, err := service.UpdateAssetReview(asset.ID, AssetReviewUpdate{
+		SceneDescription: "manual final",
+		ShotSize:         "close_up",
+		CameraMovement:   "static",
+		Subjects:         []string{"product", "hand"},
+		SceneTags:        []string{"indoor"},
+		QualityTags:      []string{"soft_focus"},
+		UsabilityStatus:  "needs_review",
+		ReviewerNotes:    "keep manual choice",
+		UpdatedByUserID:  "editor-1",
+	}); err != nil {
+		t.Fatalf("review update failed: %v", err)
+	}
+
+	if err := service.UpdateAssetAnalysis(asset.ID, AssetAnalysisUpdate{
+		AnalysisStatus:   "ready",
+		UsabilityStatus:  "usable",
+		SceneDescription: "model v2",
+		ShotSize:         "wide_shot",
+		CameraMovement:   "pan",
+		Subjects:         []string{"vehicle"},
+		SceneTags:        []string{"outdoor"},
+		QualityTags:      []string{"noise"},
+		ModelResult:      map[string]any{"provider": "mock", "version": 2},
+		UpdatedByUserID:  "analyzer-2",
+	}); err != nil {
+		t.Fatalf("re-analysis failed: %v", err)
+	}
+
+	reloaded, ok := service.GetAsset(asset.ID)
+	if !ok {
+		t.Fatalf("expected asset to exist")
+	}
+	if reloaded.SceneDescription != "manual final" || reloaded.ShotSize != "close_up" {
+		t.Fatalf("expected manual overrides to stay effective, got %#v", reloaded)
+	}
+	if reloaded.ModelLabels["scene_description"] != "model v2" {
+		t.Fatalf("expected model labels refreshed, got %#v", reloaded.ModelLabels)
+	}
+	if reloaded.ReviewOverrides["scene_description"] != "manual final" {
+		t.Fatalf("expected review overrides retained, got %#v", reloaded.ReviewOverrides)
+	}
+	if got, ok := reloaded.ModelResult["version"].(int); !ok || got != 2 {
+		t.Fatalf("expected latest model result retained, got %#v", reloaded.ModelResult)
 	}
 }
 

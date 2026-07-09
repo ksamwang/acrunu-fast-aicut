@@ -44,7 +44,9 @@ type AssetRecord struct {
 	Subjects           json.RawMessage `json:"subjects,omitempty"`
 	SceneTags          json.RawMessage `json:"scene_tags,omitempty"`
 	QualityTags        json.RawMessage `json:"quality_tags,omitempty"`
+	ModelLabels        json.RawMessage `json:"model_labels,omitempty"`
 	ModelResult        json.RawMessage `json:"model_result,omitempty"`
+	ReviewOverrides    json.RawMessage `json:"review_overrides,omitempty"`
 	ReviewerNotes      string          `json:"reviewer_notes,omitempty"`
 	AnalysisError      string          `json:"analysis_error,omitempty"`
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
@@ -57,18 +59,18 @@ type AssetRecord struct {
 }
 
 type SpeechSegmentRecord struct {
-	ID              string     `json:"id"`
-	AssetID         string     `json:"asset_id"`
-	StartMs         int        `json:"start_ms"`
-	EndMs           int        `json:"end_ms"`
-	Transcript      string     `json:"transcript"`
-	Confidence      float64    `json:"confidence,omitempty"`
-	Source          string     `json:"source"`
-	Status          string     `json:"status"`
-	CreatedByUserID string     `json:"created_by_user_id,omitempty"`
-	UpdatedByUserID string     `json:"updated_by_user_id,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID              string    `json:"id"`
+	AssetID         string    `json:"asset_id"`
+	StartMs         int       `json:"start_ms"`
+	EndMs           int       `json:"end_ms"`
+	Transcript      string    `json:"transcript"`
+	Confidence      float64   `json:"confidence,omitempty"`
+	Source          string    `json:"source"`
+	Status          string    `json:"status"`
+	CreatedByUserID string    `json:"created_by_user_id,omitempty"`
+	UpdatedByUserID string    `json:"updated_by_user_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type AssetFrameSnapshotRecord struct {
@@ -282,7 +284,9 @@ func assetFromDB(row db.Asset) AssetRecord {
 		Subjects:           cloneJSON(row.Subjects),
 		SceneTags:          cloneJSON(row.SceneTags),
 		QualityTags:        cloneJSON(row.QualityTags),
+		ModelLabels:        cloneJSON(row.ModelLabels),
 		ModelResult:        cloneJSON(row.ModelResult),
+		ReviewOverrides:    cloneJSON(row.ReviewOverrides),
 		ReviewerNotes:      textString(row.ReviewerNotes),
 		AnalysisError:      textString(row.AnalysisError),
 		Metadata:           cloneJSON(row.Metadata),

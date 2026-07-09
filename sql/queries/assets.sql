@@ -32,7 +32,9 @@ INSERT INTO assets (
     subjects,
     scene_tags,
     quality_tags,
+    model_labels,
     model_result,
+    review_overrides,
     reviewer_notes,
     analysis_error,
     analyzed_at,
@@ -43,7 +45,7 @@ INSERT INTO assets (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-    $31, $32, $33, $34, $35, $36, $37, $38, $38
+    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
 )
 RETURNING *;
 
@@ -118,18 +120,20 @@ SET analysis_status = $2,
     subjects = $7,
     scene_tags = $8,
     quality_tags = $9,
-    model_result = $10,
-    analysis_error = $11,
-    analyzed_at = $12,
-    updated_by_user_id = $13,
+    model_labels = $10,
+    model_result = $11,
+    analysis_error = $12,
+    analyzed_at = $13,
+    updated_by_user_id = $14,
     updated_at = now()
 WHERE id = $1;
 
 -- name: UpdateAssetReview :exec
 UPDATE assets
 SET reviewer_notes = $2,
-    usability_status = $3,
-    updated_by_user_id = $4,
+    review_overrides = $3,
+    usability_status = $4,
+    updated_by_user_id = $5,
     updated_at = now()
 WHERE id = $1;
 

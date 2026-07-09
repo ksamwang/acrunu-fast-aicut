@@ -90,6 +90,12 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 	if updated.SceneDescription != "manual description" {
 		t.Fatalf("expected scene description updated, got %s", updated.SceneDescription)
 	}
+	if updated.ModelLabels["scene_description"] != "model description" {
+		t.Fatalf("expected model labels kept separately, got %#v", updated.ModelLabels)
+	}
+	if updated.ReviewOverrides["scene_description"] != "manual description" {
+		t.Fatalf("expected review overrides stored, got %#v", updated.ReviewOverrides)
+	}
 	if updated.ReviewerNotes != "adjust crop" {
 		t.Fatalf("expected reviewer notes updated, got %s", updated.ReviewerNotes)
 	}
@@ -98,6 +104,19 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 	}
 	if provider, ok := updated.ModelResult["provider"].(string); !ok || provider != "mock" {
 		t.Fatalf("expected model result preserved, got %#v", updated.ModelResult)
+	}
+
+	var resp struct {
+		Data services.Asset `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if resp.Data.ModelLabels["scene_description"] != "model description" {
+		t.Fatalf("expected response model labels, got %#v", resp.Data.ModelLabels)
+	}
+	if resp.Data.ReviewOverrides["scene_description"] != "manual description" {
+		t.Fatalf("expected response review overrides, got %#v", resp.Data.ReviewOverrides)
 	}
 }
 

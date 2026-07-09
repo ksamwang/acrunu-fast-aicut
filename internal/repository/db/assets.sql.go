@@ -30,25 +30,6 @@ func (q *Queries) ArchiveAsset(ctx context.Context, arg ArchiveAssetParams) erro
 	return err
 }
 
-const restoreAsset = `-- name: RestoreAsset :exec
-UPDATE assets
-SET status = 'ready',
-    archived_at = NULL,
-    updated_by_user_id = $2,
-    updated_at = now()
-WHERE id = $1
-`
-
-type RestoreAssetParams struct {
-	ID              pgtype.UUID `json:"id"`
-	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
-}
-
-func (q *Queries) RestoreAsset(ctx context.Context, arg RestoreAssetParams) error {
-	_, err := q.db.Exec(ctx, restoreAsset, arg.ID, arg.UpdatedByUserID)
-	return err
-}
-
 const createAsset = `-- name: CreateAsset :one
 INSERT INTO assets (
     product_id,
@@ -83,7 +64,9 @@ INSERT INTO assets (
     subjects,
     scene_tags,
     quality_tags,
+    model_labels,
     model_result,
+    review_overrides,
     reviewer_notes,
     analysis_error,
     analyzed_at,
@@ -94,9 +77,9 @@ INSERT INTO assets (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-    $31, $32, $33, $34, $35, $36, $37, $38, $38
+    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
 )
-RETURNING id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at
+RETURNING id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides
 `
 
 type CreateAssetParams struct {
@@ -132,12 +115,15 @@ type CreateAssetParams struct {
 	Subjects           []byte             `json:"subjects"`
 	SceneTags          []byte             `json:"scene_tags"`
 	QualityTags        []byte             `json:"quality_tags"`
+	ModelLabels        []byte             `json:"model_labels"`
 	ModelResult        []byte             `json:"model_result"`
+	ReviewOverrides    []byte             `json:"review_overrides"`
 	ReviewerNotes      pgtype.Text        `json:"reviewer_notes"`
 	AnalysisError      pgtype.Text        `json:"analysis_error"`
 	AnalyzedAt         pgtype.Timestamptz `json:"analyzed_at"`
 	Metadata           []byte             `json:"metadata"`
 	CreatedByUserID    pgtype.UUID        `json:"created_by_user_id"`
+	UpdatedByUserID    pgtype.UUID        `json:"updated_by_user_id"`
 }
 
 func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset, error) {
@@ -174,12 +160,15 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		arg.Subjects,
 		arg.SceneTags,
 		arg.QualityTags,
+		arg.ModelLabels,
 		arg.ModelResult,
+		arg.ReviewOverrides,
 		arg.ReviewerNotes,
 		arg.AnalysisError,
 		arg.AnalyzedAt,
 		arg.Metadata,
 		arg.CreatedByUserID,
+		arg.UpdatedByUserID,
 	)
 	var i Asset
 	err := row.Scan(
@@ -226,12 +215,14 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		&i.AnalysisError,
 		&i.AnalyzedAt,
 		&i.ArchivedAt,
+		&i.ModelLabels,
+		&i.ReviewOverrides,
 	)
 	return i, err
 }
 
 const getAssetByID = `-- name: GetAssetByID :one
-SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at FROM assets
+SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides FROM assets
 WHERE id = $1
 `
 
@@ -282,12 +273,14 @@ func (q *Queries) GetAssetByID(ctx context.Context, id pgtype.UUID) (Asset, erro
 		&i.AnalysisError,
 		&i.AnalyzedAt,
 		&i.ArchivedAt,
+		&i.ModelLabels,
+		&i.ReviewOverrides,
 	)
 	return i, err
 }
 
 const listAssets = `-- name: ListAssets :many
-SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at FROM assets
+SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides FROM assets
 WHERE product_id = COALESCE($1, product_id)
   AND source_type = COALESCE($2, source_type)
   AND status = COALESCE($3, status)
@@ -400,6 +393,8 @@ func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset
 			&i.AnalysisError,
 			&i.AnalyzedAt,
 			&i.ArchivedAt,
+			&i.ModelLabels,
+			&i.ReviewOverrides,
 		); err != nil {
 			return nil, err
 		}
@@ -409,6 +404,25 @@ func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset
 		return nil, err
 	}
 	return items, nil
+}
+
+const restoreAsset = `-- name: RestoreAsset :exec
+UPDATE assets
+SET status = 'ready',
+    archived_at = NULL,
+    updated_by_user_id = $2,
+    updated_at = now()
+WHERE id = $1
+`
+
+type RestoreAssetParams struct {
+	ID              pgtype.UUID `json:"id"`
+	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
+}
+
+func (q *Queries) RestoreAsset(ctx context.Context, arg RestoreAssetParams) error {
+	_, err := q.db.Exec(ctx, restoreAsset, arg.ID, arg.UpdatedByUserID)
+	return err
 }
 
 const updateAssetAnalysis = `-- name: UpdateAssetAnalysis :exec
@@ -421,10 +435,11 @@ SET analysis_status = $2,
     subjects = $7,
     scene_tags = $8,
     quality_tags = $9,
-    model_result = $10,
-    analysis_error = $11,
-    analyzed_at = $12,
-    updated_by_user_id = $13,
+    model_labels = $10,
+    model_result = $11,
+    analysis_error = $12,
+    analyzed_at = $13,
+    updated_by_user_id = $14,
     updated_at = now()
 WHERE id = $1
 `
@@ -439,6 +454,7 @@ type UpdateAssetAnalysisParams struct {
 	Subjects         []byte             `json:"subjects"`
 	SceneTags        []byte             `json:"scene_tags"`
 	QualityTags      []byte             `json:"quality_tags"`
+	ModelLabels      []byte             `json:"model_labels"`
 	ModelResult      []byte             `json:"model_result"`
 	AnalysisError    pgtype.Text        `json:"analysis_error"`
 	AnalyzedAt       pgtype.Timestamptz `json:"analyzed_at"`
@@ -456,6 +472,7 @@ func (q *Queries) UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalys
 		arg.Subjects,
 		arg.SceneTags,
 		arg.QualityTags,
+		arg.ModelLabels,
 		arg.ModelResult,
 		arg.AnalysisError,
 		arg.AnalyzedAt,
@@ -511,8 +528,9 @@ func (q *Queries) UpdateAssetMediaInfo(ctx context.Context, arg UpdateAssetMedia
 const updateAssetReview = `-- name: UpdateAssetReview :exec
 UPDATE assets
 SET reviewer_notes = $2,
-    usability_status = $3,
-    updated_by_user_id = $4,
+    review_overrides = $3,
+    usability_status = $4,
+    updated_by_user_id = $5,
     updated_at = now()
 WHERE id = $1
 `
@@ -520,6 +538,7 @@ WHERE id = $1
 type UpdateAssetReviewParams struct {
 	ID              pgtype.UUID `json:"id"`
 	ReviewerNotes   pgtype.Text `json:"reviewer_notes"`
+	ReviewOverrides []byte      `json:"review_overrides"`
 	UsabilityStatus string      `json:"usability_status"`
 	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
 }
@@ -528,6 +547,7 @@ func (q *Queries) UpdateAssetReview(ctx context.Context, arg UpdateAssetReviewPa
 	_, err := q.db.Exec(ctx, updateAssetReview,
 		arg.ID,
 		arg.ReviewerNotes,
+		arg.ReviewOverrides,
 		arg.UsabilityStatus,
 		arg.UpdatedByUserID,
 	)

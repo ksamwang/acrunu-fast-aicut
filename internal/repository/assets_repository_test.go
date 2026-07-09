@@ -52,7 +52,9 @@ func TestAssetFromDB(t *testing.T) {
 		Subjects:           []byte(`["driver","product"]`),
 		SceneTags:          []byte(`["car","interior"]`),
 		QualityTags:        []byte(`["slight_shake"]`),
+		ModelLabels:        []byte(`{"scene_description":"driver installs product"}`),
 		ModelResult:        []byte(`{"score":0.92}`),
+		ReviewOverrides:    []byte(`{"scene_description":"manual override"}`),
 		ReviewerNotes:      pgText("usable after crop"),
 		AnalysisError:      pgText(""),
 		Metadata:           []byte(`{"source":"demo"}`),
@@ -78,6 +80,12 @@ func TestAssetFromDB(t *testing.T) {
 	}
 	if string(record.Subjects) != `["driver","product"]` {
 		t.Fatalf("expected subjects json to map, got %s", string(record.Subjects))
+	}
+	if string(record.ModelLabels) != `{"scene_description":"driver installs product"}` {
+		t.Fatalf("expected model_labels json to map, got %s", string(record.ModelLabels))
+	}
+	if string(record.ReviewOverrides) != `{"scene_description":"manual override"}` {
+		t.Fatalf("expected review_overrides json to map, got %s", string(record.ReviewOverrides))
 	}
 	if record.AnalyzedAt == nil || !record.AnalyzedAt.Equal(analyzedAt) {
 		t.Fatalf("expected analyzed_at to map, got %+v", record.AnalyzedAt)
