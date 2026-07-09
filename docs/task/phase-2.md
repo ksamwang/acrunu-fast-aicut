@@ -122,7 +122,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [ ] 抽帧任务支持重试
 - [ ] 抽帧任务支持幂等执行
 - [x] 补充抽帧服务测试
-- [ ] 补充 worker 消费测试
+- [x] 补充 worker 消费测试
 
 备注：已接通 `asset:extract_frames` 队列、`AssetProcessingService`、`asset_frame_snapshots` 存储与查询接口。
 
