@@ -129,6 +129,8 @@ func (s *SystemConfigService) seedDefaults() {
 
 func defaultSystemConfigs() []SystemConfig {
 	return []SystemConfig{
+		{Key: openAIBaseURLKey, Value: "", Type: "string", Description: "OpenAI-compatible API base URL"},
+		{Key: openAIAPIKeyKey, Value: "", Type: "string", IsSecret: true, Description: "OpenAI-compatible API key"},
 		{Key: "llm.provider", Value: "openai_compatible", Type: "string", Description: "Default LLM provider"},
 		{Key: "llm.model", Value: "", Type: "string", Description: "Default LLM model"},
 		{Key: "llm.max_concurrency", Value: 2, Type: "number", Description: "Global LLM concurrency"},

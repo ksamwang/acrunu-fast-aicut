@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import {
+  Alert,
   Button,
   Card,
   ConfigProvider,
   Descriptions,
+  Divider,
   Empty,
   Form,
   Input,
@@ -154,6 +156,37 @@ type SystemConfig = {
   type: string;
   is_secret: boolean;
   description?: string;
+};
+
+type OpenAICompatibleSettings = {
+  provider: string;
+  base_url: string;
+  api_key_configured: boolean;
+  llm_model: string;
+  vlm_model: string;
+};
+
+type RuntimeSettings = {
+  llm_max_concurrency: number;
+  vlm_max_concurrency: number;
+  asr_max_concurrency: number;
+  tts_max_concurrency: number;
+  render_max_concurrency: number;
+  task_max_queued_per_user: number;
+  task_max_running_per_user: number;
+  vlm_timeout_seconds: number;
+  vlm_max_retries: number;
+};
+
+type ModelDiscoveryResult = {
+  models: Array<{
+    id: string;
+  }>;
+};
+
+type ModelSelectOption = {
+  value: string;
+  label: string;
 };
 
 type ViewKey = "products" | "assets" | "tasks" | "settings";
@@ -1398,24 +1431,709 @@ function TasksPage({ token }: { token: string }) {
   );
 }
 
-function SettingsPage({ token }: { token: string }) {
-  const configs = useResource<SystemConfig[]>("/api/admin/system-configs", token);
+function LegacySettingsPage({ token }: { token: string }) {
+  const providerSettings = useResource<OpenAICompatibleSettings>("/api/admin/model-access/openai-compatible", token);
+  const runtimeSettings = useResource<RuntimeSettings>("/api/admin/runtime-settings", token);
+  const [providerForm] = Form.useForm();
+  const [runtimeForm] = Form.useForm();
+  const [modelOptions, setModelOptions] = useState<ModelSelectOption[]>([]);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [savingRuntime, setSavingRuntime] = useState(false);
+  const [lastModelCount, setLastModelCount] = useState<number | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
+
+  const mergeModelOptions = (items: string[]) => {
+    const unique = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    return unique.map((item) => ({ value: item, label: item }));
+  };
+
+  const syncModelOptions = (items: string[]) => {
+    const currentValues = providerForm.getFieldsValue(["llm_model", "vlm_model"]);
+    setModelOptions(mergeModelOptions([...(items ?? []), currentValues.llm_model ?? "", currentValues.vlm_model ?? ""]));
+  };
+
+  useEffect(() => {
+    if (!providerSettings.data) {
+      return;
+    }
+    providerForm.setFieldsValue({
+      base_url: providerSettings.data.base_url,
+      api_key: "",
+      llm_model: providerSettings.data.llm_model,
+      vlm_model: providerSettings.data.vlm_model
+    });
+    syncModelOptions([providerSettings.data.llm_model, providerSettings.data.vlm_model]);
+  }, [providerForm, providerSettings.data]);
+
+  useEffect(() => {
+    if (!runtimeSettings.data) {
+      return;
+    }
+    runtimeForm.setFieldsValue(runtimeSettings.data);
+  }, [runtimeForm, runtimeSettings.data]);
+
+  const loadModels = async (showSuccessMessage: boolean) => {
+    await providerForm.validateFields(["base_url"]);
+    const values = providerForm.getFieldsValue();
+    setLoadingModels(true);
+    try {
+      const result = await apiRequest<ModelDiscoveryResult>(
+        "/api/admin/model-access/openai-compatible/models",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            base_url: values.base_url ?? "",
+            api_key: values.api_key ?? ""
+          })
+        },
+        token
+      );
+      const discovered = result.models.map((item) => item.id);
+      syncModelOptions(discovered);
+      setLastModelCount(discovered.length);
+      setConnectionStatus("success");
+      if (showSuccessMessage) {
+        message.success(discovered.length > 0 ? `已获取 ${discovered.length} 个模型。` : "连接成功，但当前端点未返回可用模型。");
+      }
+    } catch (error) {
+      setConnectionStatus("error");
+      message.error(error instanceof Error ? error.message : "获取模型列表失败");
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!providerSettings.data?.base_url) {
+      return;
+    }
+    void loadModels(false);
+  }, [providerSettings.data?.base_url]);
+
+  const testConnection = async () => {
+    await providerForm.validateFields(["base_url"]);
+    const values = providerForm.getFieldsValue();
+    setTestingConnection(true);
+    try {
+      const result = await apiRequest<{ reachable: boolean; model_count: number }>(
+        "/api/admin/model-access/openai-compatible/test",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            base_url: values.base_url ?? "",
+            api_key: values.api_key ?? ""
+          })
+        },
+        token
+      );
+      setLastModelCount(result.model_count);
+      setConnectionStatus("success");
+      message.success(`连接成功，当前可见模型数：${result.model_count}`);
+    } catch (error) {
+      setConnectionStatus("error");
+      message.error(error instanceof Error ? error.message : "连接测试失败");
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const saveProviderSettings = async () => {
+    const values = await providerForm.validateFields();
+    setSavingProvider(true);
+    try {
+      await apiRequest<OpenAICompatibleSettings>(
+        "/api/admin/model-access/openai-compatible",
+        {
+          method: "PUT",
+          body: JSON.stringify(values)
+        },
+        token
+      );
+      await providerSettings.reload();
+      syncModelOptions([values.llm_model ?? "", values.vlm_model ?? ""]);
+      message.success("模型接入配置已保存。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "保存模型接入配置失败");
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
+  const saveRuntimeSettings = async () => {
+    const values = await runtimeForm.validateFields();
+    setSavingRuntime(true);
+    try {
+      await apiRequest<RuntimeSettings>(
+        "/api/admin/runtime-settings",
+        {
+          method: "PUT",
+          body: JSON.stringify(values)
+        },
+        token
+      );
+      await runtimeSettings.reload();
+      message.success("运行控制配置已保存。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "保存运行控制配置失败");
+    } finally {
+      setSavingRuntime(false);
+    }
+  };
+
+  const providerSummaryItems = [
+    { label: "接入协议", value: "OpenAI Compatible" },
+    { label: "Base URL", value: providerSettings.data?.base_url || "未配置" },
+    { label: "密钥状态", value: providerSettings.data?.api_key_configured ? "已保存" : "未保存" },
+    { label: "模型发现", value: lastModelCount === null ? "未检测" : `${lastModelCount} 个模型` }
+  ];
+
+  const connectionAlert =
+    connectionStatus === "success"
+      ? {
+          type: "success" as const,
+          message: "端点连通正常",
+          description: lastModelCount === null ? "可以继续拉取模型列表并保存默认模型。" : `最近一次检测发现 ${lastModelCount} 个模型。`
+        }
+      : connectionStatus === "error"
+        ? {
+            type: "error" as const,
+            message: "最近一次连接失败",
+            description: "请检查 Base URL、密钥和服务端网络连通性。"
+          }
+        : {
+            type: "info" as const,
+            message: "建议先测试连接，再拉取模型列表",
+            description: "模型不再手动输入，而是从兼容 OpenAI 协议的端点自动发现。"
+          };
 
   return (
     <Space direction="vertical" size="middle" className="page-stack">
       <Typography.Title level={3}>系统设置</Typography.Title>
-      <Card title="模型与并发配置" extra={<Button onClick={configs.reload}>刷新</Button>}>
-        <Table<SystemConfig>
-          rowKey="key"
-          loading={configs.loading}
-          dataSource={configs.data ?? []}
-          columns={[
-            { title: "键", dataIndex: "key" },
-            { title: "值", dataIndex: "value", render: (value) => JSON.stringify(value) },
-            { title: "类型", dataIndex: "type" },
-            { title: "说明", dataIndex: "description" }
-          ]}
+
+      <Card
+        title="模型接入"
+        extra={<Button onClick={providerSettings.reload}>刷新</Button>}
+        loading={providerSettings.loading}
+      >
+        <Space direction="vertical" className="wide-space" size="middle">
+          <Typography.Text type="secondary">
+            当前仅支持 OpenAI 兼容协议端点。填写端点地址和密钥后，模型列表从端点拉取，不需要手动输入模型名称。
+          </Typography.Text>
+
+          <Form form={providerForm} layout="vertical">
+            <Form.Item label="协议类型">
+              <Input value="OpenAI Compatible" disabled />
+            </Form.Item>
+            <Form.Item
+              name="base_url"
+              label="Base URL"
+              rules={[{ required: true, message: "请输入 Base URL" }]}
+            >
+              <Input placeholder="例如：https://api.openai.com/v1" />
+            </Form.Item>
+            <Form.Item
+              name="api_key"
+              label="API Key"
+              extra={providerSettings.data?.api_key_configured ? "当前已保存密钥；留空表示保持现有密钥不变。" : undefined}
+            >
+              <Input.Password placeholder="留空则不修改已保存密钥" />
+            </Form.Item>
+            <Space wrap>
+              <Button loading={testingConnection} onClick={() => void testConnection()}>
+                测试连接
+              </Button>
+              <Button loading={loadingModels} onClick={() => void loadModels(true)}>
+                获取模型列表
+              </Button>
+              <Button type="primary" loading={savingProvider} onClick={() => void saveProviderSettings()}>
+                保存模型配置
+              </Button>
+            </Space>
+            <Form.Item
+              name="llm_model"
+              label="默认 LLM 模型"
+              rules={[{ required: true, message: "请选择默认 LLM 模型" }]}
+            >
+              <Select
+                showSearch
+                placeholder="请先获取模型列表"
+                options={modelOptions}
+                filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+              />
+            </Form.Item>
+            <Form.Item
+              name="vlm_model"
+              label="默认 VLM 模型"
+              rules={[{ required: true, message: "请选择默认 VLM 模型" }]}
+            >
+              <Select
+                showSearch
+                placeholder="请先获取模型列表"
+                options={modelOptions}
+                filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+              />
+            </Form.Item>
+          </Form>
+        </Space>
+      </Card>
+
+      <Card
+        title="运行控制"
+        extra={<Button onClick={runtimeSettings.reload}>刷新</Button>}
+        loading={runtimeSettings.loading}
+      >
+        <Form form={runtimeForm} layout="vertical">
+          <Space align="start" size="large" wrap className="wide-space">
+            <Form.Item
+              name="llm_max_concurrency"
+              label="LLM 并发数"
+              rules={[{ required: true, message: "请输入 LLM 并发数" }]}
+            >
+              <InputNumber min={1} style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item
+              name="vlm_max_concurrency"
+              label="VLM 并发数"
+              rules={[{ required: true, message: "请输入 VLM 并发数" }]}
+            >
+              <InputNumber min={1} style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item
+              name="asr_max_concurrency"
+              label="ASR 并发数"
+              rules={[{ required: true, message: "请输入 ASR 并发数" }]}
+            >
+              <InputNumber min={1} style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item
+              name="tts_max_concurrency"
+              label="TTS 并发数"
+              rules={[{ required: true, message: "请输入 TTS 并发数" }]}
+            >
+              <InputNumber min={1} style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item
+              name="render_max_concurrency"
+              label="渲染并发数"
+              rules={[{ required: true, message: "请输入渲染并发数" }]}
+            >
+              <InputNumber min={1} style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item
+              name="task_max_queued_per_user"
+              label="单用户最大排队任务数"
+              rules={[{ required: true, message: "请输入单用户最大排队任务数" }]}
+            >
+              <InputNumber min={1} style={{ width: 220 }} />
+            </Form.Item>
+            <Form.Item
+              name="task_max_running_per_user"
+              label="单用户最大运行任务数"
+              rules={[{ required: true, message: "请输入单用户最大运行任务数" }]}
+            >
+              <InputNumber min={1} style={{ width: 220 }} />
+            </Form.Item>
+            <Form.Item
+              name="vlm_timeout_seconds"
+              label="VLM 超时秒数"
+              rules={[{ required: true, message: "请输入 VLM 超时秒数" }]}
+            >
+              <InputNumber min={1} style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item
+              name="vlm_max_retries"
+              label="VLM 最大重试次数"
+              rules={[{ required: true, message: "请输入 VLM 最大重试次数" }]}
+            >
+              <InputNumber min={0} style={{ width: 180 }} />
+            </Form.Item>
+          </Space>
+          <Button type="primary" loading={savingRuntime} onClick={() => void saveRuntimeSettings()}>
+            保存运行控制
+          </Button>
+        </Form>
+      </Card>
+    </Space>
+  );
+}
+
+function SettingsPage({ token }: { token: string }) {
+  const providerSettings = useResource<OpenAICompatibleSettings>("/api/admin/model-access/openai-compatible", token);
+  const runtimeSettings = useResource<RuntimeSettings>("/api/admin/runtime-settings", token);
+  const [providerForm] = Form.useForm();
+  const [runtimeForm] = Form.useForm();
+  const [modelOptions, setModelOptions] = useState<ModelSelectOption[]>([]);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [savingRuntime, setSavingRuntime] = useState(false);
+  const [lastModelCount, setLastModelCount] = useState<number | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
+
+  const mergeModelOptions = (items: string[]) => {
+    const unique = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    return unique.map((item) => ({ value: item, label: item }));
+  };
+
+  const syncModelOptions = (items: string[]) => {
+    const currentValues = providerForm.getFieldsValue(["llm_model", "vlm_model"]);
+    setModelOptions(mergeModelOptions([...(items ?? []), currentValues.llm_model ?? "", currentValues.vlm_model ?? ""]));
+  };
+
+  useEffect(() => {
+    if (!providerSettings.data) {
+      return;
+    }
+    providerForm.setFieldsValue({
+      base_url: providerSettings.data.base_url,
+      api_key: "",
+      llm_model: providerSettings.data.llm_model,
+      vlm_model: providerSettings.data.vlm_model
+    });
+    syncModelOptions([providerSettings.data.llm_model, providerSettings.data.vlm_model]);
+  }, [providerForm, providerSettings.data]);
+
+  useEffect(() => {
+    if (!runtimeSettings.data) {
+      return;
+    }
+    runtimeForm.setFieldsValue(runtimeSettings.data);
+  }, [runtimeForm, runtimeSettings.data]);
+
+  const loadModels = async (showSuccessMessage: boolean) => {
+    await providerForm.validateFields(["base_url"]);
+    const values = providerForm.getFieldsValue();
+    setLoadingModels(true);
+    try {
+      const result = await apiRequest<ModelDiscoveryResult>(
+        "/api/admin/model-access/openai-compatible/models",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            base_url: values.base_url ?? "",
+            api_key: values.api_key ?? ""
+          })
+        },
+        token
+      );
+      const discovered = result.models.map((item) => item.id);
+      syncModelOptions(discovered);
+      setLastModelCount(discovered.length);
+      setConnectionStatus("success");
+      if (showSuccessMessage) {
+        message.success(discovered.length > 0 ? `已获取 ${discovered.length} 个模型。` : "连接成功，但当前端点未返回可用模型。");
+      }
+    } catch (error) {
+      setConnectionStatus("error");
+      message.error(error instanceof Error ? error.message : "获取模型列表失败");
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!providerSettings.data?.base_url) {
+      return;
+    }
+    void loadModels(false);
+  }, [providerSettings.data?.base_url]);
+
+  const testConnection = async () => {
+    await providerForm.validateFields(["base_url"]);
+    const values = providerForm.getFieldsValue();
+    setTestingConnection(true);
+    try {
+      const result = await apiRequest<{ reachable: boolean; model_count: number }>(
+        "/api/admin/model-access/openai-compatible/test",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            base_url: values.base_url ?? "",
+            api_key: values.api_key ?? ""
+          })
+        },
+        token
+      );
+      setLastModelCount(result.model_count);
+      setConnectionStatus("success");
+      message.success(`连接成功，当前可见模型数：${result.model_count}`);
+    } catch (error) {
+      setConnectionStatus("error");
+      message.error(error instanceof Error ? error.message : "连接测试失败");
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const saveProviderSettings = async () => {
+    const values = await providerForm.validateFields();
+    setSavingProvider(true);
+    try {
+      await apiRequest<OpenAICompatibleSettings>(
+        "/api/admin/model-access/openai-compatible",
+        {
+          method: "PUT",
+          body: JSON.stringify(values)
+        },
+        token
+      );
+      await providerSettings.reload();
+      syncModelOptions([values.llm_model ?? "", values.vlm_model ?? ""]);
+      message.success("模型接入配置已保存。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "保存模型接入配置失败");
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
+  const saveRuntimeSettings = async () => {
+    const values = await runtimeForm.validateFields();
+    setSavingRuntime(true);
+    try {
+      await apiRequest<RuntimeSettings>(
+        "/api/admin/runtime-settings",
+        {
+          method: "PUT",
+          body: JSON.stringify(values)
+        },
+        token
+      );
+      await runtimeSettings.reload();
+      message.success("运行控制配置已保存。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "保存运行控制配置失败");
+    } finally {
+      setSavingRuntime(false);
+    }
+  };
+
+  const providerSummaryItems = [
+    { label: "接入协议", value: "OpenAI Compatible" },
+    { label: "Base URL", value: providerSettings.data?.base_url || "未配置" },
+    { label: "密钥状态", value: providerSettings.data?.api_key_configured ? "已保存" : "未保存" },
+    { label: "模型发现", value: lastModelCount === null ? "未检测" : `${lastModelCount} 个模型` }
+  ];
+
+  const connectionAlert =
+    connectionStatus === "success"
+      ? {
+          type: "success" as const,
+          message: "端点连通正常",
+          description: lastModelCount === null ? "可以继续拉取模型列表并保存默认模型。" : `最近一次检测发现 ${lastModelCount} 个模型。`
+        }
+      : connectionStatus === "error"
+        ? {
+            type: "error" as const,
+            message: "最近一次连接失败",
+            description: "请检查 Base URL、密钥和服务端网络连通性。"
+          }
+        : {
+            type: "info" as const,
+            message: "建议先测试连接，再拉取模型列表",
+            description: "模型不再手动输入，而是从兼容 OpenAI 协议的端点自动发现。"
+          };
+
+  return (
+    <Space direction="vertical" size="middle" className="page-stack">
+      <Typography.Title level={3}>系统设置</Typography.Title>
+
+      <Card className="settings-overview-card" loading={providerSettings.loading}>
+        <Descriptions
+          column={{ xs: 1, sm: 2, lg: 4 }}
+          items={providerSummaryItems.map((item) => ({
+            key: item.label,
+            label: item.label,
+            children: item.value
+          }))}
         />
+      </Card>
+
+      <Card title="模型接入" extra={<Button onClick={providerSettings.reload}>刷新</Button>} loading={providerSettings.loading}>
+        <Space direction="vertical" size="large" className="wide-space">
+          <Alert type={connectionAlert.type} showIcon message={connectionAlert.message} description={connectionAlert.description} />
+
+          <Form form={providerForm} layout="vertical">
+            <div className="settings-form-grid">
+              <Form.Item label="协议类型">
+                <Input value="OpenAI Compatible" disabled />
+              </Form.Item>
+              <Form.Item
+                name="base_url"
+                label="Base URL"
+                extra="填写兼容 OpenAI 协议的服务地址，例如 https://api.openai.com/v1。"
+                rules={[{ required: true, message: "请输入 Base URL" }]}
+              >
+                <Input placeholder="https://api.openai.com/v1" />
+              </Form.Item>
+            </div>
+
+            <Form.Item
+              name="api_key"
+              label="API Key"
+              extra={
+                providerSettings.data?.api_key_configured
+                  ? "系统中已保存密钥。这里留空表示保持当前密钥不变。"
+                  : "如果目标端点要求鉴权，请在这里填写访问密钥。"
+              }
+            >
+              <Input.Password placeholder="留空则不修改已保存密钥" />
+            </Form.Item>
+
+            <Space wrap>
+              <Button loading={testingConnection} onClick={() => void testConnection()}>
+                测试连接
+              </Button>
+              <Button loading={loadingModels} onClick={() => void loadModels(true)}>
+                拉取模型列表
+              </Button>
+              <Button type="primary" loading={savingProvider} onClick={() => void saveProviderSettings()}>
+                保存模型配置
+              </Button>
+            </Space>
+
+            <Divider orientation="left">默认模型</Divider>
+
+            <div className="settings-form-grid">
+              <Form.Item
+                name="llm_model"
+                label="默认 LLM 模型"
+                extra="用于文案生成、编排等文本推理任务。"
+                rules={[{ required: true, message: "请选择默认 LLM 模型" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="请先拉取模型列表"
+                  options={modelOptions}
+                  disabled={modelOptions.length === 0}
+                  filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+                />
+              </Form.Item>
+              <Form.Item
+                name="vlm_model"
+                label="默认 VLM 模型"
+                extra="用于素材理解、抽帧分析和标签提取。"
+                rules={[{ required: true, message: "请选择默认 VLM 模型" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="请先拉取模型列表"
+                  options={modelOptions}
+                  disabled={modelOptions.length === 0}
+                  filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+                />
+              </Form.Item>
+            </div>
+          </Form>
+        </Space>
+      </Card>
+
+      <Card title="运行控制" extra={<Button onClick={runtimeSettings.reload}>刷新</Button>} loading={runtimeSettings.loading}>
+        <Space direction="vertical" size="large" className="wide-space">
+          <Alert
+            type="info"
+            showIcon
+            message="这些配置决定系统吞吐和保护阈值"
+            description="建议先按保守值启动，等观察到任务堆积、模型限流或渲染资源压力后，再逐步上调。"
+          />
+
+          <Form form={runtimeForm} layout="vertical">
+            <div className="settings-section-grid">
+              <Card size="small" title="模型与渲染并发" className="settings-inner-card">
+                <div className="settings-form-grid">
+                  <Form.Item
+                    name="llm_max_concurrency"
+                    label="LLM 并发数"
+                    extra="控制文案生成、编排等文本任务的并发上限。"
+                    rules={[{ required: true, message: "请输入 LLM 并发数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="vlm_max_concurrency"
+                    label="VLM 并发数"
+                    extra="控制素材分析、打标签等视觉任务的并发上限。"
+                    rules={[{ required: true, message: "请输入 VLM 并发数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="asr_max_concurrency"
+                    label="ASR 并发数"
+                    extra="控制语音识别任务的同时执行数量。"
+                    rules={[{ required: true, message: "请输入 ASR 并发数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="tts_max_concurrency"
+                    label="TTS 并发数"
+                    extra="控制配音合成任务的同时执行数量。"
+                    rules={[{ required: true, message: "请输入 TTS 并发数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="render_max_concurrency"
+                    label="渲染并发数"
+                    extra="控制成片渲染队列的同时执行数量。"
+                    rules={[{ required: true, message: "请输入渲染并发数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                </div>
+              </Card>
+
+              <Card size="small" title="用户任务保护" className="settings-inner-card">
+                <div className="settings-form-grid">
+                  <Form.Item
+                    name="task_max_queued_per_user"
+                    label="单用户最大排队任务数"
+                    extra="防止单个用户一次性塞满等待队列。"
+                    rules={[{ required: true, message: "请输入单用户最大排队任务数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="task_max_running_per_user"
+                    label="单用户最大运行任务数"
+                    extra="限制单个用户同时消耗的执行资源。"
+                    rules={[{ required: true, message: "请输入单用户最大运行任务数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                </div>
+              </Card>
+
+              <Card size="small" title="VLM 调用保护" className="settings-inner-card">
+                <div className="settings-form-grid">
+                  <Form.Item
+                    name="vlm_timeout_seconds"
+                    label="VLM 超时秒数"
+                    extra="单次视觉模型调用的最长等待时间。"
+                    rules={[{ required: true, message: "请输入 VLM 超时秒数" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="vlm_max_retries"
+                    label="VLM 最大重试次数"
+                    extra="网络波动或服务临时失败时的自动重试次数。"
+                    rules={[{ required: true, message: "请输入 VLM 最大重试次数" }]}
+                  >
+                    <InputNumber min={0} style={{ width: "100%" }} />
+                  </Form.Item>
+                </div>
+              </Card>
+            </div>
+
+            <Button type="primary" loading={savingRuntime} onClick={() => void saveRuntimeSettings()}>
+              保存运行控制
+            </Button>
+          </Form>
+        </Space>
       </Card>
     </Space>
   );

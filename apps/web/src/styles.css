@@ -97,3 +97,32 @@ body {
   border-radius: 8px;
   overflow: auto;
 }
+
+.settings-overview-card .ant-descriptions-view {
+  background: linear-gradient(135deg, #f7fbff 0%, #eef6ff 100%);
+  border-radius: 12px;
+}
+
+.settings-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 16px;
+}
+
+.settings-section-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-inner-card {
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.settings-inner-card .ant-card-head {
+  min-height: 44px;
+}
+
+.settings-inner-card .ant-card-body {
+  padding-bottom: 8px;
+}

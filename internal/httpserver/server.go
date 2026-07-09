@@ -96,6 +96,16 @@ func (s *Server) routes() {
 	systemConfigs.GET("/snapshot", s.handleSystemConfigSnapshot)
 	systemConfigs.PUT("/:key", s.handleUpsertSystemConfig)
 
+	modelAccess := adminGroup.Group("/model-access/openai-compatible")
+	modelAccess.GET("", s.handleGetOpenAICompatibleSettings)
+	modelAccess.PUT("", s.handleUpdateOpenAICompatibleSettings)
+	modelAccess.POST("/test", s.handleTestOpenAICompatibleConnection)
+	modelAccess.POST("/models", s.handleListOpenAICompatibleModels)
+
+	runtimeSettings := adminGroup.Group("/runtime-settings")
+	runtimeSettings.GET("", s.handleGetRuntimeSettings)
+	runtimeSettings.PUT("", s.handleUpdateRuntimeSettings)
+
 	protected := api.Group("")
 	protected.Use(s.authMiddleware())
 	protected.GET("/ping", func(c *gin.Context) {
