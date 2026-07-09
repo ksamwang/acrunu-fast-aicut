@@ -10,14 +10,15 @@ import (
 )
 
 type ProbeResult struct {
-	DurationMs int
-	Width      int
-	Height     int
-	FPS        float64
-	Codec      string
-	HasAudio   bool
-	AudioCodec string
-	BitrateKbps int
+	DurationMs    int
+	Width         int
+	Height        int
+	FPS           float64
+	Codec         string
+	HasAudio      bool
+	AudioCodec    string
+	AudioChannels int
+	BitrateKbps   int
 }
 
 type probeOutput struct {
@@ -26,6 +27,7 @@ type probeOutput struct {
 		CodecName    string `json:"codec_name"`
 		Width        int    `json:"width"`
 		Height       int    `json:"height"`
+		Channels     int    `json:"channels"`
 		AvgFrameRate string `json:"avg_frame_rate"`
 	} `json:"streams"`
 	Format struct {
@@ -56,7 +58,7 @@ func Probe(ctx context.Context, filePath string) (ProbeResult, error) {
 	}
 
 	result := ProbeResult{
-		DurationMs: secondsStringToMs(parsed.Format.Duration),
+		DurationMs:  secondsStringToMs(parsed.Format.Duration),
 		BitrateKbps: bitsPerSecondStringToKbps(parsed.Format.BitRate),
 	}
 
@@ -76,10 +78,21 @@ func Probe(ctx context.Context, filePath string) (ProbeResult, error) {
 			}
 			result.HasAudio = true
 			result.AudioCodec = stream.CodecName
+			result.AudioChannels = stream.Channels
 		}
 	}
 
 	return result, nil
+}
+
+func LikelyHasHumanSpeech(sourceType string, result ProbeResult) bool {
+	if !result.HasAudio {
+		return false
+	}
+	if sourceType == "talking_head" {
+		return true
+	}
+	return result.AudioChannels == 1
 }
 
 func ffprobePath() string {

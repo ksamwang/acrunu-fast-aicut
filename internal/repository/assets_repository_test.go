@@ -46,6 +46,7 @@ func TestAssetFromDB(t *testing.T) {
 		HasAudio:           true,
 		AudioCodec:         pgText("aac"),
 		BitrateKbps:        pgInt4(3200),
+		LikelyHasSpeech:    true,
 		SceneDescription:   pgText("driver installs product"),
 		ShotSize:           pgText("medium_close_up"),
 		CameraMovement:     pgText("push_in"),
@@ -86,6 +87,9 @@ func TestAssetFromDB(t *testing.T) {
 	}
 	if string(record.ReviewOverrides) != `{"scene_description":"manual override"}` {
 		t.Fatalf("expected review_overrides json to map, got %s", string(record.ReviewOverrides))
+	}
+	if !record.LikelyHasSpeech {
+		t.Fatalf("expected likely_has_speech to map")
 	}
 	if record.AnalyzedAt == nil || !record.AnalyzedAt.Equal(analyzedAt) {
 		t.Fatalf("expected analyzed_at to map, got %+v", record.AnalyzedAt)

@@ -54,6 +54,7 @@ type Asset struct {
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
 	ModelLabels        []byte             `json:"model_labels"`
 	ReviewOverrides    []byte             `json:"review_overrides"`
+	LikelyHasSpeech    bool               `json:"likely_has_speech"`
 }
 
 type AssetFrameSnapshot struct {

@@ -139,6 +139,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		HasAudio:           probeResult.HasAudio,
 		AudioCodec:         probeResult.AudioCodec,
 		BitrateKbps:        probeResult.BitrateKbps,
+		LikelyHasSpeech:    ffmpeg.LikelyHasHumanSpeech(sourceType, probeResult),
 		ReviewerNotes:      reviewerNotes,
 		AnalysisError:      analysisError,
 		SellingPointIDs:    sellingPointIDs,

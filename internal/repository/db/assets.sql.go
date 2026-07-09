@@ -58,6 +58,7 @@ INSERT INTO assets (
     has_audio,
     audio_codec,
     bitrate_kbps,
+    likely_has_speech,
     scene_description,
     shot_size,
     camera_movement,
@@ -77,9 +78,9 @@ INSERT INTO assets (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
+    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42
 )
-RETURNING id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides
+RETURNING id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech
 `
 
 type CreateAssetParams struct {
@@ -109,6 +110,7 @@ type CreateAssetParams struct {
 	HasAudio           bool               `json:"has_audio"`
 	AudioCodec         pgtype.Text        `json:"audio_codec"`
 	BitrateKbps        pgtype.Int4        `json:"bitrate_kbps"`
+	LikelyHasSpeech    bool               `json:"likely_has_speech"`
 	SceneDescription   pgtype.Text        `json:"scene_description"`
 	ShotSize           pgtype.Text        `json:"shot_size"`
 	CameraMovement     pgtype.Text        `json:"camera_movement"`
@@ -154,6 +156,7 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		arg.HasAudio,
 		arg.AudioCodec,
 		arg.BitrateKbps,
+		arg.LikelyHasSpeech,
 		arg.SceneDescription,
 		arg.ShotSize,
 		arg.CameraMovement,
@@ -217,12 +220,13 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		&i.ArchivedAt,
 		&i.ModelLabels,
 		&i.ReviewOverrides,
+		&i.LikelyHasSpeech,
 	)
 	return i, err
 }
 
 const getAssetByID = `-- name: GetAssetByID :one
-SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides FROM assets
+SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech FROM assets
 WHERE id = $1
 `
 
@@ -275,12 +279,13 @@ func (q *Queries) GetAssetByID(ctx context.Context, id pgtype.UUID) (Asset, erro
 		&i.ArchivedAt,
 		&i.ModelLabels,
 		&i.ReviewOverrides,
+		&i.LikelyHasSpeech,
 	)
 	return i, err
 }
 
 const listAssets = `-- name: ListAssets :many
-SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides FROM assets
+SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech FROM assets
 WHERE product_id = COALESCE($1, product_id)
   AND source_type = COALESCE($2, source_type)
   AND status = COALESCE($3, status)
@@ -395,6 +400,7 @@ func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset
 			&i.ArchivedAt,
 			&i.ModelLabels,
 			&i.ReviewOverrides,
+			&i.LikelyHasSpeech,
 		); err != nil {
 			return nil, err
 		}
@@ -491,7 +497,8 @@ SET duration_ms = $2,
     has_audio = $7,
     audio_codec = $8,
     bitrate_kbps = $9,
-    updated_by_user_id = $10,
+    likely_has_speech = $10,
+    updated_by_user_id = $11,
     updated_at = now()
 WHERE id = $1
 `
@@ -506,6 +513,7 @@ type UpdateAssetMediaInfoParams struct {
 	HasAudio        bool           `json:"has_audio"`
 	AudioCodec      pgtype.Text    `json:"audio_codec"`
 	BitrateKbps     pgtype.Int4    `json:"bitrate_kbps"`
+	LikelyHasSpeech bool           `json:"likely_has_speech"`
 	UpdatedByUserID pgtype.UUID    `json:"updated_by_user_id"`
 }
 
@@ -520,6 +528,7 @@ func (q *Queries) UpdateAssetMediaInfo(ctx context.Context, arg UpdateAssetMedia
 		arg.HasAudio,
 		arg.AudioCodec,
 		arg.BitrateKbps,
+		arg.LikelyHasSpeech,
 		arg.UpdatedByUserID,
 	)
 	return err

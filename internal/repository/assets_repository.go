@@ -38,6 +38,7 @@ type AssetRecord struct {
 	HasAudio           bool            `json:"has_audio"`
 	AudioCodec         string          `json:"audio_codec,omitempty"`
 	BitrateKbps        int             `json:"bitrate_kbps,omitempty"`
+	LikelyHasSpeech    bool            `json:"likely_has_speech"`
 	SceneDescription   string          `json:"scene_description,omitempty"`
 	ShotSize           string          `json:"shot_size,omitempty"`
 	CameraMovement     string          `json:"camera_movement,omitempty"`
@@ -278,6 +279,7 @@ func assetFromDB(row db.Asset) AssetRecord {
 		HasAudio:           row.HasAudio,
 		AudioCodec:         textString(row.AudioCodec),
 		BitrateKbps:        int32Value(row.BitrateKbps),
+		LikelyHasSpeech:    row.LikelyHasSpeech,
 		SceneDescription:   textString(row.SceneDescription),
 		ShotSize:           textString(row.ShotSize),
 		CameraMovement:     textString(row.CameraMovement),

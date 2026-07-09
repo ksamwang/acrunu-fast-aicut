@@ -271,6 +271,85 @@ func TestHandleUploadCleanShotDetectsDuplicates(t *testing.T) {
 	}
 }
 
+func TestHandleUploadCleanShotPersistsLikelyHasSpeech(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	server := New(Options{
+		Config:              config.Config{StorageRoot: tempDir, QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	ffprobeOutputPath := filepath.Join(tempDir, "ffprobe-output.json")
+	ffprobeScriptPath := filepath.Join(tempDir, "ffprobe-mock.cmd")
+	ffprobeOutput := `{"streams":[{"codec_type":"video","codec_name":"h264","width":1080,"height":1920,"avg_frame_rate":"30000/1001"},{"codec_type":"audio","codec_name":"aac","channels":1,"avg_frame_rate":"0/0"}],"format":{"duration":"2.066000","bit_rate":"3200000"}}`
+	if err := os.WriteFile(ffprobeOutputPath, []byte(ffprobeOutput), 0644); err != nil {
+		t.Fatalf("write ffprobe output failed: %v", err)
+	}
+	ffprobeScript := "@echo off\r\ntype \"" + ffprobeOutputPath + "\"\r\n"
+	if err := os.WriteFile(ffprobeScriptPath, []byte(ffprobeScript), 0644); err != nil {
+		t.Fatalf("write ffprobe mock failed: %v", err)
+	}
+	t.Setenv("FFPROBE_PATH", ffprobeScriptPath)
+
+	token, err := server.uploadTokenService.Create(product.ID, "user-1", 30*time.Minute)
+	if err != nil {
+		t.Fatalf("create upload token failed: %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("source_type", "talking_head"); err != nil {
+		t.Fatalf("write source_type failed: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "talking-head.mp4")
+	if err != nil {
+		t.Fatalf("create form file failed: %v", err)
+	}
+	if _, err := part.Write([]byte("mock-video")); err != nil {
+		t.Fatalf("write file content failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/uploads/clean-shot", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Upload-Token", token.Token)
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal upload response failed: %v", err)
+	}
+
+	assetPayload, ok := response.Data["asset"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected asset payload, got %#v", response.Data["asset"])
+	}
+	assetID, _ := assetPayload["id"].(string)
+	if assetID == "" {
+		t.Fatalf("expected asset id in response, got %#v", assetPayload)
+	}
+
+	asset, ok := productAssetService.GetAsset(assetID)
+	if !ok {
+		t.Fatalf("expected asset to be stored")
+	}
+	if !asset.LikelyHasSpeech {
+		t.Fatalf("expected likely_has_speech=true, got %+v", asset)
+	}
+}
+
 func TestHandleUploadCleanShotPersistsProbeFailureWithoutFrameTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

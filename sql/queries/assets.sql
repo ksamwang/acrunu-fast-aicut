@@ -26,6 +26,7 @@ INSERT INTO assets (
     has_audio,
     audio_codec,
     bitrate_kbps,
+    likely_has_speech,
     scene_description,
     shot_size,
     camera_movement,
@@ -45,7 +46,7 @@ INSERT INTO assets (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
+    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42
 )
 RETURNING *;
 
@@ -106,7 +107,8 @@ SET duration_ms = $2,
     has_audio = $7,
     audio_codec = $8,
     bitrate_kbps = $9,
-    updated_by_user_id = $10,
+    likely_has_speech = $10,
+    updated_by_user_id = $11,
     updated_at = now()
 WHERE id = $1;
 

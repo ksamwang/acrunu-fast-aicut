@@ -75,6 +75,7 @@ type Asset struct {
 	HasAudio           bool           `json:"has_audio"`
 	AudioCodec         string         `json:"audio_codec,omitempty"`
 	BitrateKbps        int            `json:"bitrate_kbps,omitempty"`
+	LikelyHasSpeech    bool           `json:"likely_has_speech"`
 	SceneDescription   string         `json:"scene_description,omitempty"`
 	ShotSize           string         `json:"shot_size,omitempty"`
 	CameraMovement     string         `json:"camera_movement,omitempty"`
@@ -182,6 +183,7 @@ type CreateAssetInput struct {
 	HasAudio           bool
 	AudioCodec         string
 	BitrateKbps        int
+	LikelyHasSpeech    bool
 	SceneDescription   string
 	ShotSize           string
 	CameraMovement     string
@@ -326,6 +328,7 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 		HasAudio:           input.HasAudio,
 		AudioCodec:         input.AudioCodec,
 		BitrateKbps:        input.BitrateKbps,
+		LikelyHasSpeech:    input.LikelyHasSpeech,
 		SceneDescription:   input.SceneDescription,
 		ShotSize:           input.ShotSize,
 		CameraMovement:     input.CameraMovement,
@@ -1044,6 +1047,7 @@ func (s *ProductAssetService) createAssetInPostgres(input CreateAssetInput) (Ass
 		HasAudio:           input.HasAudio,
 		AudioCodec:         assetTextParam(input.AudioCodec),
 		BitrateKbps:        int4Param(input.BitrateKbps),
+		LikelyHasSpeech:    input.LikelyHasSpeech,
 		SceneDescription:   assetTextParam(input.SceneDescription),
 		ShotSize:           assetTextParam(input.ShotSize),
 		CameraMovement:     assetTextParam(input.CameraMovement),
@@ -1445,6 +1449,7 @@ func assetFromDBRecord(row repository.AssetRecord) Asset {
 		HasAudio:           row.HasAudio,
 		AudioCodec:         row.AudioCodec,
 		BitrateKbps:        row.BitrateKbps,
+		LikelyHasSpeech:    row.LikelyHasSpeech,
 		SceneDescription:   row.SceneDescription,
 		ShotSize:           row.ShotSize,
 		CameraMovement:     row.CameraMovement,
@@ -1494,6 +1499,7 @@ func assetFromDBRow(row db.Asset) Asset {
 		HasAudio:           row.HasAudio,
 		AudioCodec:         assetTextString(row.AudioCodec),
 		BitrateKbps:        int4Value(row.BitrateKbps),
+		LikelyHasSpeech:    row.LikelyHasSpeech,
 		SceneDescription:   assetTextString(row.SceneDescription),
 		ShotSize:           assetTextString(row.ShotSize),
 		CameraMovement:     assetTextString(row.CameraMovement),
