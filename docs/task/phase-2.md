@@ -145,7 +145,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 分析完成后更新素材状态
 - [x] 分析失败后记录错误原因
 - [x] 补充 Model Gateway 单元测试
-- [ ] 补充 VLM mock 分析集成测试
+- [x] 补充 VLM mock 分析集成测试
 
 ## 8. 素材标签与人工修正
 
