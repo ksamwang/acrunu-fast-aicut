@@ -245,15 +245,27 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
-          data:
-            url.includes("selling_point_id=sp-1") ||
-            url.includes("tag=demo") ||
-            url.includes("min_duration_ms=2000") ||
-            url.includes("has_audio=true")
-              ? [asset]
-              : url.includes("has_audio=false")
-                ? [filteredAsset]
-                : [asset, filteredAsset]
+          data: {
+            items:
+              url.includes("selling_point_id=sp-1") ||
+              url.includes("tag=demo") ||
+              url.includes("min_duration_ms=2000") ||
+              url.includes("has_audio=true")
+                ? [asset]
+                : url.includes("has_audio=false")
+                  ? [filteredAsset]
+                  : [asset, filteredAsset],
+            total:
+              url.includes("selling_point_id=sp-1") ||
+              url.includes("tag=demo") ||
+              url.includes("min_duration_ms=2000") ||
+              url.includes("has_audio=true") ||
+              url.includes("has_audio=false")
+                ? 1
+                : 2,
+            page: 1,
+            page_size: 20
+          }
         })
       });
       return;

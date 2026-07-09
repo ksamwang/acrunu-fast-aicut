@@ -92,6 +92,13 @@ type AssetSellingPointPayload = {
   selling_point_ids: string[];
 };
 
+type AssetListResponse = {
+  items: Asset[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 type AssetFrameSnapshot = {
   id: string;
   asset_id: string;
@@ -461,6 +468,8 @@ function AssetsPage({ token }: { token: string }) {
     maxDurationMs: "",
     hasAudio: ""
   });
+  const [assetPage, setAssetPage] = useState(1);
+  const [assetPageSize, setAssetPageSize] = useState(20);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
   const [assetSellingPoints, setAssetSellingPoints] = useState<SellingPoint[]>([]);
   const [framesLoading, setFramesLoading] = useState(false);
@@ -497,11 +506,13 @@ function AssetsPage({ token }: { token: string }) {
     if (filters.hasAudio) {
       params.set("has_audio", filters.hasAudio);
     }
+    params.set("page", String(assetPage));
+    params.set("page_size", String(assetPageSize));
     const query = params.toString();
     return query ? `/api/assets?${query}` : "/api/assets";
-  }, [filters]);
+  }, [assetPage, assetPageSize, filters]);
 
-  const assets = useResource<Asset[]>(assetPath, token, [assetPath]);
+  const assets = useResource<AssetListResponse>(assetPath, token, [assetPath]);
   const productNameByID = useMemo(() => {
     const map = new Map<string, string>();
     for (const product of products.data ?? []) {
@@ -665,6 +676,7 @@ function AssetsPage({ token }: { token: string }) {
               options={(products.data ?? []).map((product) => ({ value: product.id, label: product.name }))}
               onChange={(value) => {
                 const nextValue = value ?? "";
+                setAssetPage(1);
                 setFilters((current) => ({ ...current, productID: nextValue, sellingPointID: "" }));
                 setProductForSellingPoints(nextValue);
               }}
@@ -677,7 +689,10 @@ function AssetsPage({ token }: { token: string }) {
               style={{ minWidth: 180 }}
               disabled={!filters.productID}
               options={(sellingPoints.data ?? []).map((item) => ({ value: item.id, label: item.title }))}
-              onChange={(value) => setFilters((current) => ({ ...current, sellingPointID: value ?? "" }))}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, sellingPointID: value ?? "" }));
+              }}
             />
             <Select
               data-testid="asset-filter-source-type"
@@ -689,7 +704,10 @@ function AssetsPage({ token }: { token: string }) {
                 { value: "visual_only", label: "visual_only" },
                 { value: "talking_head", label: "talking_head" }
               ]}
-              onChange={(value) => setFilters((current) => ({ ...current, sourceType: value ?? "" }))}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, sourceType: value ?? "" }));
+              }}
             />
             <Select
               data-testid="asset-filter-status"
@@ -703,28 +721,40 @@ function AssetsPage({ token }: { token: string }) {
                 { value: "uploaded", label: "uploaded" },
                 { value: "archived", label: "archived" }
               ]}
-              onChange={(value) => setFilters((current) => ({ ...current, status: value ?? "" }))}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, status: value ?? "" }));
+              }}
             />
             <Input
               data-testid="asset-filter-tag"
               value={filters.tag}
               placeholder="Tag or keyword"
               style={{ width: 180 }}
-              onChange={(event) => setFilters((current) => ({ ...current, tag: event.target.value }))}
+              onChange={(event) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, tag: event.target.value }));
+              }}
             />
             <Input
               data-testid="asset-filter-min-duration"
               value={filters.minDurationMs}
               placeholder="Min ms"
               style={{ width: 120 }}
-              onChange={(event) => setFilters((current) => ({ ...current, minDurationMs: event.target.value }))}
+              onChange={(event) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, minDurationMs: event.target.value }));
+              }}
             />
             <Input
               data-testid="asset-filter-max-duration"
               value={filters.maxDurationMs}
               placeholder="Max ms"
               style={{ width: 120 }}
-              onChange={(event) => setFilters((current) => ({ ...current, maxDurationMs: event.target.value }))}
+              onChange={(event) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, maxDurationMs: event.target.value }));
+              }}
             />
             <Select
               data-testid="asset-filter-has-audio"
@@ -736,10 +766,15 @@ function AssetsPage({ token }: { token: string }) {
                 { value: "true", label: "audio only" },
                 { value: "false", label: "mute only" }
               ]}
-              onChange={(value) => setFilters((current) => ({ ...current, hasAudio: value ?? "" }))}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, hasAudio: value ?? "" }));
+              }}
             />
             <Button
               onClick={() => {
+                setAssetPage(1);
+                setAssetPageSize(20);
                 setFilters({
                   productID: "",
                   sellingPointID: "",
@@ -762,8 +797,18 @@ function AssetsPage({ token }: { token: string }) {
           <Table<Asset>
             rowKey="id"
             loading={assets.loading}
-            dataSource={assets.data ?? []}
-            pagination={false}
+            dataSource={assets.data?.items ?? []}
+            pagination={{
+              current: assets.data?.page ?? assetPage,
+              pageSize: assets.data?.page_size ?? assetPageSize,
+              total: assets.data?.total ?? 0,
+              showSizeChanger: true,
+              pageSizeOptions: ["10", "20", "50"],
+              onChange: (page, pageSize) => {
+                setAssetPage(page);
+                setAssetPageSize(pageSize);
+              }
+            }}
             onRow={(record) => ({ onClick: () => setSelectedAsset(record) })}
             columns={[
               {

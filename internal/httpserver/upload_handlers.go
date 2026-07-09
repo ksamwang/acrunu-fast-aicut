@@ -25,6 +25,13 @@ type createUploadTokenRequest struct {
 	ProductID string `json:"product_id" binding:"required"`
 }
 
+type assetListResponse struct {
+	Items    []services.Asset `json:"items"`
+	Total    int              `json:"total"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+}
+
 func (s *Server) handleCreateUploadToken(c *gin.Context) {
 	var req createUploadTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -160,7 +167,9 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 }
 
 func (s *Server) handleListAssets(c *gin.Context) {
-	OK(c, s.productAssetService.ListAssets(services.AssetFilters{
+	page := parsePositiveInt(c.Query("page"), 1)
+	pageSize := parsePositiveInt(c.Query("page_size"), 20)
+	assets := s.productAssetService.ListAssets(services.AssetFilters{
 		ProductID:       c.Query("product_id"),
 		SourceType:      c.Query("source_type"),
 		Status:          c.Query("status"),
@@ -171,7 +180,23 @@ func (s *Server) handleListAssets(c *gin.Context) {
 		MinDurationMs:   parseOptionalInt(c.Query("min_duration_ms")),
 		MaxDurationMs:   parseOptionalInt(c.Query("max_duration_ms")),
 		HasAudio:        parseOptionalBool(c.Query("has_audio")),
-	}))
+	})
+
+	start := (page - 1) * pageSize
+	if start > len(assets) {
+		start = len(assets)
+	}
+	end := start + pageSize
+	if end > len(assets) {
+		end = len(assets)
+	}
+
+	OK(c, assetListResponse{
+		Items:    assets[start:end],
+		Total:    len(assets),
+		Page:     page,
+		PageSize: pageSize,
+	})
 }
 
 func (s *Server) handleGetAsset(c *gin.Context) {
@@ -248,6 +273,17 @@ func parseOptionalBool(value string) *bool {
 		return nil
 	}
 	return &parsed
+}
+
+func parsePositiveInt(value string, fallback int) int {
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func servicesQueueExtractPayload(asset services.Asset) queue.AssetExtractFramesPayload {
