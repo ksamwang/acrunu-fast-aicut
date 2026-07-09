@@ -222,17 +222,17 @@ Model Gateway 调用 VLM 或 mock provider
 
 ## 12. 任务状态与可观测性
 
-- [ ] 任务列表支持素材分析任务类型
-- [ ] 任务列表支持抽帧任务类型
-- [ ] 任务详情显示 payload 摘要
-- [ ] 任务详情显示失败原因
-- [ ] 任务详情显示重试次数
-- [ ] worker 日志包含 asset id
-- [ ] worker 日志包含 task id
-- [ ] API 日志包含 request id
-- [ ] Prometheus 预留业务指标接口
-- [ ] 记录素材分析任务耗时
-- [ ] 记录抽帧任务耗时
+- [x] 任务列表支持素材分析任务类型
+- [x] 任务列表支持抽帧任务类型
+- [x] 任务详情显示 payload 摘要
+- [x] 任务详情显示失败原因
+- [x] 任务详情显示重试次数
+- [x] worker 日志包含 asset id
+- [x] worker 日志包含 task id
+- [x] API 日志包含 request id
+- [x] Prometheus 预留业务指标接口
+- [x] 记录素材分析任务耗时
+- [x] 记录抽帧任务耗时
 
 ## 13. 验证闭环
 
@@ -284,5 +284,5 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 口播素材可保存人工句段信息
 - [x] 素材可按产品、类型、状态、标签检索
 - [x] 前端可完成素材查看、筛选、详情查看和人工修正
-- [ ] worker 任务状态可追踪
+- [x] worker 任务状态可追踪
 - [ ] Docker Compose 环境可跑通完整第二阶段闭环

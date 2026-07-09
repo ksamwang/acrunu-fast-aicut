@@ -73,6 +73,7 @@ func (s *Server) routes() {
 
 	api := s.engine.Group("/api")
 	api.GET("/healthz", s.handleHealth)
+	s.engine.GET("/metrics", s.handleMetrics)
 
 	authGroup := api.Group("/auth")
 	authGroup.POST("/login", s.handleLogin)

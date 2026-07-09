@@ -80,13 +80,17 @@ func TestHandleGetTaskReturnsTaskDetail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	taskService := services.NewTaskService(t.TempDir())
-	task, err := taskService.CreateAssetExtractFramesTask(t.Context(), "user-1", "product-1", queue.AssetExtractFramesPayload{
-		AssetID:    "asset-1",
-		StorageKey: "assets/a.mp4",
-		DurationMs: 1500,
+	task, err := taskService.CreateAssetAnalyzeTask(t.Context(), "user-1", "product-1", queue.AssetAnalyzePayload{
+		AssetID: "asset-1",
 	})
 	if err != nil {
-		t.Fatalf("create extract task failed: %v", err)
+		t.Fatalf("create analyze task failed: %v", err)
+	}
+	if err := taskService.MarkRunning(t.Context(), task.ID); err != nil {
+		t.Fatalf("mark task running failed: %v", err)
+	}
+	if err := taskService.MarkFailed(t.Context(), task.ID, "mock provider failed"); err != nil {
+		t.Fatalf("mark task failed failed: %v", err)
 	}
 
 	server := New(Options{
@@ -114,10 +118,22 @@ func TestHandleGetTaskReturnsTaskDetail(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response failed: %v", err)
 	}
-	if response.Data.TaskType != "asset_extract_frames" {
-		t.Fatalf("expected task_type asset_extract_frames, got %s", response.Data.TaskType)
+	if response.Data.TaskType != "asset_analyze" {
+		t.Fatalf("expected task_type asset_analyze, got %s", response.Data.TaskType)
 	}
-	if response.Data.PayloadSummary["storage_key"] != "assets/a.mp4" {
-		t.Fatalf("expected payload storage key, got %#v", response.Data.PayloadSummary)
+	if response.Data.PayloadSummary["asset_id"] != "asset-1" {
+		t.Fatalf("expected payload asset id, got %#v", response.Data.PayloadSummary)
+	}
+	if response.Data.ErrorMessage != "mock provider failed" {
+		t.Fatalf("expected error message, got %s", response.Data.ErrorMessage)
+	}
+	if response.Data.RetryCount != 1 {
+		t.Fatalf("expected retry_count 1, got %d", response.Data.RetryCount)
+	}
+	if response.Data.StartedAt == nil || response.Data.FinishedAt == nil {
+		t.Fatalf("expected task timing fields, got %+v", response.Data)
+	}
+	if response.Data.DurationMs < 0 {
+		t.Fatalf("expected non-negative duration, got %d", response.Data.DurationMs)
 	}
 }

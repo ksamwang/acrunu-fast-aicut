@@ -1,9 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
@@ -282,5 +285,28 @@ func TestHandleAssetExtractFramesMarksAssetFailure(t *testing.T) {
 	}
 	if storedTask.ErrorMessage == "" {
 		t.Fatalf("expected task error message to be set")
+	}
+}
+
+func TestRunTrackedTaskLogsTaskAndAssetIdentifiers(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	processing := NewAssetProcessingService("", nil, nil, nil, nil, logger)
+
+	if err := processing.runTrackedTask(context.Background(), "task-1", "asset-1", "asset_analyze", func(context.Context) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("run tracked task failed: %v", err)
+	}
+
+	output := logs.String()
+	if !strings.Contains(output, `"task_id":"task-1"`) {
+		t.Fatalf("expected logs to include task_id, got %s", output)
+	}
+	if !strings.Contains(output, `"asset_id":"asset-1"`) {
+		t.Fatalf("expected logs to include asset_id, got %s", output)
+	}
+	if !strings.Contains(output, `"duration_ms":`) {
+		t.Fatalf("expected logs to include duration_ms, got %s", output)
 	}
 }
