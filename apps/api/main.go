@@ -15,6 +15,8 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	taskService := services.NewConfiguredTaskService(context.Background(), cfg, logger)
 	defer taskService.Close()
+	systemConfigService := services.NewConfiguredSystemConfigService(context.Background(), cfg, logger)
+	defer systemConfigService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
 
@@ -22,6 +24,7 @@ func main() {
 		Config:              cfg,
 		Logger:              logger,
 		TaskService:         taskService.Service,
+		SystemConfigService: systemConfigService.Service,
 		ProductAssetService: productAssetService.Service,
 	})
 

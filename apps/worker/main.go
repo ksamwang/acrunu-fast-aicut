@@ -17,16 +17,13 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	taskService := services.NewConfiguredTaskService(context.Background(), cfg, logger)
 	defer taskService.Close()
+	systemConfigService := services.NewConfiguredSystemConfigService(context.Background(), cfg, logger)
+	defer systemConfigService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
-	analyzer := modelgateway.NewAnalyzer(modelgateway.Config{
-		Provider:   cfg.VLMProvider,
-		Model:      cfg.VLMModel,
-		Timeout:    cfg.ModelGatewayTimeout,
-		MaxRetries: cfg.VLMMaxRetries,
-	}, nil)
+	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfig(systemConfigService.Service, cfg), nil)
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
 		services.NewAssetProcessingService(

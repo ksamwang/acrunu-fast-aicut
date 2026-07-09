@@ -63,11 +63,21 @@ func (s *Server) handleMe(c *gin.Context) {
 }
 
 func (s *Server) handleListSystemConfigs(c *gin.Context) {
-	OK(c, s.systemConfigService.List())
+	configs, err := s.systemConfigService.List()
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to list system configs")
+		return
+	}
+	OK(c, configs)
 }
 
 func (s *Server) handleSystemConfigSnapshot(c *gin.Context) {
-	OK(c, s.systemConfigService.Snapshot())
+	snapshot, err := s.systemConfigService.Snapshot()
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to read system config snapshot")
+		return
+	}
+	OK(c, snapshot)
 }
 
 func (s *Server) handleUpsertSystemConfig(c *gin.Context) {
@@ -97,13 +107,17 @@ func (s *Server) handleUpsertSystemConfig(c *gin.Context) {
 		configType = "json"
 	}
 
-	config := s.systemConfigService.Upsert(services.SystemConfig{
+	config, err := s.systemConfigService.Upsert(services.SystemConfig{
 		Key:         key,
 		Value:       req.Value,
 		Type:        configType,
 		IsSecret:    req.IsSecret,
 		Description: req.Description,
 	})
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to save system config")
+		return
+	}
 
 	OK(c, config)
 }

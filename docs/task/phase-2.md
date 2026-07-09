@@ -135,7 +135,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 为运镜识别设计 prompt
 - [x] 为可用性判断设计 prompt
 - [x] 实现 VLM mock provider
-- [ ] 实现真实 provider 配置入口
+- [x] 实现真实 provider 配置入口
 - [x] Model Gateway 支持 provider 超时控制
 - [x] Model Gateway 支持失败重试
 - [x] Model Gateway 支持错误原因归一化
