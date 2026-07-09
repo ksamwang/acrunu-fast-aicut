@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
 
 func (s *Server) handleCreateTestTask(c *gin.Context) {
@@ -35,4 +36,21 @@ func (s *Server) handleListTasks(c *gin.Context) {
 		return
 	}
 	OK(c, tasks)
+}
+
+func (s *Server) handleGetTask(c *gin.Context) {
+	task, err := s.taskService.GetTask(c.Request.Context(), c.Param("taskID"))
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		errorCode := "task_error"
+		message := "failed to get task"
+		if err == services.ErrTaskNotFound {
+			statusCode = http.StatusNotFound
+			errorCode = "not_found"
+			message = "task not found"
+		}
+		Fail(c, statusCode, errorCode, message)
+		return
+	}
+	OK(c, task)
 }

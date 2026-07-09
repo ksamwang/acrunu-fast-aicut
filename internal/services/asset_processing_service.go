@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -15,37 +16,52 @@ import (
 )
 
 type assetAnalysisTaskEnqueuer interface {
-	EnqueueAssetAnalyze(assetID string) error
+	EnqueueAssetAnalyze(taskID string, assetID string) error
 }
 
 type AssetProcessingService struct {
-	storageRoot          string
-	localStore           *storage.LocalStore
-	productAssetService  *ProductAssetService
-	queueClient          assetAnalysisTaskEnqueuer
-	analyzer             modelgateway.AssetAnalyzer
+	storageRoot         string
+	localStore          *storage.LocalStore
+	productAssetService *ProductAssetService
+	taskService         *TaskService
+	queueClient         assetAnalysisTaskEnqueuer
+	analyzer            modelgateway.AssetAnalyzer
+	logger              *slog.Logger
 }
 
 func NewAssetProcessingService(
 	storageRoot string,
 	productAssetService *ProductAssetService,
+	taskService *TaskService,
 	queueClient assetAnalysisTaskEnqueuer,
 	analyzer modelgateway.AssetAnalyzer,
+	logger *slog.Logger,
 ) *AssetProcessingService {
 	if analyzer == nil {
 		analyzer = modelgateway.NewMockAssetAnalyzer()
+	}
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	return &AssetProcessingService{
 		storageRoot:         storageRoot,
 		localStore:          storage.NewLocalStore(storageRoot),
 		productAssetService: productAssetService,
+		taskService:         taskService,
 		queueClient:         queueClient,
 		analyzer:            analyzer,
+		logger:              logger,
 	}
 }
 
 func (s *AssetProcessingService) HandleAssetExtractFrames(ctx context.Context, payload queue.AssetExtractFramesPayload) error {
+	return s.runTrackedTask(ctx, payload.TaskID, payload.AssetID, "asset_extract_frames", func(runCtx context.Context) error {
+		return s.handleAssetExtractFrames(runCtx, payload)
+	})
+}
+
+func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, payload queue.AssetExtractFramesPayload) error {
 	inputPath := s.localStore.FullPath(payload.StorageKey)
 	outputDir := filepath.Join(s.storageRoot, "frames", payload.AssetID)
 	timestamps := buildFrameTimestamps(payload.DurationMs, 3)
@@ -78,12 +94,39 @@ func (s *AssetProcessingService) HandleAssetExtractFrames(ctx context.Context, p
 	}
 
 	if s.queueClient != nil {
-		return s.queueClient.EnqueueAssetAnalyze(payload.AssetID)
+		asset, ok := s.productAssetService.GetAsset(payload.AssetID)
+		if !ok {
+			return ErrAssetNotFound
+		}
+
+		analyzeTaskID := ""
+		if s.taskService != nil {
+			analyzeTask, err := s.taskService.CreateAssetAnalyzeTask(ctx, asset.CreatedByUserID, asset.ProductID, queue.AssetAnalyzePayload{
+				AssetID: payload.AssetID,
+			})
+			if err != nil {
+				return err
+			}
+			analyzeTaskID = analyzeTask.ID
+		}
+
+		if err := s.queueClient.EnqueueAssetAnalyze(analyzeTaskID, payload.AssetID); err != nil {
+			if analyzeTaskID != "" && s.taskService != nil {
+				_ = s.taskService.MarkFailed(context.Background(), analyzeTaskID, err.Error())
+			}
+			return err
+		}
 	}
 	return nil
 }
 
 func (s *AssetProcessingService) HandleAssetAnalyze(ctx context.Context, payload queue.AssetAnalyzePayload) error {
+	return s.runTrackedTask(ctx, payload.TaskID, payload.AssetID, "asset_analyze", func(runCtx context.Context) error {
+		return s.handleAssetAnalyze(runCtx, payload)
+	})
+}
+
+func (s *AssetProcessingService) handleAssetAnalyze(ctx context.Context, payload queue.AssetAnalyzePayload) error {
 	if s.productAssetService == nil {
 		return nil
 	}
@@ -123,12 +166,75 @@ func (s *AssetProcessingService) HandleAssetAnalyze(ctx context.Context, payload
 		if updateErr != nil {
 			return fmt.Errorf("analysis failed: %v; failed to persist analysis error: %w", err, updateErr)
 		}
-		return nil
+		return err
 	}
 
 	update := AssetAnalysisUpdateFromResult(result, "ready", time.Now())
 	update.AnalysisError = ""
 	return s.productAssetService.UpdateAssetAnalysis(asset.ID, update)
+}
+
+func (s *AssetProcessingService) runTrackedTask(ctx context.Context, taskID string, assetID string, taskType string, run func(context.Context) error) error {
+	startedAt := time.Now()
+	s.logger.Info("worker task started",
+		slog.String("task_type", taskType),
+		slog.String("task_id", taskID),
+		slog.String("asset_id", assetID),
+	)
+
+	if taskID != "" && s.taskService != nil {
+		if err := s.taskService.MarkRunning(ctx, taskID); err != nil {
+			s.logger.Error("failed to mark task running",
+				slog.String("task_type", taskType),
+				slog.String("task_id", taskID),
+				slog.String("asset_id", assetID),
+				slog.String("error", err.Error()),
+			)
+			return err
+		}
+	}
+
+	if err := run(ctx); err != nil {
+		if taskID != "" && s.taskService != nil {
+			if markErr := s.taskService.MarkFailed(context.Background(), taskID, err.Error()); markErr != nil {
+				s.logger.Error("failed to mark task failed",
+					slog.String("task_type", taskType),
+					slog.String("task_id", taskID),
+					slog.String("asset_id", assetID),
+					slog.String("error", markErr.Error()),
+				)
+				return markErr
+			}
+		}
+		s.logger.Error("worker task failed",
+			slog.String("task_type", taskType),
+			slog.String("task_id", taskID),
+			slog.String("asset_id", assetID),
+			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
+
+	if taskID != "" && s.taskService != nil {
+		if err := s.taskService.MarkCompleted(ctx, taskID); err != nil {
+			s.logger.Error("failed to mark task completed",
+				slog.String("task_type", taskType),
+				slog.String("task_id", taskID),
+				slog.String("asset_id", assetID),
+				slog.String("error", err.Error()),
+			)
+			return err
+		}
+	}
+
+	s.logger.Info("worker task completed",
+		slog.String("task_type", taskType),
+		slog.String("task_id", taskID),
+		slog.String("asset_id", assetID),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+	return nil
 }
 
 func buildFrameTimestamps(durationMs int, frameCount int) []int {

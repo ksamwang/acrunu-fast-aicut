@@ -15,11 +15,23 @@ type stubAnalyzer struct {
 	err    error
 }
 
+type stubAssetQueue struct {
+	enqueuedAnalyze []queue.AssetAnalyzePayload
+}
+
 func (s stubAnalyzer) AnalyzeAsset(_ context.Context, _ modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
 	if s.err != nil {
 		return modelgateway.AnalyzeAssetResult{}, s.err
 	}
 	return s.result, nil
+}
+
+func (s *stubAssetQueue) EnqueueAssetAnalyze(taskID string, assetID string) error {
+	s.enqueuedAnalyze = append(s.enqueuedAnalyze, queue.AssetAnalyzePayload{
+		TaskID:  taskID,
+		AssetID: assetID,
+	})
+	return nil
 }
 
 func TestBuildFrameTimestamps(t *testing.T) {
@@ -64,7 +76,7 @@ func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 		t.Fatalf("create asset failed: %v", err)
 	}
 
-	processing := NewAssetProcessingService("", service, nil, stubAnalyzer{
+	processing := NewAssetProcessingService("", service, nil, nil, stubAnalyzer{
 		result: modelgateway.AnalyzeAssetResult{
 			UsabilityStatus:  "usable",
 			SceneDescription: "product demo shot",
@@ -75,9 +87,9 @@ func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 			QualityTags:      []string{},
 			ModelResult:      map[string]any{"provider": "mock"},
 		},
-	})
+	}, nil)
 
-	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{AssetID: asset.ID}); err != nil {
+	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{TaskID: "", AssetID: asset.ID}); err != nil {
 		t.Fatalf("handle asset analyze failed: %v", err)
 	}
 
@@ -113,11 +125,11 @@ func TestHandleAssetAnalyzeMarksFailure(t *testing.T) {
 		t.Fatalf("create asset failed: %v", err)
 	}
 
-	processing := NewAssetProcessingService("", service, nil, stubAnalyzer{
+	processing := NewAssetProcessingService("", service, nil, nil, stubAnalyzer{
 		err: errors.New("mock provider failed"),
-	})
+	}, nil)
 
-	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{AssetID: asset.ID}); err != nil {
+	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{TaskID: "", AssetID: asset.ID}); err != nil {
 		t.Fatalf("expected failure to be persisted without bubbling error, got %v", err)
 	}
 
@@ -130,5 +142,58 @@ func TestHandleAssetAnalyzeMarksFailure(t *testing.T) {
 	}
 	if updated.AnalysisError != "mock provider failed" {
 		t.Fatalf("expected analysis error to persist, got %s", updated.AnalysisError)
+	}
+}
+
+func TestHandleAssetAnalyzeTracksTaskStatus(t *testing.T) {
+	taskService := NewTaskService(t.TempDir())
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "demo.mp4",
+		StorageKey:        "assets/demo.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "pending_analysis",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		CreatedByUserID:   "user-1",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	task, err := taskService.CreateAssetAnalyzeTask(context.Background(), "user-1", product.ID, queue.AssetAnalyzePayload{AssetID: asset.ID})
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+
+	processing := NewAssetProcessingService("", service, taskService, &stubAssetQueue{}, stubAnalyzer{
+		result: modelgateway.AnalyzeAssetResult{
+			UsabilityStatus:  "usable",
+			SceneDescription: "product demo shot",
+		},
+	}, nil)
+
+	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{TaskID: task.ID, AssetID: asset.ID}); err != nil {
+		t.Fatalf("handle asset analyze failed: %v", err)
+	}
+
+	storedTask, err := taskService.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("get task failed: %v", err)
+	}
+	if storedTask.Status != "completed" {
+		t.Fatalf("expected completed task, got %s", storedTask.Status)
+	}
+	if storedTask.AssetID != asset.ID {
+		t.Fatalf("expected asset id %s, got %s", asset.ID, storedTask.AssetID)
+	}
+	if storedTask.StartedAt == nil || storedTask.FinishedAt == nil {
+		t.Fatalf("expected task timing fields to be recorded")
+	}
+	if storedTask.DurationMs < 0 {
+		t.Fatalf("expected non-negative task duration, got %d", storedTask.DurationMs)
 	}
 }

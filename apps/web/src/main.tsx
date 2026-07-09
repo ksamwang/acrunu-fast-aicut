@@ -109,11 +109,19 @@ type AssetReviewPayload = {
 
 type Task = {
   id: string;
+  product_id?: string;
+  created_by_user_id?: string;
   task_type: string;
   status: string;
+  payload_summary?: Record<string, unknown>;
+  asset_id?: string;
+  duration_ms?: number;
   error_message?: string;
   retry_count: number;
   created_at: string;
+  updated_at?: string;
+  started_at?: string;
+  finished_at?: string;
 };
 
 type SystemConfig = {
@@ -181,6 +189,17 @@ function formatTimestamp(durationMs: number) {
   const seconds = totalSeconds % 60;
   const milliseconds = durationMs % 1000;
   return `${minutes}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function renderTagList(items?: string[], emptyText = "-") {
@@ -814,6 +833,8 @@ function AssetsPage({ token }: { token: string }) {
 function TasksPage({ token }: { token: string }) {
   const tasks = useResource<Task[]>("/api/tasks", token);
   const [creating, setCreating] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const createTask = async () => {
     setCreating(true);
@@ -827,6 +848,18 @@ function TasksPage({ token }: { token: string }) {
     }
   };
 
+  const openTaskDetail = async (taskID: string) => {
+    setDetailLoading(true);
+    try {
+      const task = await apiRequest<Task>(`/api/tasks/${taskID}`, {}, token);
+      setSelectedTask(task);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Load task failed");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   return (
     <div data-testid="tasks-page">
       <Space direction="vertical" size="middle" className="page-stack">
@@ -836,16 +869,61 @@ function TasksPage({ token }: { token: string }) {
             rowKey="id"
             loading={tasks.loading}
             dataSource={tasks.data ?? []}
+            onRow={(record) => ({ onClick: () => void openTaskDetail(record.id) })}
             columns={[
-              { title: "Task ID", dataIndex: "id" },
+              {
+                title: "Task ID",
+                dataIndex: "id",
+                render: (value: string, task) => (
+                  <Button type="link" className="table-link-button" onClick={() => void openTaskDetail(task.id)}>
+                    {value}
+                  </Button>
+                )
+              },
               { title: "Type", dataIndex: "task_type" },
               { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
+              { title: "Asset", dataIndex: "asset_id", render: (value) => value || "-" },
               { title: "Retry", dataIndex: "retry_count" },
-              { title: "Created At", dataIndex: "created_at" }
+              { title: "Duration", dataIndex: "duration_ms", render: (value) => (value ? `${value} ms` : "-") },
+              { title: "Created At", dataIndex: "created_at", render: (value) => formatDateTime(value) }
             ]}
           />
         </Card>
       </Space>
+
+      <Modal
+        title={selectedTask ? `Task Detail: ${selectedTask.id}` : "Task Detail"}
+        open={selectedTask !== null}
+        footer={null}
+        width={840}
+        confirmLoading={detailLoading}
+        onCancel={() => setSelectedTask(null)}
+      >
+        {selectedTask ? (
+          <Descriptions bordered column={1} size="small" data-testid="task-detail-modal">
+            <Descriptions.Item label="Task Type">{selectedTask.task_type}</Descriptions.Item>
+            <Descriptions.Item label="Status">
+              <Tag>{selectedTask.status}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Asset ID">{selectedTask.asset_id || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Retry Count">{selectedTask.retry_count}</Descriptions.Item>
+            <Descriptions.Item label="Duration">{selectedTask.duration_ms ? `${selectedTask.duration_ms} ms` : "-"}</Descriptions.Item>
+            <Descriptions.Item label="Created At">{formatDateTime(selectedTask.created_at)}</Descriptions.Item>
+            <Descriptions.Item label="Started At">{formatDateTime(selectedTask.started_at)}</Descriptions.Item>
+            <Descriptions.Item label="Finished At">{formatDateTime(selectedTask.finished_at)}</Descriptions.Item>
+            <Descriptions.Item label="Error Message">
+              {selectedTask.error_message || <Typography.Text type="secondary">None</Typography.Text>}
+            </Descriptions.Item>
+            <Descriptions.Item label="Payload Summary">
+              {selectedTask.payload_summary && Object.keys(selectedTask.payload_summary).length > 0 ? (
+                <pre className="json-block">{JSON.stringify(selectedTask.payload_summary, null, 2)}</pre>
+              ) : (
+                <Typography.Text type="secondary">No payload summary</Typography.Text>
+              )}
+            </Descriptions.Item>
+          </Descriptions>
+        ) : null}
+      </Modal>
     </div>
   );
 }

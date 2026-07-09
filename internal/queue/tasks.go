@@ -9,11 +9,13 @@ type TestTaskPayload struct {
 }
 
 type AssetExtractFramesPayload struct {
-	AssetID     string `json:"asset_id"`
-	StorageKey  string `json:"storage_key"`
-	DurationMs  int    `json:"duration_ms"`
+	TaskID     string `json:"task_id"`
+	AssetID    string `json:"asset_id"`
+	StorageKey string `json:"storage_key"`
+	DurationMs int    `json:"duration_ms"`
 }
 
 type AssetAnalyzePayload struct {
+	TaskID  string `json:"task_id"`
 	AssetID string `json:"asset_id"`
 }

@@ -17,21 +17,27 @@ import (
 var ErrTaskNotFound = errors.New("task not found")
 
 type GenerationTask struct {
-	ID              string     `json:"id"`
-	ProductID       string     `json:"product_id,omitempty"`
-	CreatedByUserID string     `json:"created_by_user_id,omitempty"`
-	TaskType        string     `json:"task_type"`
-	Status          string     `json:"status"`
-	ErrorMessage    string     `json:"error_message,omitempty"`
-	RetryCount      int        `json:"retry_count"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	ID              string         `json:"id"`
+	ProductID       string         `json:"product_id,omitempty"`
+	CreatedByUserID string         `json:"created_by_user_id,omitempty"`
+	TaskType        string         `json:"task_type"`
+	Status          string         `json:"status"`
+	PayloadSummary  map[string]any `json:"payload_summary,omitempty"`
+	AssetID         string         `json:"asset_id,omitempty"`
+	DurationMs      int64          `json:"duration_ms,omitempty"`
+	ErrorMessage    string         `json:"error_message,omitempty"`
+	RetryCount      int            `json:"retry_count"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	StartedAt       *time.Time     `json:"started_at,omitempty"`
+	FinishedAt      *time.Time     `json:"finished_at,omitempty"`
 }
 
 type TaskStore interface {
 	CreateTestTask(ctx context.Context, userID string) (GenerationTask, error)
+	CreateAssetExtractFramesTask(ctx context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error)
+	CreateAssetAnalyzeTask(ctx context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error)
+	GetTask(ctx context.Context, taskID string) (GenerationTask, error)
 	ListTasks(ctx context.Context) ([]GenerationTask, error)
 	MarkRunning(ctx context.Context, taskID string) error
 	MarkCompleted(ctx context.Context, taskID string) error
@@ -62,11 +68,46 @@ func NewTaskServiceWithStore(store TaskStore) *TaskService {
 }
 
 func (s *TaskService) CreateTestTask(ctx context.Context, userID string) (GenerationTask, error) {
-	return s.store.CreateTestTask(ctx, userID)
+	task, err := s.store.CreateTestTask(ctx, userID)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) CreateAssetExtractFramesTask(ctx context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error) {
+	task, err := s.store.CreateAssetExtractFramesTask(ctx, userID, productID, payload)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) CreateAssetAnalyzeTask(ctx context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error) {
+	task, err := s.store.CreateAssetAnalyzeTask(ctx, userID, productID, payload)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) GetTask(ctx context.Context, taskID string) (GenerationTask, error) {
+	task, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
 }
 
 func (s *TaskService) ListTasks(ctx context.Context) ([]GenerationTask, error) {
-	return s.store.ListTasks(ctx)
+	tasks, err := s.store.ListTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range tasks {
+		tasks[i] = finalizeTask(tasks[i])
+	}
+	return tasks, nil
 }
 
 func (s *TaskService) MarkRunning(ctx context.Context, taskID string) error {
@@ -95,12 +136,32 @@ func (s *TaskService) HandleTestTask(ctx context.Context, payload queue.TestTask
 }
 
 func (s *fileTaskStore) CreateTestTask(_ context.Context, userID string) (GenerationTask, error) {
+	return s.createTask(userID, "", "test", map[string]any{"kind": "test"})
+}
+
+func (s *fileTaskStore) CreateAssetExtractFramesTask(_ context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error) {
+	return s.createTask(userID, productID, "asset_extract_frames", map[string]any{
+		"asset_id":    payload.AssetID,
+		"storage_key": payload.StorageKey,
+		"duration_ms": payload.DurationMs,
+	})
+}
+
+func (s *fileTaskStore) CreateAssetAnalyzeTask(_ context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error) {
+	return s.createTask(userID, productID, "asset_analyze", map[string]any{
+		"asset_id": payload.AssetID,
+	})
+}
+
+func (s *fileTaskStore) createTask(userID string, productID string, taskType string, payloadSummary map[string]any) (GenerationTask, error) {
 	now := time.Now()
 	task := GenerationTask{
 		ID:              uuid.NewString(),
+		ProductID:       productID,
 		CreatedByUserID: userID,
-		TaskType:        "test",
+		TaskType:        taskType,
 		Status:          "queued",
+		PayloadSummary:  payloadSummary,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -109,6 +170,18 @@ func (s *fileTaskStore) CreateTestTask(_ context.Context, userID string) (Genera
 	defer s.mu.Unlock()
 	s.tasks[task.ID] = task
 	return task, s.saveLocked()
+}
+
+func (s *fileTaskStore) GetTask(_ context.Context, taskID string) (GenerationTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.loadLocked()
+
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return GenerationTask{}, ErrTaskNotFound
+	}
+	return task, nil
 }
 
 func (s *fileTaskStore) ListTasks(_ context.Context) ([]GenerationTask, error) {
@@ -208,4 +281,24 @@ func (s *fileTaskStore) saveLocked() error {
 		return err
 	}
 	return os.WriteFile(s.filePath, content, 0644)
+}
+
+func finalizeTask(task GenerationTask) GenerationTask {
+	if task.AssetID == "" && task.PayloadSummary != nil {
+		if assetID, ok := task.PayloadSummary["asset_id"].(string); ok {
+			task.AssetID = assetID
+		}
+	}
+
+	if task.StartedAt != nil {
+		end := time.Now()
+		if task.FinishedAt != nil {
+			end = *task.FinishedAt
+		}
+		if duration := end.Sub(*task.StartedAt); duration > 0 {
+			task.DurationMs = duration.Milliseconds()
+		}
+	}
+
+	return task
 }

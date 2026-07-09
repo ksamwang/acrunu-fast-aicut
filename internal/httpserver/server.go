@@ -11,9 +11,9 @@ import (
 )
 
 type Options struct {
-	Config      config.Config
-	Logger      *slog.Logger
-	TaskService *services.TaskService
+	Config              config.Config
+	Logger              *slog.Logger
+	TaskService         *services.TaskService
 	ProductAssetService *services.ProductAssetService
 }
 
@@ -110,6 +110,7 @@ func (s *Server) routes() {
 	protected.PUT("/assets/:assetID/review", s.handleUpdateAssetReview)
 	protected.POST("/tasks/test", s.handleCreateTestTask)
 	protected.GET("/tasks", s.handleListTasks)
+	protected.GET("/tasks/:taskID", s.handleGetTask)
 
 	api.POST("/uploads/clean-shot", s.handleUploadCleanShot)
 	s.engine.Static("/storage", s.cfg.StorageRoot)

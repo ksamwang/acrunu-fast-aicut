@@ -158,6 +158,53 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     }
 
     if (url.includes("/api/tasks")) {
+      if (url.includes("/api/tasks/task-asset-analyze")) {
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: {
+              id: "task-asset-analyze",
+              task_type: "asset_analyze",
+              status: "failed",
+              asset_id: "asset-1",
+              payload_summary: {
+                asset_id: "asset-1",
+                storage_key: "assets/clean-shot.mp4"
+              },
+              error_message: "mock provider failed",
+              retry_count: 1,
+              duration_ms: 231,
+              created_at: "2026-07-08T00:00:00Z",
+              started_at: "2026-07-08T00:00:01Z",
+              finished_at: "2026-07-08T00:00:01Z"
+            }
+          })
+        });
+        return;
+      }
+
+      if (url.includes("/api/tasks/task-1")) {
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: {
+              id: "task-1",
+              task_type: "test",
+              status: "completed",
+              payload_summary: {
+                kind: "test"
+              },
+              retry_count: 0,
+              duration_ms: 100,
+              created_at: "2026-07-08T00:00:00Z",
+              started_at: "2026-07-08T00:00:00Z",
+              finished_at: "2026-07-08T00:00:00Z"
+            }
+          })
+        });
+        return;
+      }
+
       if (route.request().method() === "POST") {
         await route.fulfill({
           status: 201,
@@ -184,6 +231,17 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
               task_type: "test",
               status: "completed",
               retry_count: 0,
+              duration_ms: 100,
+              created_at: "2026-07-08T00:00:00Z"
+            },
+            {
+              id: "task-asset-analyze",
+              task_type: "asset_analyze",
+              status: "failed",
+              asset_id: "asset-1",
+              retry_count: 1,
+              duration_ms: 231,
+              error_message: "mock provider failed",
               created_at: "2026-07-08T00:00:00Z"
             }
           ]
@@ -247,4 +305,10 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await expect(page.getByTestId("tasks-page")).toBeVisible();
   await expect(page.getByText("task-1")).toBeVisible();
   await expect(page.getByText("completed")).toBeVisible();
+  await expect(page.getByText("asset_analyze")).toBeVisible();
+  await expect(page.getByText("231 ms")).toBeVisible();
+  await page.getByRole("button", { name: "task-asset-analyze" }).click();
+  await expect(page.getByTestId("task-detail-modal")).toBeVisible();
+  await expect(page.getByText("mock provider failed")).toBeVisible();
+  await expect(page.getByText("\"asset_id\": \"asset-1\"")).toBeVisible();
 });

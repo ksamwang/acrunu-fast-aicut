@@ -25,8 +25,10 @@ func main() {
 		services.NewAssetProcessingService(
 			cfg.StorageRoot,
 			productAssetService.Service,
+			taskService.Service,
 			queueClient,
 			nil,
+			logger,
 		),
 	)
 

@@ -2,10 +2,14 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/repository/db"
 )
 
@@ -18,20 +22,59 @@ func NewPostgresTaskStore(queries *db.Queries) *PostgresTaskStore {
 }
 
 func (s *PostgresTaskStore) CreateTestTask(ctx context.Context, userID string) (GenerationTask, error) {
+	return s.createTask(ctx, userID, "", "test", map[string]any{"kind": "test"})
+}
+
+func (s *PostgresTaskStore) CreateAssetExtractFramesTask(ctx context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error) {
+	return s.createTask(ctx, userID, productID, "asset_extract_frames", map[string]any{
+		"asset_id":    payload.AssetID,
+		"storage_key": payload.StorageKey,
+		"duration_ms": payload.DurationMs,
+	})
+}
+
+func (s *PostgresTaskStore) CreateAssetAnalyzeTask(ctx context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error) {
+	return s.createTask(ctx, userID, productID, "asset_analyze", map[string]any{
+		"asset_id": payload.AssetID,
+	})
+}
+
+func (s *PostgresTaskStore) createTask(ctx context.Context, userID string, productID string, taskType string, payloadSummary map[string]any) (GenerationTask, error) {
+	snapshot, err := json.Marshal(payloadSummary)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+
 	task, err := s.queries.CreateGenerationTask(ctx, db.CreateGenerationTaskParams{
-		ProductID:        pgtype.UUID{},
+		ProductID:        nullableUUIDParam(productID),
 		CreatedByUserID:  nullableUUIDParam(userID),
-		TaskType:         "test",
+		TaskType:         taskType,
 		Status:           "queued",
 		VariantCount:     1,
 		TargetDurationMs: pgtype.Int4{},
 		StylePrompt:      pgtype.Text{},
-		ConfigSnapshot:   []byte(`{}`),
+		ConfigSnapshot:   snapshot,
 	})
 	if err != nil {
 		return GenerationTask{}, err
 	}
 	return generationTaskFromDB(task), nil
+}
+
+func (s *PostgresTaskStore) GetTask(ctx context.Context, taskID string) (GenerationTask, error) {
+	id, err := uuidParam(taskID)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+
+	row, err := s.queries.GetGenerationTaskByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return GenerationTask{}, ErrTaskNotFound
+		}
+		return GenerationTask{}, err
+	}
+	return generationTaskFromDB(row), nil
 }
 
 func (s *PostgresTaskStore) ListTasks(ctx context.Context) ([]GenerationTask, error) {
@@ -81,6 +124,12 @@ func generationTaskFromDB(row db.GenerationTask) GenerationTask {
 		RetryCount:      int(row.RetryCount),
 		CreatedAt:       timeFromTimestamptz(row.CreatedAt),
 		UpdatedAt:       timeFromTimestamptz(row.UpdatedAt),
+	}
+	if len(row.ConfigSnapshot) > 0 {
+		var payloadSummary map[string]any
+		if err := json.Unmarshal(row.ConfigSnapshot, &payloadSummary); err == nil {
+			task.PayloadSummary = payloadSummary
+		}
 	}
 	if row.StartedAt.Valid {
 		startedAt := row.StartedAt.Time

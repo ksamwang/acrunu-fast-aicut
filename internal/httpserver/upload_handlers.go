@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/ffmpeg"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
 
@@ -103,33 +104,33 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	}
 
 	asset, err := s.productAssetService.CreateAsset(services.CreateAssetInput{
-		ProductID:         token.ProductID,
-		AssetName:         assetName,
-		StorageKey:        storageKey,
-		FileName:          header.Filename,
-		FileExt:           ext,
-		MimeType:          header.Header.Get("Content-Type"),
-		FileSize:          header.Size,
-		Checksum:          checksum,
-		SourceType:        sourceType,
-		IngestionSource:   "local-agent",
-		DurationMs:        probeResult.DurationMs,
-		Width:             probeResult.Width,
-		Height:            probeResult.Height,
-		FPS:               probeResult.FPS,
-		Codec:             probeResult.Codec,
-		Status:            status,
-		AnalysisStatus:    "pending_analysis",
-		UsabilityStatus:   usabilityStatus,
-		ManualCleanStatus: manualCleanStatus,
-		SourcePath:        sourcePath,
+		ProductID:          token.ProductID,
+		AssetName:          assetName,
+		StorageKey:         storageKey,
+		FileName:           header.Filename,
+		FileExt:            ext,
+		MimeType:           header.Header.Get("Content-Type"),
+		FileSize:           header.Size,
+		Checksum:           checksum,
+		SourceType:         sourceType,
+		IngestionSource:    "local-agent",
+		DurationMs:         probeResult.DurationMs,
+		Width:              probeResult.Width,
+		Height:             probeResult.Height,
+		FPS:                probeResult.FPS,
+		Codec:              probeResult.Codec,
+		Status:             status,
+		AnalysisStatus:     "pending_analysis",
+		UsabilityStatus:    usabilityStatus,
+		ManualCleanStatus:  manualCleanStatus,
+		SourcePath:         sourcePath,
 		SourceOriginalName: firstNonEmptyForm(sourceOriginalName, header.Filename),
-		HasAudio:          probeResult.HasAudio,
-		AudioCodec:        probeResult.AudioCodec,
-		BitrateKbps:       probeResult.BitrateKbps,
-		ReviewerNotes:     reviewerNotes,
-		SellingPointIDs:   sellingPointIDs,
-		CreatedByUserID:   token.UserID,
+		HasAudio:           probeResult.HasAudio,
+		AudioCodec:         probeResult.AudioCodec,
+		BitrateKbps:        probeResult.BitrateKbps,
+		ReviewerNotes:      reviewerNotes,
+		SellingPointIDs:    sellingPointIDs,
+		CreatedByUserID:    token.UserID,
 	})
 	if err != nil {
 		handleProductError(c, err)
@@ -137,8 +138,20 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	}
 
 	response := gin.H{"asset": asset}
-	if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(asset.ID, asset.StorageKey, asset.DurationMs); enqueueErr != nil {
-		response["frame_task_error"] = enqueueErr.Error()
+	frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), token.UserID, asset.ProductID, servicesQueueExtractPayload(asset))
+	if taskErr != nil {
+		response["frame_task_error"] = taskErr.Error()
+	} else {
+		response["frame_task"] = frameTask
+	}
+	if frameTask.ID != "" {
+		response["frame_task_id"] = frameTask.ID
+	}
+	if frameTask.ID != "" {
+		if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(frameTask.ID, asset.ID, asset.StorageKey, asset.DurationMs); enqueueErr != nil {
+			_ = s.taskService.MarkFailed(c.Request.Context(), frameTask.ID, enqueueErr.Error())
+			response["frame_task_error"] = enqueueErr.Error()
+		}
 	}
 	if probeErr != nil {
 		response["probe_error"] = probeErr.Error()
@@ -235,4 +248,12 @@ func parseOptionalBool(value string) *bool {
 		return nil
 	}
 	return &parsed
+}
+
+func servicesQueueExtractPayload(asset services.Asset) queue.AssetExtractFramesPayload {
+	return queue.AssetExtractFramesPayload{
+		AssetID:    asset.ID,
+		StorageKey: asset.StorageKey,
+		DurationMs: asset.DurationMs,
+	}
 }

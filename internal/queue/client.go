@@ -50,8 +50,9 @@ func (c *Client) EnqueueTestTask(taskID string) error {
 	return err
 }
 
-func (c *Client) EnqueueAssetExtractFrames(assetID string, storageKey string, durationMs int) error {
+func (c *Client) EnqueueAssetExtractFrames(taskID string, assetID string, storageKey string, durationMs int) error {
 	payload, err := json.Marshal(AssetExtractFramesPayload{
+		TaskID:     taskID,
 		AssetID:    assetID,
 		StorageKey: storageKey,
 		DurationMs: durationMs,
@@ -70,8 +71,8 @@ func (c *Client) EnqueueAssetExtractFrames(assetID string, storageKey string, du
 	return err
 }
 
-func (c *Client) EnqueueAssetAnalyze(assetID string) error {
-	payload, err := json.Marshal(AssetAnalyzePayload{AssetID: assetID})
+func (c *Client) EnqueueAssetAnalyze(taskID string, assetID string) error {
+	payload, err := json.Marshal(AssetAnalyzePayload{TaskID: taskID, AssetID: assetID})
 	if err != nil {
 		return err
 	}
