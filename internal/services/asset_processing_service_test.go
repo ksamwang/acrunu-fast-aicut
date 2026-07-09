@@ -81,6 +81,53 @@ func TestFrameCountForDuration(t *testing.T) {
 	}
 }
 
+func TestNormalizeFrameExtractionStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration int
+		input    queue.FrameExtractionStrategy
+		want     queue.FrameExtractionStrategy
+	}{
+		{
+			name:     "default strategy from duration",
+			duration: 9000,
+			input:    queue.FrameExtractionStrategy{},
+			want: queue.FrameExtractionStrategy{
+				Mode:       queue.FrameExtractionModeFixedInterval,
+				FrameCount: 5,
+			},
+		},
+		{
+			name:     "fixed interval preserves explicit frame count",
+			duration: 9000,
+			input:    queue.FrameExtractionStrategy{Mode: queue.FrameExtractionModeFixedInterval, FrameCount: 4},
+			want: queue.FrameExtractionStrategy{
+				Mode:       queue.FrameExtractionModeFixedInterval,
+				FrameCount: 4,
+			},
+		},
+		{
+			name:     "keyframe uses fallback placeholders",
+			duration: 9000,
+			input:    queue.FrameExtractionStrategy{Mode: queue.FrameExtractionModeKeyframe},
+			want: queue.FrameExtractionStrategy{
+				Mode:             queue.FrameExtractionModeKeyframe,
+				FrameCount:       keyframeFallbackFrameCount,
+				KeyframeWindowMs: keyframeWindowMs,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeFrameExtractionStrategy(tt.duration, tt.input)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("expected %+v, got %+v", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 	service := NewProductAssetService()
 	product := service.CreateProduct(CreateProductInput{Name: "P1"})
@@ -154,8 +201,8 @@ func TestHandleAssetAnalyzeMarksFailure(t *testing.T) {
 		err: errors.New("mock provider failed"),
 	}, nil)
 
-	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{TaskID: "", AssetID: asset.ID}); err != nil {
-		t.Fatalf("expected failure to be persisted without bubbling error, got %v", err)
+	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{TaskID: "", AssetID: asset.ID}); err == nil {
+		t.Fatalf("expected failure to bubble for retry handling")
 	}
 
 	updated, ok := service.GetAsset(asset.ID)
@@ -258,8 +305,8 @@ func TestHandleAssetExtractFramesMarksAssetFailure(t *testing.T) {
 		AssetID:    asset.ID,
 		StorageKey: asset.StorageKey,
 		DurationMs: 1200,
-	}); err != nil {
-		t.Fatalf("expected extract failure to be persisted without bubbling error, got %v", err)
+	}); err == nil {
+		t.Fatalf("expected extract failure to bubble for retry handling")
 	}
 
 	updated, ok := service.GetAsset(asset.ID)
@@ -308,5 +355,28 @@ func TestRunTrackedTaskLogsTaskAndAssetIdentifiers(t *testing.T) {
 	}
 	if !strings.Contains(output, `"duration_ms":`) {
 		t.Fatalf("expected logs to include duration_ms, got %s", output)
+	}
+}
+
+func TestRunTrackedTaskSkipsCompletedTask(t *testing.T) {
+	taskService := NewTaskService(t.TempDir())
+	task, err := taskService.CreateTestTask(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+	if err := taskService.MarkCompleted(context.Background(), task.ID); err != nil {
+		t.Fatalf("mark completed failed: %v", err)
+	}
+
+	processing := NewAssetProcessingService("", nil, taskService, nil, nil, nil)
+	called := false
+	if err := processing.runTrackedTask(context.Background(), task.ID, "asset-1", "asset_extract_frames", func(context.Context) error {
+		called = true
+		return nil
+	}); err != nil {
+		t.Fatalf("run tracked task failed: %v", err)
+	}
+	if called {
+		t.Fatalf("expected completed task to be skipped")
 	}
 }

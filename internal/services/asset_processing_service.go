@@ -19,6 +19,11 @@ type assetAnalysisTaskEnqueuer interface {
 	EnqueueAssetAnalyze(taskID string, assetID string) error
 }
 
+const (
+	keyframeFallbackFrameCount = 3
+	keyframeWindowMs           = 500
+)
+
 type AssetProcessingService struct {
 	storageRoot         string
 	localStore          *storage.LocalStore
@@ -64,7 +69,8 @@ func (s *AssetProcessingService) HandleAssetExtractFrames(ctx context.Context, p
 func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, payload queue.AssetExtractFramesPayload) error {
 	inputPath := s.localStore.FullPath(payload.StorageKey)
 	outputDir := filepath.Join(s.storageRoot, "frames", payload.AssetID)
-	timestamps := buildFrameTimestamps(payload.DurationMs, frameCountForDuration(payload.DurationMs))
+	strategy := normalizeFrameExtractionStrategy(payload.DurationMs, payload.Strategy)
+	timestamps := resolveFrameTimestamps(payload.DurationMs, strategy)
 
 	frames, err := ffmpeg.ExtractFrames(ctx, inputPath, outputDir, timestamps)
 	if err != nil {
@@ -194,6 +200,15 @@ func (s *AssetProcessingService) runTrackedTask(ctx context.Context, taskID stri
 	)
 
 	if taskID != "" && s.taskService != nil {
+		currentTask, err := s.taskService.GetTask(ctx, taskID)
+		if err == nil && currentTask.Status == "completed" {
+			s.logger.Info("worker task skipped because it is already completed",
+				slog.String("task_type", taskType),
+				slog.String("task_id", taskID),
+				slog.String("asset_id", assetID),
+			)
+			return nil
+		}
 		if err := s.taskService.MarkRunning(ctx, taskID); err != nil {
 			s.logger.Error("failed to mark task running",
 				slog.String("task_type", taskType),
@@ -224,7 +239,7 @@ func (s *AssetProcessingService) runTrackedTask(ctx context.Context, taskID stri
 			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
 			slog.String("error", err.Error()),
 		)
-		return nil
+		return err
 	}
 
 	if taskID != "" && s.taskService != nil {
@@ -246,6 +261,45 @@ func (s *AssetProcessingService) runTrackedTask(ctx context.Context, taskID stri
 		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
 	)
 	return nil
+}
+
+func defaultFrameExtractionStrategy(durationMs int) queue.FrameExtractionStrategy {
+	return queue.FrameExtractionStrategy{
+		Mode:       queue.FrameExtractionModeFixedInterval,
+		FrameCount: frameCountForDuration(durationMs),
+	}
+}
+
+func normalizeFrameExtractionStrategy(durationMs int, strategy queue.FrameExtractionStrategy) queue.FrameExtractionStrategy {
+	if strategy.Mode == "" {
+		return defaultFrameExtractionStrategy(durationMs)
+	}
+	switch strategy.Mode {
+	case queue.FrameExtractionModeFixedInterval:
+		if strategy.FrameCount <= 0 {
+			strategy.FrameCount = frameCountForDuration(durationMs)
+		}
+		return strategy
+	case queue.FrameExtractionModeKeyframe:
+		if strategy.FrameCount <= 0 {
+			strategy.FrameCount = keyframeFallbackFrameCount
+		}
+		if strategy.KeyframeWindowMs <= 0 {
+			strategy.KeyframeWindowMs = keyframeWindowMs
+		}
+		return strategy
+	default:
+		return defaultFrameExtractionStrategy(durationMs)
+	}
+}
+
+func resolveFrameTimestamps(durationMs int, strategy queue.FrameExtractionStrategy) []int {
+	switch strategy.Mode {
+	case queue.FrameExtractionModeKeyframe:
+		return buildFrameTimestamps(durationMs, strategy.FrameCount)
+	default:
+		return buildFrameTimestamps(durationMs, strategy.FrameCount)
+	}
 }
 
 func frameCountForDuration(durationMs int) int {

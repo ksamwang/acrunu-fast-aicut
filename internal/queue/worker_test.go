@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 type stubHandler struct {
 	testTaskID       string
 	extractedAssetID string
 	analyzedAssetID  string
+	extractFailures  int
+	extractCalls     int
 }
 
 func (h *stubHandler) HandleTestTask(_ context.Context, payload TestTaskPayload) error {
@@ -19,7 +22,12 @@ func (h *stubHandler) HandleTestTask(_ context.Context, payload TestTaskPayload)
 }
 
 func (h *stubHandler) HandleAssetExtractFrames(_ context.Context, payload AssetExtractFramesPayload) error {
+	h.extractCalls++
 	h.extractedAssetID = payload.AssetID
+	if h.extractFailures > 0 {
+		h.extractFailures--
+		return errors.New("extract failed")
+	}
 	return nil
 }
 
@@ -108,5 +116,37 @@ func TestHandleFileTaskIgnoresUnknownTaskType(t *testing.T) {
 		Payload: []byte(`{}`),
 	}, handler); err != nil {
 		t.Fatalf("expected unknown task type to be ignored, got %v", err)
+	}
+}
+
+func TestRunFileWorkerRetriesFailedFileTask(t *testing.T) {
+	tempDir := t.TempDir()
+	fileQueue := NewFileQueue(tempDir)
+	payload, err := json.Marshal(AssetExtractFramesPayload{
+		TaskID:     "task-1",
+		AssetID:    "asset-1",
+		StorageKey: "assets/a.mp4",
+		DurationMs: 1200,
+	})
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+	if err := fileQueue.Enqueue(context.Background(), TypeAssetExtractFrames, payload, 2); err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+
+	handler := &stubHandler{extractFailures: 1}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+	defer cancel()
+
+	err = RunFileWorker(ctx, tempDir, handler, 10*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected worker to stop on context deadline, got %v", err)
+	}
+	if handler.extractCalls != 2 {
+		t.Fatalf("expected one retry after failure, got %d calls", handler.extractCalls)
+	}
+	if handler.extractedAssetID != "asset-1" {
+		t.Fatalf("expected retried asset id asset-1, got %s", handler.extractedAssetID)
 	}
 }

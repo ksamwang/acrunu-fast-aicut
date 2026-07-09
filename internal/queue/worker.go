@@ -64,7 +64,11 @@ func RunFileWorker(ctx context.Context, storageRoot string, handler TestTaskHand
 				return err
 			}
 		} else if err := handleFileTask(ctx, task, handler); err != nil {
-			return err
+			if task.Attempt < task.MaxRetry {
+				if requeueErr := fileQueue.Requeue(ctx, task); requeueErr != nil {
+					return requeueErr
+				}
+			}
 		}
 
 		select {

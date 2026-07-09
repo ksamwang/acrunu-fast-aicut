@@ -157,7 +157,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		response["duplicate_assets"] = duplicates
 	}
 	if probeErr == nil {
-		frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), token.UserID, asset.ProductID, servicesQueueExtractPayload(asset))
+		frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), token.UserID, asset.ProductID, servicesQueueExtractPayload(asset, ""))
 		if taskErr != nil {
 			response["frame_task_error"] = taskErr.Error()
 		} else {
@@ -167,7 +167,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 			response["frame_task_id"] = frameTask.ID
 		}
 		if frameTask.ID != "" {
-			if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(frameTask.ID, asset.ID, asset.StorageKey, asset.DurationMs); enqueueErr != nil {
+			if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(servicesQueueExtractPayload(asset, frameTask.ID)); enqueueErr != nil {
 				_ = s.taskService.MarkFailed(c.Request.Context(), frameTask.ID, enqueueErr.Error())
 				response["frame_task_error"] = enqueueErr.Error()
 			}
@@ -307,10 +307,30 @@ func parseOptionalBoolDefaultFalse(value string) bool {
 	return parsed != nil && *parsed
 }
 
-func servicesQueueExtractPayload(asset services.Asset) queue.AssetExtractFramesPayload {
+func servicesQueueExtractPayload(asset services.Asset, taskID string) queue.AssetExtractFramesPayload {
 	return queue.AssetExtractFramesPayload{
+		TaskID:     taskID,
 		AssetID:    asset.ID,
 		StorageKey: asset.StorageKey,
 		DurationMs: asset.DurationMs,
+		Strategy: queue.FrameExtractionStrategy{
+			Mode:       queue.FrameExtractionModeFixedInterval,
+			FrameCount: suggestedFrameCountForDuration(asset.DurationMs),
+		},
+	}
+}
+
+func suggestedFrameCountForDuration(durationMs int) int {
+	switch {
+	case durationMs <= 0:
+		return 1
+	case durationMs <= 1500:
+		return 1
+	case durationMs <= 5000:
+		return 3
+	case durationMs <= 15000:
+		return 5
+	default:
+		return 7
 	}
 }

@@ -35,54 +35,58 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) EnqueueTestTask(taskID string) error {
-	payload, err := json.Marshal(TestTaskPayload{TaskID: taskID})
+	encodedPayload, err := json.Marshal(TestTaskPayload{TaskID: taskID})
 	if err != nil {
 		return err
 	}
 
 	if c.backend == "file" {
-		return c.file.Enqueue(context.Background(), TypeTestTask, payload)
+		return c.file.Enqueue(context.Background(), TypeTestTask, encodedPayload, 0)
 	}
 	if c.client == nil {
 		return fmt.Errorf("queue client is not initialized")
 	}
-	_, err = c.client.Enqueue(asynq.NewTask(TypeTestTask, payload))
+	_, err = c.client.Enqueue(asynq.NewTask(TypeTestTask, encodedPayload))
 	return err
 }
 
-func (c *Client) EnqueueAssetExtractFrames(taskID string, assetID string, storageKey string, durationMs int) error {
-	payload, err := json.Marshal(AssetExtractFramesPayload{
-		TaskID:     taskID,
-		AssetID:    assetID,
-		StorageKey: storageKey,
-		DurationMs: durationMs,
+func (c *Client) EnqueueAssetExtractFrames(payload AssetExtractFramesPayload) error {
+	if payload.TaskID == "" {
+		return fmt.Errorf("task id is required")
+	}
+	encodedPayload, err := json.Marshal(AssetExtractFramesPayload{
+		TaskID:     payload.TaskID,
+		AssetID:    payload.AssetID,
+		StorageKey: payload.StorageKey,
+		DurationMs: payload.DurationMs,
+		Strategy:   payload.Strategy,
 	})
 	if err != nil {
 		return err
 	}
 
 	if c.backend == "file" {
-		return c.file.Enqueue(context.Background(), TypeAssetExtractFrames, payload)
+		return c.file.Enqueue(context.Background(), TypeAssetExtractFrames, encodedPayload, 3)
 	}
 	if c.client == nil {
 		return fmt.Errorf("queue client is not initialized")
 	}
-	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetExtractFrames, payload))
+	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetExtractFrames, encodedPayload), asynq.MaxRetry(3))
 	return err
 }
 
 func (c *Client) EnqueueAssetAnalyze(taskID string, assetID string) error {
-	payload, err := json.Marshal(AssetAnalyzePayload{TaskID: taskID, AssetID: assetID})
+	encodedPayload, err := json.Marshal(AssetAnalyzePayload{TaskID: taskID, AssetID: assetID})
 	if err != nil {
 		return err
 	}
 
 	if c.backend == "file" {
-		return c.file.Enqueue(context.Background(), TypeAssetAnalyze, payload)
+		return c.file.Enqueue(context.Background(), TypeAssetAnalyze, encodedPayload, 3)
 	}
 	if c.client == nil {
 		return fmt.Errorf("queue client is not initialized")
 	}
-	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetAnalyze, payload))
+	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetAnalyze, encodedPayload), asynq.MaxRetry(3))
 	return err
 }

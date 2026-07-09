@@ -26,11 +26,21 @@ func (s *PostgresTaskStore) CreateTestTask(ctx context.Context, userID string) (
 }
 
 func (s *PostgresTaskStore) CreateAssetExtractFramesTask(ctx context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error) {
-	return s.createTask(ctx, userID, productID, "asset_extract_frames", map[string]any{
+	summary := map[string]any{
 		"asset_id":    payload.AssetID,
 		"storage_key": payload.StorageKey,
 		"duration_ms": payload.DurationMs,
-	})
+	}
+	if payload.Strategy.Mode != "" {
+		summary["strategy_mode"] = payload.Strategy.Mode
+	}
+	if payload.Strategy.FrameCount > 0 {
+		summary["frame_count"] = payload.Strategy.FrameCount
+	}
+	if payload.Strategy.KeyframeWindowMs > 0 {
+		summary["keyframe_window_ms"] = payload.Strategy.KeyframeWindowMs
+	}
+	return s.createTask(ctx, userID, productID, "asset_extract_frames", summary)
 }
 
 func (s *PostgresTaskStore) CreateAssetAnalyzeTask(ctx context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error) {
