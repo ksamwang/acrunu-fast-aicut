@@ -86,7 +86,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 支持归档素材
 - [x] 支持恢复已归档素材
 - [x] 补充 API 单元测试
-- [ ] 补充 API 集成测试
+- [x] 补充 API 集成测试
 
 备注：当前产品、卖点、素材服务已支持 PostgreSQL 与内存双实现切换。
 
