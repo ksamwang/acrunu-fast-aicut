@@ -5,7 +5,8 @@ param(
     [string[]]$Services = @("api", "worker"),
     [switch]$AllowDirty,
     [switch]$RunMigrations,
-    [string]$DatabaseUrl = "postgres://aicut:aicut@localhost:5432/aicut?sslmode=disable"
+    [string]$DatabaseUrl = "postgres://aicut:aicut@localhost:5432/aicut?sslmode=disable",
+    [string]$MigrationImage = "golang:1.25-bookworm"
 )
 
 Set-StrictMode -Version Latest
@@ -16,6 +17,18 @@ function Require-Command {
 
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
         throw "Required command not found: $Name"
+    }
+}
+
+function Invoke-Native {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments
+    )
+
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$FilePath failed with exit code $LASTEXITCODE"
     }
 }
 
@@ -47,38 +60,32 @@ $serviceArgs = ($Services -join " ")
 
 Write-Host "Deploying $branch@$commit to ${target}:$RemoteDir" -ForegroundColor Cyan
 Write-Host "Creating archive from committed HEAD..."
-git archive --format=tar -o $archivePath HEAD
+Invoke-Native git @("archive", "--format=tar", "-o", $archivePath, "HEAD")
 
 try {
     Write-Host "Uploading archive..."
-    scp $archivePath "${target}:$remoteArchivePath"
+    Invoke-Native scp @($archivePath, "${target}:$remoteArchivePath")
 
     $remoteCommands = @(
         "set -e",
         "mkdir -p '$RemoteDir'",
         "tar -xf '$remoteArchivePath' -C '$RemoteDir'",
-        "cd '$RemoteDir'",
+        "cd '$RemoteDir'"
+    )
+
+    if ($RunMigrations) {
+        $migrationCommand = "docker run --rm --network container:aicut-postgres -v '$RemoteDir/migrations:/migrations:ro' -e GOPROXY='https://goproxy.cn,direct' -e GOSUMDB='sum.golang.google.cn' -e DATABASE_URL='$DatabaseUrl' $MigrationImage sh -lc 'go install github.com/pressly/goose/v3/cmd/goose@latest && /go/bin/goose -dir /migrations postgres `"`$DATABASE_URL`" up'"
+        $remoteCommands += $migrationCommand
+    }
+
+    $remoteCommands += @(
         "docker compose up -d --build $serviceArgs",
         "docker compose ps $serviceArgs",
         "rm -f '$remoteArchivePath'"
     )
 
-    if ($RunMigrations) {
-        $migrationCommand = "goose -dir ./migrations postgres '$DatabaseUrl' up"
-        $remoteCommands = @(
-            "set -e",
-            "mkdir -p '$RemoteDir'",
-            "tar -xf '$remoteArchivePath' -C '$RemoteDir'",
-            "cd '$RemoteDir'",
-            $migrationCommand,
-            "docker compose up -d --build $serviceArgs",
-            "docker compose ps $serviceArgs",
-            "rm -f '$remoteArchivePath'"
-        )
-    }
-
     Write-Host "Rebuilding services on server..."
-    ssh $target ($remoteCommands -join "; ")
+    Invoke-Native ssh @($target, ($remoteCommands -join "; "))
 
     Write-Host "Deployment finished." -ForegroundColor Green
 }
