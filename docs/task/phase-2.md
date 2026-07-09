@@ -27,7 +27,7 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 增加素材业务状态：`pending_analysis` / `analyzing` / `ready` / `failed` / `archived`
 - [x] 增加素材可用性状态：可用、待人工确认、废弃
 - [x] 增加素材 hash 字段，用于重复素材识别
-- [ ] 增加素材人工备注字段
+- [x] 增加素材人工备注字段
 - [x] 增加素材来源字段：`local-agent` / `server-upload` / `manual-import`
 - [x] 增加素材与产品的关联约束
 - [x] 增加素材与产品卖点的可选关联
@@ -82,9 +82,9 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 支持按状态筛选
 - [x] 支持按标签筛选
 - [x] 支持按卖点筛选
-- [ ] 支持更新素材人工信息
-- [ ] 支持归档素材
-- [ ] 支持恢复已归档素材
+- [x] 支持更新素材人工信息
+- [x] 支持归档素材
+- [x] 支持恢复已归档素材
 - [x] 补充 API 单元测试
 - [ ] 补充 API 集成测试
 
@@ -201,8 +201,8 @@ Model Gateway 调用 VLM 或 mock provider
 - [x] 素材详情页显示画面分析结果
 - [x] 素材详情页显示抽帧预览
 - [x] 素材详情页支持人工修正标签
-- [ ] 素材详情页支持归档素材
-- [ ] 素材详情页支持查看错误原因
+- [x] 素材详情页支持归档素材
+- [x] 素材详情页支持查看错误原因
 - [x] 补充前端 API client
 - [x] 补充前端构建验证
 - [x] 补充 Playwright E2E 测试
