@@ -1,255 +1,258 @@
 # 第一阶段任务清单
 
-## 1. 阶段目标
+## 1. 文档目的
 
-第一阶段目标是搭建系统工程骨架，并跑通共享素材库与异步任务基础链路。
+这份清单用于约束第一阶段的实现范围，目标不是讨论完整产品演进路线，而是明确当前系统设计下，第一批必须打通的工程闭环。
 
-完成后的最小闭环：
+本文档只描述执行任务，不重复展开架构讨论。相关设计基线以 `docs/system-overview.md` 和 `docs/architecture.md` 为准。
+
+第一阶段完成后，应具备下面这个最小可运行链路：
 
 ```text
-用户登录 Web Console
-创建产品和卖点
-通过本地 Agent 裁切本地视频为 clean shot
-上传 clean shot 到服务端
-服务端保存文件并记录 assets
-API 创建一个异步任务
-worker 消费任务并更新状态
-前端能看到素材和任务状态
+Web Console 登录
+-> 创建产品与卖点
+-> 浏览器调用本地 Agent 生成 clean shot
+-> 上传 clean shot 到服务端
+-> 服务端入库 assets
+-> 创建异步任务
+-> worker 消费任务并更新状态
+-> 前端可查看素材与任务结果
 ```
 
-## 2. 工程初始化
+## 2. 第一阶段目标
 
-- [x] 初始化 Go module
-- [x] 建立 `apps/api`
-- [x] 建立 `apps/worker`
-- [x] 建立 `apps/local-agent`
-- [x] 建立 `apps/web`
-- [x] 建立 `internal/auth`
-- [x] 建立 `internal/config`
-- [x] 建立 `internal/domain`
-- [x] 建立 `internal/ffmpeg`
-- [x] 建立 `internal/modelgateway`
-- [x] 建立 `internal/queue`
-- [x] 建立 `internal/repository`
-- [x] 建立 `internal/services`
-- [x] 建立 `internal/storage`
-- [x] 添加 `Makefile`
-- [x] 添加 `.env.example`
-- [x] 添加基础 `.gitignore`
+- [ ] 搭建模块化单体 + worker 的基础工程骨架
+- [ ] 打通共享素材库的最小入库链路
+- [ ] 打通浏览器 + 本地 Agent 的 clean shot 预处理链路
+- [ ] 打通 PostgreSQL / pgvector / Redis / 本地存储 的基础运行环境
+- [ ] 打通用户登录、产品管理、卖点管理、素材管理、任务管理的基础控制台
+- [ ] 打通异步任务创建、消费、状态回写的基础闭环
+- [ ] 为后续素材分析、向量索引、文案生成、编排、渲染预留清晰扩展点
 
-备注：已使用工作区内便携 Go 工具链执行 `go mod tidy` 和 `go test ./...`，Go 代码编译检查通过。
+## 3. 工程与基础设施
 
-## 3. 基础设施
+### 3.1 工程骨架
 
-- [x] 添加 `docker-compose.yml`
-- [x] 配置 PostgreSQL
-- [x] 配置 pgvector 扩展
-- [x] 配置 Redis
-- [x] 配置服务端本地 `storage/`
-- [x] 配置 API 环境变量
-- [x] 配置 worker 环境变量
-- [x] 配置 local-agent 环境变量
-- [x] 添加 `ffmpeg` / `ffprobe` 可用性检查
-- [x] 添加本地开发启动说明
+- [ ] 初始化 Go module
+- [ ] 建立 `apps/api`
+- [ ] 建立 `apps/worker`
+- [ ] 建立 `apps/local-agent`
+- [ ] 建立 `apps/web`
+- [ ] 建立 `internal/auth`
+- [ ] 建立 `internal/config`
+- [ ] 建立 `internal/domain`
+- [ ] 建立 `internal/ffmpeg`
+- [ ] 建立 `internal/modelgateway`
+- [ ] 建立 `internal/queue`
+- [ ] 建立 `internal/repository`
+- [ ] 建立 `internal/services`
+- [ ] 建立 `internal/storage`
+- [ ] 补齐 `Makefile`
+- [ ] 补齐 `.env.example`
+- [ ] 补齐基础 `.gitignore`
 
-备注：当前执行环境未安装 Docker，但已使用工作区内便携 `ffmpeg` / `ffprobe` 完成媒体裁切与探测运行验证；Docker Compose 运行态验证仍需在 Docker 可用后执行。
+### 3.2 运行环境
 
-## 4. 数据库迁移
+- [ ] 提供 `docker-compose.yml`
+- [ ] 配置 PostgreSQL
+- [ ] 配置 pgvector 扩展
+- [ ] 配置 Redis
+- [ ] 配置服务端本地存储目录
+- [ ] 配置 API 环境变量
+- [ ] 配置 worker 环境变量
+- [ ] 配置 local-agent 环境变量
+- [ ] 增加 `ffmpeg` / `ffprobe` 可用性检查
+- [ ] 提供本地开发启动说明
 
-- [x] 引入 `goose`
-- [x] 建立 `migrations/`
-- [x] 建立 `sql/schema/`
-- [x] 建立 `sql/queries/`
-- [x] 添加 pgvector 扩展迁移
-- [x] 添加 `users` 迁移
-- [x] 添加 `upload_tokens` 迁移
-- [x] 添加 `system_configs` 迁移
-- [x] 添加 `products` 迁移
-- [x] 添加 `product_selling_points` 迁移
-- [x] 添加 `assets` 迁移
-- [x] 添加 `generation_tasks` 迁移
-- [x] 添加基础审计字段
-- [x] 验证迁移可重复执行
+## 4. 数据层
 
-备注：已通过 `scripts/check-migrations.ps1` 验证所有迁移文件包含 goose Up/Down 结构。当前执行环境未安装 Docker、PostgreSQL 和 goose，数据库运行态 up/down 验证需在安装依赖后执行。
+### 4.1 数据库迁移
 
-## 5. 数据访问层
+- [ ] 引入 `goose`
+- [ ] 建立 `migrations/`
+- [ ] 建立 `sql/schema/`
+- [ ] 建立 `sql/queries/`
+- [ ] 增加 pgvector 扩展迁移
+- [ ] 增加 `users` 迁移
+- [ ] 增加 `upload_tokens` 迁移
+- [ ] 增加 `system_configs` 迁移
+- [ ] 增加 `products` 迁移
+- [ ] 增加 `product_selling_points` 迁移
+- [ ] 增加 `assets` 迁移
+- [ ] 增加 `generation_tasks` 迁移
+- [ ] 增加通用审计字段
+- [ ] 验证迁移可重复执行
 
-- [x] 引入 `sqlc`
-- [x] 添加 `sqlc.yaml`
-- [x] 编写 users queries
-- [x] 编写 system configs queries
-- [x] 编写 products queries
-- [x] 编写 selling points queries
-- [x] 编写 assets queries
-- [x] 编写 generation tasks queries
-- [x] 生成 Go DB 代码
-- [x] 封装 repository
-- [x] 跑通数据库连接
+### 4.2 数据访问
 
-备注：已使用工作区内便携 sqlc 执行 `sqlc generate`，并生成 `internal/repository/db` 代码；`go test ./...` 已通过。已在服务器 `10.168.10.23` 通过 Docker Compose 启动 PostgreSQL，并验证 API/worker 可通过 `DATABASE_URL` 使用 PostgreSQL task store。
+- [ ] 引入 `sqlc`
+- [ ] 编写 `sqlc.yaml`
+- [ ] 编写 users queries
+- [ ] 编写 system configs queries
+- [ ] 编写 products queries
+- [ ] 编写 selling points queries
+- [ ] 编写 assets queries
+- [ ] 编写 generation tasks queries
+- [ ] 生成 Go DB 代码
+- [ ] 封装 repository
+- [ ] 验证数据库连接与基础读写
 
-## 6. API 基础
+## 5. 后端基础能力
 
-- [x] 搭建 Gin HTTP 服务
-- [x] 添加健康检查接口
-- [x] 添加统一错误响应
-- [x] 添加 request id 中间件
-- [x] 添加结构化日志
-- [x] 添加基础认证中间件
-- [x] 添加 `admin` / `user` 角色判断
-- [x] 添加用户登录接口
-- [x] 添加当前用户信息接口
-- [x] 添加 API 路由分组
+### 5.1 API 基础
 
-备注：已完成 API 基础代码落地，并通过 `go test ./...` 编译检查。完整运行态验证仍依赖后续服务启动。
+- [ ] 搭建 Gin HTTP 服务
+- [ ] 增加健康检查接口
+- [ ] 增加统一错误响应
+- [ ] 增加 request id 中间件
+- [ ] 增加结构化日志
+- [ ] 增加基础认证中间件
+- [ ] 增加 `admin` / `user` 角色判断
+- [ ] 增加登录接口
+- [ ] 增加当前用户信息接口
+- [ ] 完成 API 路由分组
 
-## 7. 用户与系统配置
+### 5.2 用户与系统配置
 
-- [x] 实现 `UserService`
-- [x] 实现 `SystemConfigService`
-- [x] 添加初始化 admin 用户能力
-- [x] 添加系统配置查询接口
-- [x] 添加系统配置更新接口
-- [x] 限制系统配置更新仅 `admin` 可用
-- [x] 添加模型 provider 配置项
-- [x] 添加并发控制配置项
-- [x] 添加存储配置项
-- [x] 添加配置快照读取能力
+- [ ] 实现 `UserService`
+- [ ] 实现 `SystemConfigService`
+- [ ] 支持初始化 admin 用户
+- [ ] 增加系统配置查询接口
+- [ ] 增加系统配置更新接口
+- [ ] 限制只有 `admin` 可以更新系统配置
+- [ ] 提供模型 provider 配置项
+- [ ] 提供并发控制配置项
+- [ ] 提供存储配置项
+- [ ] 提供配置快照读取能力
 
-备注：已完成内存版用户与系统配置服务，后续接入数据库 repository 后替换持久化实现；已通过 `go test ./...` 编译检查。
+### 5.3 产品与卖点
 
-## 8. 产品与卖点
+- [ ] 实现 `ProductAssetService` 的产品与卖点管理部分
+- [ ] 增加产品创建接口
+- [ ] 增加产品列表接口
+- [ ] 增加产品详情接口
+- [ ] 增加产品更新接口
+- [ ] 增加产品归档接口
+- [ ] 增加卖点创建接口
+- [ ] 增加卖点列表接口
+- [ ] 增加卖点更新接口
+- [ ] 增加卖点归档接口
 
-- [x] 实现 `ProductAssetService` 产品部分
-- [x] 添加产品创建接口
-- [x] 添加产品列表接口
-- [x] 添加产品详情接口
-- [x] 添加产品更新接口
-- [x] 添加产品归档接口
-- [x] 添加卖点创建接口
-- [x] 添加卖点列表接口
-- [x] 添加卖点更新接口
-- [x] 添加卖点归档接口
+## 6. 素材入库最小闭环
 
-备注：已完成内存版产品与卖点服务及 API，并通过 `go test ./...` 编译检查。
+### 6.1 服务端素材入库
 
-## 9. 素材入库基础链路
+- [ ] 定义 clean shot 上传元数据结构
+- [ ] 提供短期 upload token 申请接口
+- [ ] 实现 upload token 生成
+- [ ] 实现 upload token 校验
+- [ ] 实现服务端 clean shot 文件接收
+- [ ] 将文件保存到 `storage/assets`
+- [ ] 写入 `assets` 表
+- [ ] 记录 `created_by_user_id`
+- [ ] 调用 `ffprobe` 读取时长
+- [ ] 调用 `ffprobe` 读取分辨率
+- [ ] 调用 `ffprobe` 读取帧率
+- [ ] 根据处理结果更新素材状态
+- [ ] 提供素材列表接口
+- [ ] 提供素材详情接口
 
-- [x] 定义 clean shot 上传元数据结构
-- [x] 定义短期 upload token 申请接口
-- [x] 实现 upload token 生成
-- [x] 实现 upload token 校验
-- [x] 实现服务端 clean shot 文件接收
-- [x] 保存 clean shot 到 `storage/assets`
-- [x] 写入 `assets` 表
-- [x] 记录 `created_by_user_id`
-- [x] 调用 `ffprobe` 读取时长
-- [x] 调用 `ffprobe` 读取分辨率
-- [x] 调用 `ffprobe` 读取帧率
-- [x] 根据处理结果更新素材状态为 `ready` 或 `failed`
-- [x] 添加素材列表接口
-- [x] 添加素材详情接口
+### 6.2 本地 Agent 最小能力
 
-备注：已完成内存版素材入库链路和本地文件存储封装，并通过 `go test ./...` 编译检查。已使用便携 `ffprobe` 验证服务端上传后可读取时长、分辨率和帧率，并将素材状态写为 `ready`。
+- [ ] 启动 `apps/local-agent`
+- [ ] 提供 localhost HTTP 服务
+- [ ] 提供本地健康检查接口
+- [ ] 接收浏览器传入的本地文件路径
+- [ ] 接收入点和出点参数
+- [ ] 接收素材类型参数
+- [ ] 调用本地 `ffmpeg` 生成 clean shot
+- [ ] 调用本地 `ffprobe` 读取基础信息
+- [ ] 计算 clean shot checksum
+- [ ] 使用 upload token 上传 clean shot
+- [ ] 返回本地预处理结果
+- [ ] 处理 `ffmpeg` 执行失败
 
-## 10. 本地 Agent 最小版本
+## 7. 队列与任务基础闭环
 
-- [x] 搭建 `apps/local-agent`
-- [x] 本地 Agent 启动 localhost HTTP 服务
-- [x] 添加本地 Agent 健康检查接口
-- [x] 接收浏览器传入的本地文件路径
-- [x] 接收入点和出点参数
-- [x] 接收素材类型参数
-- [x] 调用本地 `ffmpeg` 生成 clean shot
-- [x] 调用本地 `ffprobe` 读取基础信息
-- [x] 计算 clean shot checksum
-- [x] 使用 upload token 上传 clean shot
-- [x] 返回本地预处理结果
-- [x] 处理 ffmpeg 执行失败
+- [ ] 引入 Asynq
+- [ ] 定义任务类型
+- [ ] 定义任务 payload 结构
+- [ ] 实现任务入队封装
+- [ ] 实现 worker 启动入口
+- [ ] 注册测试任务 handler
+- [ ] API 支持提交测试任务
+- [ ] worker 支持消费测试任务
+- [ ] 任务状态写入数据库
+- [ ] 支持失败原因记录
+- [ ] 支持重试次数记录
 
-备注：已完成本地 Agent 最小版本代码落地，并通过 `go test ./...` 编译检查。已使用便携 `ffmpeg` / `ffprobe` 验证本地 Agent 可裁切 clean shot、读取媒体信息并通过 upload token 上传到服务端。
+## 8. Web Console 基础能力
 
-## 11. 队列与 worker
+- [ ] 初始化 Vite React 项目
+- [ ] 接入 TypeScript
+- [ ] 接入 Ant Design
+- [ ] 建立登录页
+- [ ] 建立基础布局
+- [ ] 建立产品管理页
+- [ ] 建立卖点管理入口
+- [ ] 建立素材列表页
+- [ ] 建立素材上传 / 本地 Agent 入口
+- [ ] 建立任务列表页
+- [ ] 建立系统配置页
+- [ ] 限制系统配置页仅 `admin` 可见
 
-- [x] 引入 Asynq
-- [x] 定义任务类型
-- [x] 定义任务 payload 结构
-- [x] 实现任务入队封装
-- [x] 实现 worker 启动入口
-- [x] 注册测试任务 handler
-- [x] API 能提交测试任务
-- [x] worker 能消费测试任务
-- [x] 任务状态写入数据库
-- [x] 支持失败原因记录
-- [x] 支持重试次数记录
+## 9. 第一阶段验收闭环
 
-备注：已完成 Asynq 队列封装、测试任务 API 和 worker handler，并通过 `go test ./...` 编译检查。已抽象任务状态存储并接入 PostgreSQL task store，`DATABASE_URL` 可连接时使用 `generation_tasks`，不可用时回退 `storage/temp/tasks.json`。已新增本地开发用 `QUEUE_BACKEND=file`，在无 Redis 环境下验证 API 与独立 worker 可通过文件队列完成测试任务入队、消费和状态更新；已在服务器 `10.168.10.23` 使用 Redis 队列验证 `/api/tasks/test` 创建任务后 worker 消费并将 `generation_tasks` 状态更新为 `completed`。
+- [ ] 启动 PostgreSQL / pgvector / Redis
+- [ ] 启动 API
+- [ ] 启动 worker
+- [ ] 启动 Web Console
+- [ ] 启动 local-agent
+- [ ] 创建 admin 用户
+- [ ] 登录 Web Console
+- [ ] 创建产品
+- [ ] 创建产品卖点
+- [ ] 本地选择视频并裁出 clean shot
+- [ ] 上传 clean shot 到服务端
+- [ ] 服务端完成素材入库
+- [ ] 前端可查看素材列表
+- [ ] API 创建测试异步任务
+- [ ] worker 消费任务并更新状态
+- [ ] 前端可查看任务状态
 
-## 12. 前端基础
+## 10. 第一阶段暂不包含
 
-- [x] 初始化 Vite React 项目
-- [x] 接入 TypeScript
-- [x] 接入 Ant Design
-- [x] 建立登录页
-- [x] 建立基础布局
-- [x] 建立产品管理页面
-- [x] 建立卖点管理入口
-- [x] 建立素材列表页面
-- [x] 建立素材上传 / 本地 Agent 入口
-- [x] 建立任务列表页面
-- [x] 建立系统配置页面
-- [x] 限制系统配置页面仅 `admin` 可见
-
-备注：已完成 Web Console 前端骨架，并对接登录、产品、卖点、素材、任务和系统配置 API；已通过 `npm run build` 验证。已新增 Playwright E2E 测试，使用 mock API 验证登录后可进入控制台、素材列表可显示 `ready` 素材、任务列表可显示 `completed` 任务状态。
-
-## 13. 验证闭环
-
-- [x] 启动 Docker Compose
-- [x] 启动 API
-- [x] 启动 worker
-- [x] 启动 Web Console
-- [x] 启动 local-agent
-- [x] 创建 admin 用户
-- [x] 登录 Web Console
-- [x] 创建产品
-- [x] 创建产品卖点
-- [x] 本地选择视频并裁切 clean shot
-- [x] 上传 clean shot 到服务端
-- [x] 服务端写入素材库
-- [x] 前端可查看素材列表
-- [x] API 创建测试异步任务
-- [x] worker 消费测试任务
-- [x] 前端可查看任务状态
-
-备注：已使用便携 Go 临时启动 API 并验证 `/api/healthz`、登录、系统配置读取/写入、产品创建、卖点创建；已临时启动 local-agent 并验证 `/healthz`；已启动 Web Console dev server 并用 HTTP 200 验证页面可访问。已使用便携 `ffmpeg` / `ffprobe` 生成测试视频并完成 local-agent 裁切、upload token 上传、服务端保存、`ffprobe` 探测和 `/api/assets` 查询，返回素材 `status=ready`、`duration_ms=2066`、`width=320`、`height=568`。已使用 `QUEUE_BACKEND=file` 启动独立 worker，验证 `/api/tasks/test` 创建任务后 worker 消费并将任务状态更新为 `completed`。已通过 `npm run test:e2e` 用 Playwright 验证 Web Console 登录、素材列表和任务状态页渲染。已在服务器 `10.168.10.23` 安装 Docker/Compose，配置 registry mirror，执行 `docker compose up -d --build`，PostgreSQL/pgvector 与 Redis 均为 healthy，API/worker 均为 running，并验证 Redis + worker + PostgreSQL 任务状态闭环。
-
-## 14. 第一阶段暂不包含
-
-- [ ] 完整 LLM 文案生成
-- [ ] VLM 画面理解
-- [ ] ASR 口播句段识别
+- [ ] 完整 VLM 画面理解
+- [ ] 完整 ASR 口播句段识别
+- [ ] embedding 向量写入与检索
+- [ ] 自动文案生成
 - [ ] TTS 配音生成
-- [ ] pgvector 真实向量检索
-- [ ] 完整 `edit_plan` 生成
-- [ ] 服务端真实成片渲染
-- [ ] 字幕生成
+- [ ] `narration_segment` 时间轴生成
+- [ ] `clip_segment` 编排
+- [ ] `edit_plan` 生成
+- [ ] 服务端成片渲染
+- [ ] 字幕识别与生成
 - [ ] BGM 混音
-- [ ] 多模板批量生成策略
+- [ ] 批量多变体生成控制
 
-## 15. 完成标准
+## 11. 完成标准
 
-- [x] Go API 可启动
-- [x] Go worker 可启动
-- [x] Web Console 可启动
-- [x] Local Agent 可启动
-- [x] PostgreSQL + pgvector 可用
-- [x] Redis 可用
-- [x] 数据库迁移可执行
-- [x] 用户登录可用
-- [x] 系统配置可读写
-- [x] 产品和卖点基础管理可用
-- [x] clean shot 上传链路可用
-- [x] 素材基础入库可用
-- [x] 异步任务入队和消费可用
-- [x] 前端可查看素材和任务状态
+- [ ] API 可启动并可登录
+- [ ] worker 可启动并消费基础任务
+- [ ] Web Console 可完成基础业务操作
+- [ ] local-agent 可在客户端完成 clean shot 预处理
+- [ ] PostgreSQL + pgvector 可用
+- [ ] Redis 可用
+- [ ] 数据库迁移可执行
+- [ ] 产品与卖点基础管理可用
+- [ ] clean shot 上传链路可用
+- [ ] 素材基础入库可用
+- [ ] 异步任务创建与状态回写可用
+- [ ] 前端可查看素材与任务结果
+
+## 12. 使用规则
+
+- 只有在有代码、测试或真实运行验证支撑时，才勾选对应任务
+- 如果某项能力只是接口存在，但没有闭环验证，不应标记完成
+- 设计讨论以 [system-overview.md](../system-overview.md) 和 [architecture.md](../architecture.md) 为准
+- 第一阶段任务清单服务于当前系统设计，不额外引入未确认的新产品假设
