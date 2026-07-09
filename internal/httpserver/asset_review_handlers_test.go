@@ -31,6 +31,22 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create asset failed: %v", err)
 	}
+	if err := productAssetService.UpdateAssetAnalysis(asset.ID, services.AssetAnalysisUpdate{
+		AnalysisStatus:   "ready",
+		UsabilityStatus:  "usable",
+		SceneDescription: "model description",
+		ShotSize:         "medium_shot",
+		CameraMovement:   "static",
+		Subjects:         []string{"product"},
+		SceneTags:        []string{"demo"},
+		ModelResult: map[string]any{
+			"provider": "mock",
+			"score":    0.92,
+		},
+		UpdatedByUserID: "analyzer-1",
+	}); err != nil {
+		t.Fatalf("seed asset analysis failed: %v", err)
+	}
 
 	server := New(Options{
 		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
@@ -79,6 +95,9 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 	}
 	if updated.UpdatedByUserID != "editor-1" {
 		t.Fatalf("expected updated user id editor-1, got %s", updated.UpdatedByUserID)
+	}
+	if provider, ok := updated.ModelResult["provider"].(string); !ok || provider != "mock" {
+		t.Fatalf("expected model result preserved, got %#v", updated.ModelResult)
 	}
 }
 

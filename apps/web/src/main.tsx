@@ -85,6 +85,7 @@ type Asset = {
   subjects?: string[];
   scene_tags?: string[];
   quality_tags?: string[];
+  model_result?: Record<string, unknown>;
   analysis_error?: string;
   updated_at?: string;
   analyzed_at?: string;
@@ -1068,6 +1069,13 @@ function AssetsPage({ token }: { token: string }) {
                     </Descriptions.Item>
                     <Descriptions.Item label="Analysis Error">
                       {selectedAsset.analysis_error || <Typography.Text type="secondary">None</Typography.Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Model Result">
+                      {selectedAsset.model_result && Object.keys(selectedAsset.model_result).length > 0 ? (
+                        <pre className="json-block">{JSON.stringify(selectedAsset.model_result, null, 2)}</pre>
+                      ) : (
+                        <Typography.Text type="secondary">No raw model output</Typography.Text>
+                      )}
                     </Descriptions.Item>
                   </Descriptions>
                 )}
