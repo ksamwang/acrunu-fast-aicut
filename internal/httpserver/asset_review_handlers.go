@@ -109,6 +109,15 @@ func (s *Server) handleListAssetSpeechSegments(c *gin.Context) {
 	OK(c, items)
 }
 
+func (s *Server) handleGetAssetSemanticPreview(c *gin.Context) {
+	preview, err := s.productAssetService.BuildAssetSemanticPreview(c.Param("assetID"))
+	if err != nil {
+		handleProductError(c, err)
+		return
+	}
+	OK(c, preview)
+}
+
 func (s *Server) handleUpdateAssetSellingPoints(c *gin.Context) {
 	var req updateAssetSellingPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

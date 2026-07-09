@@ -137,6 +137,20 @@ type AssetSpeechSegment = {
   updated_at: string;
 };
 
+type AssetEmbeddingTarget = {
+  object_type: string;
+  object_id: string;
+  asset_id: string;
+  text: string;
+  metadata?: Record<string, unknown>;
+};
+
+type AssetSemanticPreview = {
+  asset_id: string;
+  open_semantic_description: string;
+  embedding_targets: AssetEmbeddingTarget[];
+};
+
 type AssetReviewPayload = {
   scene_description: string;
   shot_size: string;
@@ -884,9 +898,11 @@ function AssetsPage({ token }: { token: string }) {
   const [assetPageSize, setAssetPageSize] = useState(20);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
   const [speechSegments, setSpeechSegments] = useState<AssetSpeechSegment[]>([]);
+  const [semanticPreview, setSemanticPreview] = useState<AssetSemanticPreview | null>(null);
   const [assetSellingPoints, setAssetSellingPoints] = useState<SellingPoint[]>([]);
   const [framesLoading, setFramesLoading] = useState(false);
   const [speechSegmentsLoading, setSpeechSegmentsLoading] = useState(false);
+  const [semanticPreviewLoading, setSemanticPreviewLoading] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState(false);
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
@@ -957,6 +973,7 @@ function AssetsPage({ token }: { token: string }) {
     if (!selectedAsset) {
       setFrames([]);
       setSpeechSegments([]);
+      setSemanticPreview(null);
       setAssetSellingPoints([]);
       return;
     }
@@ -975,6 +992,21 @@ function AssetsPage({ token }: { token: string }) {
     };
 
     void loadFrames();
+
+    const loadSemanticPreview = async () => {
+      setSemanticPreviewLoading(true);
+      try {
+        const response = await apiRequest<AssetSemanticPreview>(`/api/assets/${selectedAsset.id}/semantic-preview`, {}, token);
+        setSemanticPreview(response);
+      } catch (error) {
+        setSemanticPreview(null);
+        message.error(error instanceof Error ? error.message : "加载开放语义描述失败");
+      } finally {
+        setSemanticPreviewLoading(false);
+      }
+    };
+
+    void loadSemanticPreview();
 
     const loadSpeechSegments = async () => {
       if (selectedAsset.source_type !== "talking_head") {
@@ -1587,6 +1619,49 @@ function AssetsPage({ token }: { token: string }) {
                   </Descriptions>
                 )}
               </Space>
+            </Card>
+
+            <Card title="开放语义与向量化对象" loading={semanticPreviewLoading}>
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="开放语义描述">
+                  {semanticPreview?.open_semantic_description ? (
+                    semanticPreview.open_semantic_description
+                  ) : (
+                    <Typography.Text type="secondary">暂无开放语义描述</Typography.Text>
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="向量化对象预览">
+                  {semanticPreview && semanticPreview.embedding_targets.length > 0 ? (
+                    <Table<AssetEmbeddingTarget>
+                      rowKey="object_id"
+                      dataSource={semanticPreview.embedding_targets}
+                      pagination={false}
+                      size="small"
+                      columns={[
+                        {
+                          title: "对象类型",
+                          render: (_, item) => item.object_type
+                        },
+                        {
+                          title: "对象文本",
+                          dataIndex: "text"
+                        },
+                        {
+                          title: "元数据",
+                          render: (_, item) =>
+                            item.metadata && Object.keys(item.metadata).length > 0 ? (
+                              <pre className="json-block">{JSON.stringify(item.metadata, null, 2)}</pre>
+                            ) : (
+                              <Typography.Text type="secondary">无</Typography.Text>
+                            )
+                        }
+                      ]}
+                    />
+                  ) : (
+                    <Typography.Text type="secondary">暂无向量化对象预览</Typography.Text>
+                  )}
+                </Descriptions.Item>
+              </Descriptions>
             </Card>
 
             <Card

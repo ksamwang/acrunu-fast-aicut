@@ -345,3 +345,72 @@ func TestHandleListAssetSpeechSegments(t *testing.T) {
 		t.Fatalf("expected persisted speech segment, got %#v", resp.Data)
 	}
 }
+
+func TestHandleGetAssetSemanticPreview(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	asset, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "talk.mp4",
+		StorageKey:        "assets/talk.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SceneDescription:  "主持人介绍产品",
+		ShotSize:          "medium_close_up",
+		CameraMovement:    "static",
+		LikelyHasSpeech:   true,
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	if _, err := productAssetService.CreateSpeechSegment(services.CreateSpeechSegmentInput{
+		AssetID:         asset.ID,
+		StartMs:         0,
+		EndMs:           1500,
+		Transcript:      "第一句口播",
+		Source:          "local-agent",
+		Status:          "ready",
+		CreatedByUserID: "editor-1",
+	}); err != nil {
+		t.Fatalf("create speech segment failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	userToken := "Bearer " + makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/assets/"+asset.ID+"/semantic-preview", nil)
+	req.Header.Set("Authorization", userToken)
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var resp struct {
+		Data services.AssetSemanticPreview `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if resp.Data.OpenSemanticDescription == "" {
+		t.Fatalf("expected open semantic description")
+	}
+	if len(resp.Data.EmbeddingTargets) != 2 {
+		t.Fatalf("expected shot + speech segment targets, got %#v", resp.Data.EmbeddingTargets)
+	}
+}

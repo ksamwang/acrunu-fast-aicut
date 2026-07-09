@@ -484,6 +484,63 @@ func TestListSpeechSegmentsByAssetInMemory(t *testing.T) {
 	}
 }
 
+func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "talk.mp4",
+		StorageKey:        "assets/talk.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SceneDescription:  "主持人面对镜头介绍产品",
+		ShotSize:          "medium_close_up",
+		CameraMovement:    "static",
+		Subjects:          []string{"主持人", "产品"},
+		SceneTags:         []string{"室内", "展示"},
+		QualityTags:       []string{"稳定"},
+		LikelyHasSpeech:   true,
+		ReviewerNotes:     "适合做卖点讲解",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	if _, err := service.CreateSpeechSegment(CreateSpeechSegmentInput{
+		AssetID:         asset.ID,
+		StartMs:         0,
+		EndMs:           1800,
+		Transcript:      "这款产品上手很简单",
+		Source:          "local-agent",
+		Status:          "ready",
+		CreatedByUserID: "editor-1",
+	}); err != nil {
+		t.Fatalf("create speech segment failed: %v", err)
+	}
+
+	preview, err := service.BuildAssetSemanticPreview(asset.ID)
+	if err != nil {
+		t.Fatalf("BuildAssetSemanticPreview() error = %v", err)
+	}
+	if preview.AssetID != asset.ID {
+		t.Fatalf("expected asset id %s, got %s", asset.ID, preview.AssetID)
+	}
+	if preview.OpenSemanticDescription == "" {
+		t.Fatalf("expected open semantic description")
+	}
+	if len(preview.EmbeddingTargets) != 2 {
+		t.Fatalf("expected shot + speech_segment targets, got %d", len(preview.EmbeddingTargets))
+	}
+	if preview.EmbeddingTargets[0].ObjectType != "shot" {
+		t.Fatalf("expected first target to be shot, got %#v", preview.EmbeddingTargets[0])
+	}
+	if preview.EmbeddingTargets[1].ObjectType != "speech_segment" {
+		t.Fatalf("expected second target to be speech_segment, got %#v", preview.EmbeddingTargets[1])
+	}
+}
+
 func TestUpdateAssetSellingPointsRejectsWrongProductSellingPoint(t *testing.T) {
 	service := NewProductAssetService()
 	product1 := service.CreateProduct(CreateProductInput{Name: "P1"})

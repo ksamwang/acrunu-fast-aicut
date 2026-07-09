@@ -255,6 +255,20 @@ type SpeechSegment struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
+type EmbeddingTarget struct {
+	ObjectType string         `json:"object_type"`
+	ObjectID   string         `json:"object_id"`
+	AssetID    string         `json:"asset_id"`
+	Text       string         `json:"text"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+}
+
+type AssetSemanticPreview struct {
+	AssetID                 string            `json:"asset_id"`
+	OpenSemanticDescription string            `json:"open_semantic_description"`
+	EmbeddingTargets        []EmbeddingTarget `json:"embedding_targets"`
+}
+
 type ProductAssetStats struct {
 	ProductID            string `json:"product_id"`
 	AssetCount           int    `json:"asset_count"`
@@ -551,6 +565,59 @@ func (s *ProductAssetService) ListSpeechSegmentsByAsset(assetID string) ([]Speec
 		items = append(items, speechSegmentFromRecord(row))
 	}
 	return items, nil
+}
+
+func (s *ProductAssetService) BuildAssetSemanticPreview(assetID string) (AssetSemanticPreview, error) {
+	asset, ok := s.GetAsset(assetID)
+	if !ok {
+		return AssetSemanticPreview{}, ErrAssetNotFound
+	}
+
+	openDescription := buildOpenSemanticDescription(asset)
+	targets := []EmbeddingTarget{
+		{
+			ObjectType: "shot",
+			ObjectID:   asset.ID,
+			AssetID:    asset.ID,
+			Text:       openDescription,
+			Metadata: map[string]any{
+				"source_type":       asset.SourceType,
+				"shot_size":         asset.ShotSize,
+				"camera_movement":   asset.CameraMovement,
+				"likely_has_speech": asset.LikelyHasSpeech,
+				"subjects":          append([]string(nil), asset.Subjects...),
+				"scene_tags":        append([]string(nil), asset.SceneTags...),
+				"quality_tags":      append([]string(nil), asset.QualityTags...),
+			},
+		},
+	}
+
+	if asset.SourceType == "talking_head" {
+		segments, err := s.ListSpeechSegmentsByAsset(assetID)
+		if err != nil {
+			return AssetSemanticPreview{}, err
+		}
+		for _, segment := range segments {
+			targets = append(targets, EmbeddingTarget{
+				ObjectType: "speech_segment",
+				ObjectID:   segment.ID,
+				AssetID:    asset.ID,
+				Text:       buildSpeechSegmentSemanticText(segment),
+				Metadata: map[string]any{
+					"start_ms": segment.StartMs,
+					"end_ms":   segment.EndMs,
+					"source":   segment.Source,
+					"status":   segment.Status,
+				},
+			})
+		}
+	}
+
+	return AssetSemanticPreview{
+		AssetID:                 asset.ID,
+		OpenSemanticDescription: openDescription,
+		EmbeddingTargets:        targets,
+	}, nil
 }
 
 func (s *ProductAssetService) FindDuplicateAssetsByChecksum(checksum string, excludeAssetID string) []Asset {
@@ -1887,6 +1954,86 @@ func mustJSON(value any, fallback any) []byte {
 		return encoded
 	}
 	return encoded
+}
+
+func buildOpenSemanticDescription(asset Asset) string {
+	parts := make([]string, 0, 8)
+	if asset.SceneDescription != "" {
+		parts = append(parts, "画面描述："+asset.SceneDescription)
+	}
+	parts = append(parts, "素材类型："+sourceTypeDisplay(asset.SourceType))
+	if asset.ShotSize != "" {
+		parts = append(parts, "景别："+shotSizeDisplay(asset.ShotSize))
+	}
+	if asset.CameraMovement != "" {
+		parts = append(parts, "运镜："+cameraMovementDisplay(asset.CameraMovement))
+	}
+	if len(asset.Subjects) > 0 {
+		parts = append(parts, "主体："+strings.Join(asset.Subjects, "、"))
+	}
+	if len(asset.SceneTags) > 0 {
+		parts = append(parts, "场景标签："+strings.Join(asset.SceneTags, "、"))
+	}
+	if len(asset.QualityTags) > 0 {
+		parts = append(parts, "质量标签："+strings.Join(asset.QualityTags, "、"))
+	}
+	parts = append(parts, "是否有人声："+boolDisplay(asset.LikelyHasSpeech))
+	if asset.ReviewerNotes != "" {
+		parts = append(parts, "复核备注："+asset.ReviewerNotes)
+	}
+	return strings.Join(parts, "；")
+}
+
+func buildSpeechSegmentSemanticText(segment SpeechSegment) string {
+	return "口播句段：" + segment.Transcript
+}
+
+func sourceTypeDisplay(value string) string {
+	switch value {
+	case "visual_only":
+		return "纯画面"
+	case "talking_head":
+		return "口播"
+	default:
+		return value
+	}
+}
+
+func shotSizeDisplay(value string) string {
+	switch value {
+	case "close_up":
+		return "特写"
+	case "medium_close_up":
+		return "近景"
+	case "medium_shot":
+		return "中景"
+	case "wide_shot":
+		return "远景"
+	default:
+		return value
+	}
+}
+
+func cameraMovementDisplay(value string) string {
+	switch value {
+	case "static":
+		return "固定机位"
+	case "slow_push_in":
+		return "缓慢推进"
+	case "pan":
+		return "平移"
+	case "handheld":
+		return "手持"
+	default:
+		return value
+	}
+}
+
+func boolDisplay(value bool) string {
+	if value {
+		return "是"
+	}
+	return "否"
 }
 
 func firstNonEmpty(value string, fallback string) string {
