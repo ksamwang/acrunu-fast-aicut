@@ -20,14 +20,14 @@ type AnalyzeAssetInput struct {
 }
 
 type AnalyzeAssetResult struct {
-	UsabilityStatus string         `json:"usability_status"`
-	SceneDescription string        `json:"scene_description"`
-	ShotSize        string         `json:"shot_size"`
-	CameraMovement  string         `json:"camera_movement"`
-	Subjects        []string       `json:"subjects"`
-	SceneTags       []string       `json:"scene_tags"`
-	QualityTags     []string       `json:"quality_tags"`
-	ModelResult     map[string]any `json:"model_result"`
+	UsabilityStatus  string         `json:"usability_status"`
+	SceneDescription string         `json:"scene_description"`
+	ShotSize         string         `json:"shot_size"`
+	CameraMovement   string         `json:"camera_movement"`
+	Subjects         []string       `json:"subjects"`
+	SceneTags        []string       `json:"scene_tags"`
+	QualityTags      []string       `json:"quality_tags"`
+	ModelResult      map[string]any `json:"model_result"`
 }
 
 type AssetAnalyzer interface {
@@ -41,6 +41,7 @@ func NewMockAssetAnalyzer() *MockAssetAnalyzer {
 }
 
 func (a *MockAssetAnalyzer) AnalyzeAsset(_ context.Context, input AnalyzeAssetInput) (AnalyzeAssetResult, error) {
+	promptBundle := BuildPromptBundle(input)
 	sceneDescription := "product close-up with stable framing"
 	shotSize := "close_up"
 	cameraMovement := "static"
@@ -80,10 +81,12 @@ func (a *MockAssetAnalyzer) AnalyzeAsset(_ context.Context, input AnalyzeAssetIn
 		SceneTags:        sceneTags,
 		QualityTags:      qualityTags,
 		ModelResult: map[string]any{
-			"provider":       "mock",
-			"prompt_version": "phase2-v1",
-			"frame_count":    len(input.FrameSnapshots),
-			"source_type":    input.SourceType,
+			"provider":        "mock",
+			"prompt_version":  promptBundle.Version,
+			"schema_version":  OutputSchemaVersion,
+			"frame_count":     len(input.FrameSnapshots),
+			"source_type":     input.SourceType,
+			"prompt_overview": promptBundle.Prompts,
 		},
 	}, nil
 }

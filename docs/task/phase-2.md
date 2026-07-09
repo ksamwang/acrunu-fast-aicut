@@ -129,16 +129,16 @@ Model Gateway 调用 VLM 或 mock provider
 ## 7. Model Gateway 与 VLM 分析
 
 - [x] 明确 VLM 分析输入结构
-- [ ] 明确 VLM 分析输出 JSON schema
-- [ ] 为素材画面描述设计 prompt
-- [ ] 为景别识别设计 prompt
-- [ ] 为运镜识别设计 prompt
-- [ ] 为可用性判断设计 prompt
+- [x] 明确 VLM 分析输出 JSON schema
+- [x] 为素材画面描述设计 prompt
+- [x] 为景别识别设计 prompt
+- [x] 为运镜识别设计 prompt
+- [x] 为可用性判断设计 prompt
 - [x] 实现 VLM mock provider
 - [ ] 实现真实 provider 配置入口
-- [ ] Model Gateway 支持 provider 超时控制
-- [ ] Model Gateway 支持失败重试
-- [ ] Model Gateway 支持错误原因归一化
+- [x] Model Gateway 支持 provider 超时控制
+- [x] Model Gateway 支持失败重试
+- [x] Model Gateway 支持错误原因归一化
 - [x] 定义素材分析任务类型
 - [x] worker 消费素材分析任务
 - [x] 分析完成后写入 tags

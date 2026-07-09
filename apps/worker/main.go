@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
@@ -20,6 +21,12 @@ func main() {
 	defer productAssetService.Close()
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
+	analyzer := modelgateway.NewAnalyzer(modelgateway.Config{
+		Provider:   cfg.VLMProvider,
+		Model:      cfg.VLMModel,
+		Timeout:    cfg.ModelGatewayTimeout,
+		MaxRetries: cfg.VLMMaxRetries,
+	}, nil)
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
 		services.NewAssetProcessingService(
@@ -27,7 +34,7 @@ func main() {
 			productAssetService.Service,
 			taskService.Service,
 			queueClient,
-			nil,
+			analyzer,
 			logger,
 		),
 	)

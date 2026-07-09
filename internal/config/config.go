@@ -3,33 +3,42 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 type Config struct {
-	AppEnv            string
-	APIAddr           string
-	LocalAgentAddr    string
-	DatabaseURL       string
-	QueueBackend      string
-	RedisAddr         string
-	WorkerConcurrency int
-	AdminUsername     string
-	AdminPassword     string
-	StorageRoot       string
+	AppEnv              string
+	APIAddr             string
+	LocalAgentAddr      string
+	DatabaseURL         string
+	QueueBackend        string
+	RedisAddr           string
+	WorkerConcurrency   int
+	AdminUsername       string
+	AdminPassword       string
+	StorageRoot         string
+	VLMProvider         string
+	VLMModel            string
+	ModelGatewayTimeout time.Duration
+	VLMMaxRetries       int
 }
 
 func Load() Config {
 	return Config{
-		AppEnv:            env("APP_ENV", "development"),
-		APIAddr:           env("API_ADDR", ":8080"),
-		LocalAgentAddr:    env("LOCAL_AGENT_ADDR", "127.0.0.1:58721"),
-		DatabaseURL:       env("DATABASE_URL", ""),
-		QueueBackend:      env("QUEUE_BACKEND", "redis"),
-		RedisAddr:         env("REDIS_ADDR", "localhost:6379"),
-		WorkerConcurrency: envInt("WORKER_CONCURRENCY", 4),
-		AdminUsername:     env("ADMIN_USERNAME", "admin"),
-		AdminPassword:     env("ADMIN_PASSWORD", "admin"),
-		StorageRoot:       env("STORAGE_LOCAL_ROOT", "./storage"),
+		AppEnv:              env("APP_ENV", "development"),
+		APIAddr:             env("API_ADDR", ":8080"),
+		LocalAgentAddr:      env("LOCAL_AGENT_ADDR", "127.0.0.1:58721"),
+		DatabaseURL:         env("DATABASE_URL", ""),
+		QueueBackend:        env("QUEUE_BACKEND", "redis"),
+		RedisAddr:           env("REDIS_ADDR", "localhost:6379"),
+		WorkerConcurrency:   envInt("WORKER_CONCURRENCY", 4),
+		AdminUsername:       env("ADMIN_USERNAME", "admin"),
+		AdminPassword:       env("ADMIN_PASSWORD", "admin"),
+		StorageRoot:         env("STORAGE_LOCAL_ROOT", "./storage"),
+		VLMProvider:         env("VLM_PROVIDER", "mock"),
+		VLMModel:            env("VLM_MODEL", ""),
+		ModelGatewayTimeout: time.Duration(envInt("MODEL_GATEWAY_TIMEOUT_SECONDS", 120)) * time.Second,
+		VLMMaxRetries:       envInt("VLM_MAX_RETRIES", 2),
 	}
 }
 
