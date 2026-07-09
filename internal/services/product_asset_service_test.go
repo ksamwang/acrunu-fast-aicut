@@ -209,6 +209,104 @@ func TestArchiveAndRestoreAssetInMemory(t *testing.T) {
 	}
 }
 
+func TestListAndUpdateAssetSellingPointsInMemory(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	sellingPoint1, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{
+		Title:    "Auto Wake",
+		Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("create selling point 1 failed: %v", err)
+	}
+	sellingPoint2, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{
+		Title:    "Battery Saver",
+		Priority: 2,
+	})
+	if err != nil {
+		t.Fatalf("create selling point 2 failed: %v", err)
+	}
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SellingPointIDs:   []string{sellingPoint1.ID},
+		CreatedByUserID:   "creator-1",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	items, err := service.ListAssetSellingPoints(asset.ID)
+	if err != nil {
+		t.Fatalf("list asset selling points failed: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != sellingPoint1.ID {
+		t.Fatalf("expected single initial selling point, got %#v", items)
+	}
+
+	updated, err := service.UpdateAssetSellingPoints(asset.ID, AssetSellingPointsUpdate{
+		SellingPointIDs: []string{sellingPoint2.ID, sellingPoint2.ID},
+		UpdatedByUserID: "editor-1",
+	})
+	if err != nil {
+		t.Fatalf("update asset selling points failed: %v", err)
+	}
+	if len(updated) != 1 || updated[0].ID != sellingPoint2.ID {
+		t.Fatalf("expected updated selling points to contain sellingPoint2 once, got %#v", updated)
+	}
+
+	reloaded, ok := service.GetAsset(asset.ID)
+	if !ok {
+		t.Fatalf("expected asset to exist after selling point update")
+	}
+	if reloaded.UpdatedByUserID != "editor-1" {
+		t.Fatalf("expected updated_by_user_id editor-1, got %s", reloaded.UpdatedByUserID)
+	}
+}
+
+func TestUpdateAssetSellingPointsRejectsWrongProductSellingPoint(t *testing.T) {
+	service := NewProductAssetService()
+	product1 := service.CreateProduct(CreateProductInput{Name: "P1"})
+	product2 := service.CreateProduct(CreateProductInput{Name: "P2"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product1.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	foreignSellingPoint, err := service.CreateSellingPoint(product2.ID, CreateSellingPointInput{
+		Title:    "Foreign",
+		Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("create foreign selling point failed: %v", err)
+	}
+
+	_, err = service.UpdateAssetSellingPoints(asset.ID, AssetSellingPointsUpdate{
+		SellingPointIDs: []string{foreignSellingPoint.ID},
+		UpdatedByUserID: "editor-1",
+	})
+	if err == nil {
+		t.Fatalf("expected wrong product selling point to be rejected")
+	}
+	if err != ErrSellingPointNotFound {
+		t.Fatalf("expected ErrSellingPointNotFound, got %v", err)
+	}
+}
+
 func TestGetProductAssetStatsAndSellingPointAssetsInMemory(t *testing.T) {
 	service := NewProductAssetService()
 	product := service.CreateProduct(CreateProductInput{Name: "P1"})

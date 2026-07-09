@@ -92,6 +92,11 @@ type Asset struct {
 	ArchivedAt         *time.Time     `json:"archived_at,omitempty"`
 }
 
+type AssetSellingPointsUpdate struct {
+	SellingPointIDs []string
+	UpdatedByUserID string
+}
+
 type CreateProductInput struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
@@ -426,6 +431,90 @@ func (s *ProductAssetService) ListAssetFrameSnapshots(assetID string) []AssetFra
 		})
 	}
 	return items
+}
+
+func (s *ProductAssetService) ListAssetSellingPoints(assetID string) ([]SellingPoint, error) {
+	asset, ok := s.GetAsset(assetID)
+	if !ok {
+		return nil, ErrAssetNotFound
+	}
+
+	if s.queries != nil {
+		return s.listAssetSellingPointsFromPostgres(assetID, asset.ProductID)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := append([]string(nil), s.assetSellingPoints[assetID]...)
+	items := make([]SellingPoint, 0, len(ids))
+	for _, sellingPointID := range ids {
+		sellingPoint, ok := s.sellingPoints[sellingPointID]
+		if !ok || sellingPoint.ProductID != asset.ProductID {
+			continue
+		}
+		items = append(items, sellingPoint)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Priority == items[j].Priority {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].Priority < items[j].Priority
+	})
+	return items, nil
+}
+
+func (s *ProductAssetService) UpdateAssetSellingPoints(assetID string, update AssetSellingPointsUpdate) ([]SellingPoint, error) {
+	asset, ok := s.GetAsset(assetID)
+	if !ok {
+		return nil, ErrAssetNotFound
+	}
+
+	if s.queries != nil {
+		return s.updateAssetSellingPointsInPostgres(assetID, asset.ProductID, update)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.assets[assetID]; !ok {
+		return nil, ErrAssetNotFound
+	}
+
+	normalized := make([]string, 0, len(update.SellingPointIDs))
+	seen := map[string]struct{}{}
+	for _, sellingPointID := range update.SellingPointIDs {
+		if sellingPointID == "" {
+			continue
+		}
+		if _, exists := seen[sellingPointID]; exists {
+			continue
+		}
+		sellingPoint, ok := s.sellingPoints[sellingPointID]
+		if !ok || sellingPoint.ProductID != asset.ProductID {
+			return nil, ErrSellingPointNotFound
+		}
+		seen[sellingPointID] = struct{}{}
+		normalized = append(normalized, sellingPointID)
+	}
+
+	s.assetSellingPoints[assetID] = normalized
+	assetRecord := s.assets[assetID]
+	assetRecord.UpdatedByUserID = update.UpdatedByUserID
+	assetRecord.UpdatedAt = time.Now()
+	s.assets[assetID] = assetRecord
+
+	items := make([]SellingPoint, 0, len(normalized))
+	for _, sellingPointID := range normalized {
+		items = append(items, s.sellingPoints[sellingPointID])
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Priority == items[j].Priority {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].Priority < items[j].Priority
+	})
+	return items, nil
 }
 
 func (s *ProductAssetService) UpdateAssetAnalysis(assetID string, update AssetAnalysisUpdate) error {
@@ -1097,6 +1186,110 @@ func (s *ProductAssetService) restoreAssetInPostgres(assetID string, update Asse
 		return Asset{}, ErrAssetNotFound
 	}
 	return updated, nil
+}
+
+func (s *ProductAssetService) listAssetSellingPointsFromPostgres(assetID string, productID string) ([]SellingPoint, error) {
+	if s.assetRepo == nil {
+		return nil, nil
+	}
+
+	ids, err := s.assetRepo.ListSellingPointIDs(context.Background(), assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	all := s.listSellingPointsFromPostgres(productID)
+	index := make(map[string]SellingPoint, len(all))
+	for _, item := range all {
+		index[item.ID] = item
+	}
+
+	items := make([]SellingPoint, 0, len(ids))
+	for _, id := range ids {
+		if item, ok := index[id]; ok {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+func (s *ProductAssetService) updateAssetSellingPointsInPostgres(assetID string, productID string, update AssetSellingPointsUpdate) ([]SellingPoint, error) {
+	if s.assetRepo == nil {
+		return nil, nil
+	}
+
+	asset, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return nil, ErrAssetNotFound
+	}
+
+	currentIDs, err := s.assetRepo.ListSellingPointIDs(context.Background(), assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	available := s.listSellingPointsFromPostgres(productID)
+	availableMap := make(map[string]SellingPoint, len(available))
+	for _, item := range available {
+		availableMap[item.ID] = item
+	}
+
+	desiredIDs := make([]string, 0, len(update.SellingPointIDs))
+	desiredSet := map[string]struct{}{}
+	for _, sellingPointID := range update.SellingPointIDs {
+		if sellingPointID == "" {
+			continue
+		}
+		if _, exists := desiredSet[sellingPointID]; exists {
+			continue
+		}
+		if _, ok := availableMap[sellingPointID]; !ok {
+			return nil, ErrSellingPointNotFound
+		}
+		desiredSet[sellingPointID] = struct{}{}
+		desiredIDs = append(desiredIDs, sellingPointID)
+	}
+
+	currentSet := map[string]struct{}{}
+	for _, id := range currentIDs {
+		currentSet[id] = struct{}{}
+	}
+
+	for _, id := range currentIDs {
+		if _, keep := desiredSet[id]; !keep {
+			if err := s.assetRepo.RemoveSellingPoint(context.Background(), assetID, id); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	for _, id := range desiredIDs {
+		if _, exists := currentSet[id]; !exists {
+			if err := s.assetRepo.AddSellingPoint(context.Background(), assetID, id); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if err := s.queries.UpdateAssetStatus(context.Background(), db.UpdateAssetStatusParams{
+		ID:              assetNullableUUIDParam(assetID),
+		Status:          asset.Status,
+		UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
+	}); err != nil {
+		return nil, err
+	}
+
+	items := make([]SellingPoint, 0, len(desiredIDs))
+	for _, id := range desiredIDs {
+		items = append(items, availableMap[id])
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Priority == items[j].Priority {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].Priority < items[j].Priority
+	})
+	return items, nil
 }
 
 func AssetAnalysisUpdateFromResult(result modelgateway.AnalyzeAssetResult, analysisStatus string, analyzedAt time.Time) AssetAnalysisUpdate {

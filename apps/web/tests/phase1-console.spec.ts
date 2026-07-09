@@ -1,6 +1,16 @@
 import { expect, test } from "@playwright/test";
 
 test("logs in and renders asset and task status pages", async ({ page }) => {
+  let assetSellingPoints = [
+    {
+      id: "sp-1",
+      product_id: "product-1",
+      title: "Auto Wake",
+      priority: 1,
+      status: "active"
+    }
+  ];
+
   let asset = {
     id: "asset-1",
     product_id: "product-1",
@@ -85,6 +95,37 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
       return;
     }
 
+    if (url.includes("/api/assets/asset-1/selling-points")) {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON() as { selling_point_ids?: string[] };
+        const allSellingPoints = [
+          {
+            id: "sp-1",
+            product_id: "product-1",
+            title: "Auto Wake",
+            priority: 1,
+            status: "active"
+          },
+          {
+            id: "sp-2",
+            product_id: "product-1",
+            title: "Battery Saver",
+            priority: 2,
+            status: "active"
+          }
+        ];
+        assetSellingPoints = allSellingPoints.filter((item) => body.selling_point_ids?.includes(item.id));
+      }
+
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: assetSellingPoints
+        })
+      });
+      return;
+    }
+
     if (url.includes("/api/selling-points/sp-1/assets")) {
       await route.fulfill({
         contentType: "application/json",
@@ -123,6 +164,14 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
                 priority: 1,
                 status: "active",
                 asset_count: 2
+              },
+              {
+                id: "sp-2",
+                product_id: "product-1",
+                title: "Battery Saver",
+                priority: 2,
+                status: "active",
+                asset_count: 1
               }
             ]
           })
@@ -350,6 +399,7 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await expect(page.getByTestId("asset-analysis-panel")).toBeVisible();
   await expect(page.getByText("product close-up with stable framing")).toBeVisible();
   await expect(page.getByText("No quality issues")).toBeVisible();
+  await expect(page.locator(".ant-tag").filter({ hasText: "Auto Wake" }).last()).toBeVisible();
   await expect(page.getByText("0:00.500")).toBeVisible();
   await expect(page.getByTestId("frame-card")).toBeVisible();
   await page.getByRole("button", { name: "Edit Tags" }).click();
@@ -363,6 +413,10 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await expect(page.getByText("reviewed by editor")).toBeVisible();
   await expect(page.getByText("soft_focus")).toBeVisible();
   await expect(page.getByText("None")).toBeVisible();
+  await page.getByTestId("asset-selling-points-select").click();
+  await page.locator(".ant-select-dropdown:visible").getByTitle("Battery Saver").click();
+  await page.getByTestId("save-asset-selling-points").click();
+  await expect(page.locator(".ant-tag").filter({ hasText: "Battery Saver" }).last()).toBeVisible();
   await page.getByTestId("archive-asset").click();
   await expect(page.getByText("archived")).toBeVisible();
   await page.getByTestId("restore-asset").click();

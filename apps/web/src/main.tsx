@@ -88,6 +88,10 @@ type Asset = {
   analysis_error?: string;
 };
 
+type AssetSellingPointPayload = {
+  selling_point_ids: string[];
+};
+
 type AssetFrameSnapshot = {
   id: string;
   asset_id: string;
@@ -436,10 +440,16 @@ function ProductsPage({ token }: { token: string }) {
 function AssetsPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token);
   const [productForSellingPoints, setProductForSellingPoints] = useState<string>("");
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const sellingPoints = useResource<SellingPoint[]>(
     productForSellingPoints ? `/api/products/${productForSellingPoints}/selling-points` : null,
     token,
     [productForSellingPoints]
+  );
+  const assetDetailSellingPoints = useResource<SellingPoint[]>(
+    selectedAsset ? `/api/products/${selectedAsset.product_id}/selling-points` : null,
+    token,
+    [selectedAsset?.product_id]
   );
   const [filters, setFilters] = useState({
     productID: "",
@@ -451,13 +461,15 @@ function AssetsPage({ token }: { token: string }) {
     maxDurationMs: "",
     hasAudio: ""
   });
-  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
+  const [assetSellingPoints, setAssetSellingPoints] = useState<SellingPoint[]>([]);
   const [framesLoading, setFramesLoading] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState(false);
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
+  const [savingSellingPoints, setSavingSellingPoints] = useState(false);
   const [reviewForm] = Form.useForm<AssetReviewPayload>();
+  const [sellingPointForm] = Form.useForm<AssetSellingPointPayload>();
 
   const assetPath = useMemo(() => {
     const params = new URLSearchParams();
@@ -501,6 +513,7 @@ function AssetsPage({ token }: { token: string }) {
   useEffect(() => {
     if (!selectedAsset) {
       setFrames([]);
+      setAssetSellingPoints([]);
       return;
     }
 
@@ -518,11 +531,27 @@ function AssetsPage({ token }: { token: string }) {
     };
 
     void loadFrames();
+
+    const loadAssetSellingPoints = async () => {
+      try {
+        const response = await apiRequest<SellingPoint[]>(`/api/assets/${selectedAsset.id}/selling-points`, {}, token);
+        setAssetSellingPoints(response);
+        sellingPointForm.setFieldsValue({
+          selling_point_ids: response.map((item) => item.id)
+        });
+      } catch (error) {
+        setAssetSellingPoints([]);
+        message.error(error instanceof Error ? error.message : "Failed to load asset selling points");
+      }
+    };
+
+    void loadAssetSellingPoints();
   }, [selectedAsset, token]);
 
   useEffect(() => {
     if (!selectedAsset) {
       reviewForm.resetFields();
+      sellingPointForm.resetFields();
       setEditingAnalysis(false);
       return;
     }
@@ -538,6 +567,12 @@ function AssetsPage({ token }: { token: string }) {
       reviewer_notes: selectedAsset.reviewer_notes || ""
     });
   }, [reviewForm, selectedAsset]);
+
+  useEffect(() => {
+    sellingPointForm.setFieldsValue({
+      selling_point_ids: assetSellingPoints.map((item) => item.id)
+    });
+  }, [assetSellingPoints, sellingPointForm]);
 
   const saveAnalysisReview = async () => {
     if (!selectedAsset) {
@@ -581,6 +616,31 @@ function AssetsPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : `Failed to ${action} asset`);
     } finally {
       setUpdatingArchive(false);
+    }
+  };
+
+  const saveAssetSellingPoints = async () => {
+    if (!selectedAsset) {
+      return;
+    }
+
+    const values = await sellingPointForm.validateFields();
+    setSavingSellingPoints(true);
+    try {
+      const updated = await apiRequest<SellingPoint[]>(
+        `/api/assets/${selectedAsset.id}/selling-points`,
+        {
+          method: "PUT",
+          body: JSON.stringify(values)
+        },
+        token
+      );
+      setAssetSellingPoints(updated);
+      message.success("Asset selling points updated");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "Failed to update asset selling points");
+    } finally {
+      setSavingSellingPoints(false);
     }
   };
 
@@ -910,6 +970,51 @@ function AssetsPage({ token }: { token: string }) {
                     </Descriptions.Item>
                   </Descriptions>
                 )}
+              </Space>
+            </Card>
+
+            <Card
+              title="Selling Points"
+              extra={
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={savingSellingPoints}
+                  onClick={saveAssetSellingPoints}
+                  data-testid="save-asset-selling-points"
+                >
+                  Save Selling Points
+                </Button>
+              }
+            >
+              <Space direction="vertical" className="wide-space">
+                <Form form={sellingPointForm} layout="vertical">
+                  <Form.Item name="selling_point_ids" label="Related Selling Points">
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      placeholder="Select selling points"
+                      options={(assetDetailSellingPoints.data ?? []).map((item) => ({
+                        value: item.id,
+                        label: item.title
+                      }))}
+                      data-testid="asset-selling-points-select"
+                    />
+                  </Form.Item>
+                </Form>
+                <Descriptions bordered column={1} size="small">
+                  <Descriptions.Item label="Current Relations">
+                    {assetSellingPoints.length > 0 ? (
+                      <Space wrap size={[6, 6]}>
+                        {assetSellingPoints.map((item) => (
+                          <Tag key={item.id}>{item.title}</Tag>
+                        ))}
+                      </Space>
+                    ) : (
+                      <Typography.Text type="secondary">No selling points linked.</Typography.Text>
+                    )}
+                  </Descriptions.Item>
+                </Descriptions>
               </Space>
             </Card>
 

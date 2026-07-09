@@ -154,3 +154,94 @@ func TestHandleArchiveAndRestoreAsset(t *testing.T) {
 		t.Fatalf("expected archived_at cleared after restore")
 	}
 }
+
+func TestHandleListAndUpdateAssetSellingPoints(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	sellingPoint1, err := productAssetService.CreateSellingPoint(product.ID, services.CreateSellingPointInput{
+		Title:    "Auto Wake",
+		Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("create selling point 1 failed: %v", err)
+	}
+	sellingPoint2, err := productAssetService.CreateSellingPoint(product.ID, services.CreateSellingPointInput{
+		Title:    "Battery Saver",
+		Priority: 2,
+	})
+	if err != nil {
+		t.Fatalf("create selling point 2 failed: %v", err)
+	}
+	asset, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SellingPointIDs:   []string{sellingPoint1.ID},
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	userToken := "Bearer " + makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/assets/"+asset.ID+"/selling-points", nil)
+	listReq.Header.Set("Authorization", userToken)
+	listRecorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(listRecorder, listReq)
+
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("expected list status 200, got %d, body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	var listResp struct {
+		Data []services.SellingPoint `json:"data"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("unmarshal list response failed: %v", err)
+	}
+	if len(listResp.Data) != 1 || listResp.Data[0].ID != sellingPoint1.ID {
+		t.Fatalf("expected sellingPoint1 in list response, got %#v", listResp.Data)
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"selling_point_ids": []string{sellingPoint2.ID},
+	})
+	if err != nil {
+		t.Fatalf("marshal body failed: %v", err)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/assets/"+asset.ID+"/selling-points", bytes.NewReader(body))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.Header.Set("Authorization", userToken)
+	updateRecorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(updateRecorder, updateReq)
+
+	if updateRecorder.Code != http.StatusOK {
+		t.Fatalf("expected update status 200, got %d, body=%s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	updated, err := productAssetService.ListAssetSellingPoints(asset.ID)
+	if err != nil {
+		t.Fatalf("list asset selling points after update failed: %v", err)
+	}
+	if len(updated) != 1 || updated[0].ID != sellingPoint2.ID {
+		t.Fatalf("expected sellingPoint2 after update, got %#v", updated)
+	}
+}
