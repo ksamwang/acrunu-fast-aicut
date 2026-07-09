@@ -197,3 +197,68 @@ func TestHandleAssetAnalyzeTracksTaskStatus(t *testing.T) {
 		t.Fatalf("expected non-negative task duration, got %d", storedTask.DurationMs)
 	}
 }
+
+func TestHandleAssetExtractFramesMarksAssetFailure(t *testing.T) {
+	taskService := NewTaskService(t.TempDir())
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "missing.mp4",
+		StorageKey:        "assets/missing.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "pending_analysis",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		CreatedByUserID:   "user-1",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	task, err := taskService.CreateAssetExtractFramesTask(context.Background(), "user-1", product.ID, queue.AssetExtractFramesPayload{
+		AssetID:    asset.ID,
+		StorageKey: asset.StorageKey,
+		DurationMs: 1200,
+	})
+	if err != nil {
+		t.Fatalf("create extract task failed: %v", err)
+	}
+
+	processing := NewAssetProcessingService(t.TempDir(), service, taskService, nil, nil, nil)
+
+	if err := processing.HandleAssetExtractFrames(context.Background(), queue.AssetExtractFramesPayload{
+		TaskID:     task.ID,
+		AssetID:    asset.ID,
+		StorageKey: asset.StorageKey,
+		DurationMs: 1200,
+	}); err != nil {
+		t.Fatalf("expected extract failure to be persisted without bubbling error, got %v", err)
+	}
+
+	updated, ok := service.GetAsset(asset.ID)
+	if !ok {
+		t.Fatalf("expected asset to exist")
+	}
+	if updated.AnalysisStatus != "failed" {
+		t.Fatalf("expected analysis status failed, got %s", updated.AnalysisStatus)
+	}
+	if updated.AnalysisError == "" {
+		t.Fatalf("expected analysis error to persist")
+	}
+	if updated.UsabilityStatus != "needs_review" {
+		t.Fatalf("expected usability status needs_review, got %s", updated.UsabilityStatus)
+	}
+
+	storedTask, err := taskService.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("get task failed: %v", err)
+	}
+	if storedTask.Status != "failed" {
+		t.Fatalf("expected task status failed, got %s", storedTask.Status)
+	}
+	if storedTask.ErrorMessage == "" {
+		t.Fatalf("expected task error message to be set")
+	}
+}

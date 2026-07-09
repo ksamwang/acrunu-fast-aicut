@@ -68,6 +68,17 @@ func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, p
 
 	frames, err := ffmpeg.ExtractFrames(ctx, inputPath, outputDir, timestamps)
 	if err != nil {
+		if s.productAssetService != nil {
+			updateErr := s.productAssetService.UpdateAssetAnalysis(payload.AssetID, AssetAnalysisUpdate{
+				AnalysisStatus:  "failed",
+				UsabilityStatus: "needs_review",
+				AnalysisError:   err.Error(),
+				AnalyzedAt:      time.Now(),
+			})
+			if updateErr != nil {
+				return fmt.Errorf("extract frames failed: %v; failed to persist analysis error: %w", err, updateErr)
+			}
+		}
 		return err
 	}
 
