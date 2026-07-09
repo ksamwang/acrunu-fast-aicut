@@ -24,6 +24,11 @@ type Product = {
   name: string;
 };
 
+type SellingPoint = {
+  id: string;
+  title: string;
+};
+
 type UploadToken = {
   token: string;
   product_id: string;
@@ -169,6 +174,7 @@ function formatDateTime(value?: string) {
 export function PreprocessPage({ token }: { token: string }) {
   const [items, setItems] = useState<WorkspaceItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [sellingPoints, setSellingPoints] = useState<SellingPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -178,6 +184,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
   const [submitProductID, setSubmitProductID] = useState<string>("");
+  const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
   const [form] = Form.useForm();
 
   const loadItems = async () => {
@@ -226,7 +233,30 @@ export function PreprocessPage({ token }: { token: string }) {
       reviewer_notes: selectedItem.reviewer_notes ?? ""
     });
     setSubmitProductID(selectedItem.product_id ?? "");
+    setSubmitSellingPointIDs([]);
   }, [form, selectedItem]);
+
+  useEffect(() => {
+    if (!submitProductID) {
+      setSellingPoints([]);
+      setSubmitSellingPointIDs([]);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const result = await apiRequest<SellingPoint[]>(`/api/products/${submitProductID}/selling-points`, token);
+        setSellingPoints(result ?? []);
+        setSubmitSellingPointIDs((current) =>
+          current.filter((item) => (result ?? []).some((sellingPoint) => sellingPoint.id === item))
+        );
+      } catch (error) {
+        setSellingPoints([]);
+        setSubmitSellingPointIDs([]);
+        message.error(error instanceof Error ? error.message : "加载卖点列表失败");
+      }
+    })();
+  }, [submitProductID, token]);
 
   const importFiles = async () => {
     if (selectedFiles.length === 0) {
@@ -305,7 +335,9 @@ export function PreprocessPage({ token }: { token: string }) {
       await localAgentRequest("/workspace/clear", { method: "POST" });
       await loadItems();
       setSelectedItemID(null);
-      message.success("未提交项已从本地预处理工作区清空");
+      setSubmitProductID("");
+      setSubmitSellingPointIDs([]);
+      message.success("本地预处理工作区已清空");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "清空工作区失败");
     } finally {
@@ -344,7 +376,7 @@ export function PreprocessPage({ token }: { token: string }) {
           product_id: submitProductID,
           upload_url: `${window.location.origin}/api/uploads/clean-shot`,
           upload_token: uploadToken.token,
-          selling_point_ids: []
+          selling_point_ids: submitSellingPointIDs
         })
       });
 
@@ -385,7 +417,7 @@ export function PreprocessPage({ token }: { token: string }) {
           <Space>
             <Button onClick={() => void loadItems()}>刷新列表</Button>
             <Button danger loading={clearing} onClick={() => void clearWorkspace()}>
-              清空未提交项
+              清空工作区
             </Button>
           </Space>
         }
@@ -544,8 +576,17 @@ export function PreprocessPage({ token }: { token: string }) {
                 <Select
                   placeholder="选择产品后再提交入库"
                   value={submitProductID || undefined}
-                  onChange={setSubmitProductID}
+                  onChange={(value) => setSubmitProductID(value)}
                   options={products.map((product) => ({ value: product.id, label: product.name }))}
+                />
+                <Select
+                  mode="multiple"
+                  allowClear
+                  placeholder="可选：关联卖点"
+                  value={submitSellingPointIDs}
+                  disabled={!submitProductID}
+                  onChange={setSubmitSellingPointIDs}
+                  options={sellingPoints.map((item) => ({ value: item.id, label: item.title }))}
                 />
                 <Space wrap>
                   <Button

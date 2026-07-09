@@ -229,23 +229,12 @@ func (w *Workspace) Clear() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	nextItems := map[string]WorkspaceItem{}
-	nextOrder := make([]string, 0, len(w.order))
 	for _, id := range w.order {
-		item, ok := w.items[id]
-		if !ok {
-			continue
-		}
-		if item.Status == workspaceStatusSubmitted {
-			nextItems[id] = item
-			nextOrder = append(nextOrder, id)
-			continue
-		}
 		_ = os.RemoveAll(filepath.Join(w.root, "items", id))
 	}
 
-	w.items = nextItems
-	w.order = nextOrder
+	w.items = map[string]WorkspaceItem{}
+	w.order = nil
 	return w.persistLocked()
 }
 

@@ -283,3 +283,65 @@ func TestHandleListAndUpdateAssetSellingPoints(t *testing.T) {
 		t.Fatalf("expected sellingPoint2 after update, got %#v", updated)
 	}
 }
+
+func TestHandleListAssetSpeechSegments(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	asset, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "talk.mp4",
+		StorageKey:        "assets/talk.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	if _, err := productAssetService.CreateSpeechSegment(services.CreateSpeechSegmentInput{
+		AssetID:         asset.ID,
+		StartMs:         0,
+		EndMs:           1200,
+		Transcript:      "第一句",
+		Source:          "local-agent",
+		Status:          "ready",
+		CreatedByUserID: "editor-1",
+	}); err != nil {
+		t.Fatalf("create speech segment failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	userToken := "Bearer " + makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/assets/"+asset.ID+"/speech-segments", nil)
+	req.Header.Set("Authorization", userToken)
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var resp struct {
+		Data []services.SpeechSegment `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].Transcript != "第一句" {
+		t.Fatalf("expected persisted speech segment, got %#v", resp.Data)
+	}
+}

@@ -238,6 +238,21 @@ type AssetFrameSnapshot struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type SpeechSegment struct {
+	ID              string    `json:"id"`
+	AssetID         string    `json:"asset_id"`
+	StartMs         int       `json:"start_ms"`
+	EndMs           int       `json:"end_ms"`
+	Transcript      string    `json:"transcript"`
+	Confidence      float64   `json:"confidence,omitempty"`
+	Source          string    `json:"source"`
+	Status          string    `json:"status"`
+	CreatedByUserID string    `json:"created_by_user_id,omitempty"`
+	UpdatedByUserID string    `json:"updated_by_user_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type ProductAssetStats struct {
 	ProductID            string `json:"product_id"`
 	AssetCount           int    `json:"asset_count"`
@@ -490,6 +505,44 @@ func (s *ProductAssetService) ListAssetFrameSnapshots(assetID string) []AssetFra
 		})
 	}
 	return items
+}
+
+func (s *ProductAssetService) ListSpeechSegmentsByAsset(assetID string) ([]SpeechSegment, error) {
+	if _, ok := s.GetAsset(assetID); !ok {
+		return nil, ErrAssetNotFound
+	}
+
+	if s.assetRepo == nil {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+
+		rows := append([]repository.SpeechSegmentRecord(nil), s.speechSegments[assetID]...)
+		sort.Slice(rows, func(i, j int) bool {
+			if rows[i].StartMs == rows[j].StartMs {
+				if rows[i].EndMs == rows[j].EndMs {
+					return rows[i].CreatedAt.Before(rows[j].CreatedAt)
+				}
+				return rows[i].EndMs < rows[j].EndMs
+			}
+			return rows[i].StartMs < rows[j].StartMs
+		})
+
+		items := make([]SpeechSegment, 0, len(rows))
+		for _, row := range rows {
+			items = append(items, speechSegmentFromRecord(row))
+		}
+		return items, nil
+	}
+
+	rows, err := s.assetRepo.ListSpeechSegmentsByAsset(context.Background(), assetID, repository.SpeechSegmentFilters{})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]SpeechSegment, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, speechSegmentFromRecord(row))
+	}
+	return items, nil
 }
 
 func (s *ProductAssetService) FindDuplicateAssetsByChecksum(checksum string, excludeAssetID string) []Asset {
@@ -1520,6 +1573,23 @@ func assetFromDBRecord(row repository.AssetRecord) Asset {
 		UpdatedAt:          row.UpdatedAt,
 		AnalyzedAt:         row.AnalyzedAt,
 		ArchivedAt:         row.ArchivedAt,
+	}
+}
+
+func speechSegmentFromRecord(row repository.SpeechSegmentRecord) SpeechSegment {
+	return SpeechSegment{
+		ID:              row.ID,
+		AssetID:         row.AssetID,
+		StartMs:         row.StartMs,
+		EndMs:           row.EndMs,
+		Transcript:      row.Transcript,
+		Confidence:      row.Confidence,
+		Source:          row.Source,
+		Status:          row.Status,
+		CreatedByUserID: row.CreatedByUserID,
+		UpdatedByUserID: row.UpdatedByUserID,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
 }
 

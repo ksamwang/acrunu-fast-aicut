@@ -381,6 +381,58 @@ func TestListAndUpdateAssetSellingPointsInMemory(t *testing.T) {
 	}
 }
 
+func TestListSpeechSegmentsByAssetInMemory(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	if _, err := service.CreateSpeechSegment(CreateSpeechSegmentInput{
+		AssetID:         asset.ID,
+		StartMs:         3000,
+		EndMs:           4500,
+		Transcript:      "第二句",
+		Source:          "local-agent",
+		Status:          "ready",
+		CreatedByUserID: "editor-1",
+	}); err != nil {
+		t.Fatalf("create speech segment 1 failed: %v", err)
+	}
+	if _, err := service.CreateSpeechSegment(CreateSpeechSegmentInput{
+		AssetID:         asset.ID,
+		StartMs:         0,
+		EndMs:           2000,
+		Transcript:      "第一句",
+		Source:          "local-agent",
+		Status:          "ready",
+		CreatedByUserID: "editor-1",
+	}); err != nil {
+		t.Fatalf("create speech segment 2 failed: %v", err)
+	}
+
+	items, err := service.ListSpeechSegmentsByAsset(asset.ID)
+	if err != nil {
+		t.Fatalf("list speech segments failed: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 speech segments, got %d", len(items))
+	}
+	if items[0].Transcript != "第一句" || items[1].Transcript != "第二句" {
+		t.Fatalf("expected speech segments ordered by start time, got %#v", items)
+	}
+}
+
 func TestUpdateAssetSellingPointsRejectsWrongProductSellingPoint(t *testing.T) {
 	service := NewProductAssetService()
 	product1 := service.CreateProduct(CreateProductInput{Name: "P1"})

@@ -124,6 +124,19 @@ type AssetFrameResponse = {
   frames: AssetFrameSnapshot[];
 };
 
+type AssetSpeechSegment = {
+  id: string;
+  asset_id: string;
+  start_ms: number;
+  end_ms: number;
+  transcript: string;
+  confidence?: number;
+  source: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type AssetReviewPayload = {
   scene_description: string;
   shot_size: string;
@@ -867,8 +880,10 @@ function AssetsPage({ token }: { token: string }) {
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(20);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
+  const [speechSegments, setSpeechSegments] = useState<AssetSpeechSegment[]>([]);
   const [assetSellingPoints, setAssetSellingPoints] = useState<SellingPoint[]>([]);
   const [framesLoading, setFramesLoading] = useState(false);
+  const [speechSegmentsLoading, setSpeechSegmentsLoading] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState(false);
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
@@ -929,6 +944,7 @@ function AssetsPage({ token }: { token: string }) {
   useEffect(() => {
     if (!selectedAsset) {
       setFrames([]);
+      setSpeechSegments([]);
       setAssetSellingPoints([]);
       return;
     }
@@ -947,6 +963,27 @@ function AssetsPage({ token }: { token: string }) {
     };
 
     void loadFrames();
+
+    const loadSpeechSegments = async () => {
+      if (selectedAsset.source_type !== "talking_head") {
+        setSpeechSegments([]);
+        setSpeechSegmentsLoading(false);
+        return;
+      }
+
+      setSpeechSegmentsLoading(true);
+      try {
+        const response = await apiRequest<AssetSpeechSegment[]>(`/api/assets/${selectedAsset.id}/speech-segments`, {}, token);
+        setSpeechSegments(response);
+      } catch (error) {
+        setSpeechSegments([]);
+        message.error(error instanceof Error ? error.message : "加载口播句段失败");
+      } finally {
+        setSpeechSegmentsLoading(false);
+      }
+    };
+
+    void loadSpeechSegments();
 
     const loadAssetSellingPoints = async () => {
       try {
@@ -1553,6 +1590,39 @@ function AssetsPage({ token }: { token: string }) {
                 </div>
               )}
             </Card>
+
+            {selectedAsset.source_type === "talking_head" ? (
+              <Card title="口播句段" loading={speechSegmentsLoading}>
+                {speechSegments.length === 0 ? (
+                  <Empty description="暂无已入库的口播句段" />
+                ) : (
+                  <Table<AssetSpeechSegment>
+                    rowKey="id"
+                    dataSource={speechSegments}
+                    pagination={false}
+                    size="small"
+                    columns={[
+                      {
+                        title: "时间",
+                        render: (_, segment) => `${formatTimestamp(segment.start_ms)} - ${formatTimestamp(segment.end_ms)}`
+                      },
+                      {
+                        title: "文本",
+                        dataIndex: "transcript"
+                      },
+                      {
+                        title: "来源",
+                        dataIndex: "source"
+                      },
+                      {
+                        title: "状态",
+                        dataIndex: "status"
+                      }
+                    ]}
+                  />
+                )}
+              </Card>
+            ) : null}
           </Space>
         ) : null}
       </Modal>

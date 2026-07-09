@@ -441,6 +441,13 @@ func TestHandleUploadCleanShotPreprocessedSubmissionSkipsServerAnalysis(t *testi
 	tempDir := t.TempDir()
 	productAssetService := services.NewProductAssetService()
 	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	sellingPoint, err := productAssetService.CreateSellingPoint(product.ID, services.CreateSellingPointInput{
+		Title:    "Auto Wake",
+		Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("create selling point failed: %v", err)
+	}
 	server := New(Options{
 		Config:              config.Config{StorageRoot: tempDir, QueueBackend: "file"},
 		ProductAssetService: productAssetService,
@@ -476,6 +483,7 @@ func TestHandleUploadCleanShotPreprocessedSubmissionSkipsServerAnalysis(t *testi
 		"scene_tags_json":     `["talking_head","indoor"]`,
 		"quality_tags_json":   `[]`,
 		"model_result_json":   `{"provider":"mock","frame_count":3}`,
+		"selling_point_ids":   sellingPoint.ID,
 		"transcript":          "[00:00:00:00]-[00:00:02:00] 大家好。",
 		"manual_clean_status": "cleaned",
 	}
@@ -532,5 +540,19 @@ func TestHandleUploadCleanShotPreprocessedSubmissionSkipsServerAnalysis(t *testi
 	}
 	if asset.ShotSize != "medium_close_up" || asset.CameraMovement != "static" {
 		t.Fatalf("expected preprocessed labels to persist, got %+v", asset)
+	}
+	sellingPoints, err := productAssetService.ListAssetSellingPoints(assetID)
+	if err != nil {
+		t.Fatalf("list asset selling points failed: %v", err)
+	}
+	if len(sellingPoints) != 1 || sellingPoints[0].ID != sellingPoint.ID {
+		t.Fatalf("expected selling point to persist, got %#v", sellingPoints)
+	}
+	segments, err := productAssetService.ListSpeechSegmentsByAsset(assetID)
+	if err != nil {
+		t.Fatalf("list speech segments failed: %v", err)
+	}
+	if len(segments) != 1 || segments[0].Transcript == "" {
+		t.Fatalf("expected transcript segments to persist, got %#v", segments)
 	}
 }

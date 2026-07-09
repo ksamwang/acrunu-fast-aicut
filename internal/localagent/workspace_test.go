@@ -3,8 +3,11 @@ package localagent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -123,6 +126,79 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 	}
 	if len(workspace.ListItems()) != 0 {
 		t.Fatalf("expected workspace to be empty after clear")
+	}
+}
+
+func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	item := imported[0]
+
+	if _, err := workspace.SaveItem(item.ID, WorkspaceSaveInput{
+		AssetName:   "test asset",
+		SourceType:  "talking_head",
+		SourceInMs:  0,
+		SourceOutMs: 5000,
+		Transcript:  "[00:00:00:00]-[00:00:02:00] hello",
+	}); err != nil {
+		t.Fatalf("SaveItem() error = %v", err)
+	}
+	if _, err := workspace.PrepareItem(context.Background(), item.ID); err != nil {
+		t.Fatalf("PrepareItem() error = %v", err)
+	}
+
+	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST request, got %s", r.Method)
+		}
+		if token := r.Header.Get("X-Upload-Token"); token != "upload-token" {
+			t.Fatalf("expected upload token header, got %q", token)
+		}
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm() error = %v", err)
+		}
+		if got := r.FormValue("submission_mode"); got != "preprocessed" {
+			t.Fatalf("expected preprocessed submission, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"asset": map[string]any{
+					"id": "asset-submitted-1",
+				},
+			},
+		})
+	}))
+	defer uploadServer.Close()
+
+	submitted, err := workspace.SubmitItem(context.Background(), item.ID, WorkspaceSubmitInput{
+		ProductID:   "product-1",
+		UploadURL:   uploadServer.URL,
+		UploadToken: "upload-token",
+	})
+	if err != nil {
+		t.Fatalf("SubmitItem() error = %v", err)
+	}
+	if submitted.Status != workspaceStatusSubmitted {
+		t.Fatalf("expected submitted status, got %s", submitted.Status)
+	}
+
+	if err := workspace.Clear(); err != nil {
+		t.Fatalf("Clear() error = %v", err)
+	}
+	if len(workspace.ListItems()) != 0 {
+		t.Fatalf("expected submitted local records to be removed by clear")
 	}
 }
 
