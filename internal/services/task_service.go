@@ -33,6 +33,11 @@ type GenerationTask struct {
 	FinishedAt      *time.Time     `json:"finished_at,omitempty"`
 }
 
+type TaskFilters struct {
+	TaskType string
+	Status   string
+}
+
 type TaskStore interface {
 	CreateTestTask(ctx context.Context, userID string) (GenerationTask, error)
 	CreateAssetExtractFramesTask(ctx context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error)
@@ -99,15 +104,23 @@ func (s *TaskService) GetTask(ctx context.Context, taskID string) (GenerationTas
 	return finalizeTask(task), nil
 }
 
-func (s *TaskService) ListTasks(ctx context.Context) ([]GenerationTask, error) {
+func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]GenerationTask, error) {
 	tasks, err := s.store.ListTasks(ctx)
 	if err != nil {
 		return nil, err
 	}
+	filtered := make([]GenerationTask, 0, len(tasks))
 	for i := range tasks {
-		tasks[i] = finalizeTask(tasks[i])
+		task := finalizeTask(tasks[i])
+		if filters.TaskType != "" && task.TaskType != filters.TaskType {
+			continue
+		}
+		if filters.Status != "" && task.Status != filters.Status {
+			continue
+		}
+		filtered = append(filtered, task)
 	}
-	return tasks, nil
+	return filtered, nil
 }
 
 func (s *TaskService) MarkRunning(ctx context.Context, taskID string) error {

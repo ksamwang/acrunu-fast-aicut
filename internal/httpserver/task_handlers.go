@@ -30,7 +30,10 @@ func (s *Server) handleCreateTestTask(c *gin.Context) {
 }
 
 func (s *Server) handleListTasks(c *gin.Context) {
-	tasks, err := s.taskService.ListTasks(c.Request.Context())
+	tasks, err := s.taskService.ListTasks(c.Request.Context(), services.TaskFilters{
+		TaskType: c.Query("task_type"),
+		Status:   c.Query("status"),
+	})
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, "task_error", "failed to list tasks")
 		return

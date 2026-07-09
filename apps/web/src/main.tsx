@@ -1146,10 +1146,36 @@ function AssetsPage({ token }: { token: string }) {
 }
 
 function TasksPage({ token }: { token: string }) {
-  const tasks = useResource<Task[]>("/api/tasks", token);
+  const [taskFilters, setTaskFilters] = useState({
+    taskType: "",
+    status: ""
+  });
+  const taskPath = useMemo(() => {
+    const params = new URLSearchParams();
+    if (taskFilters.taskType) {
+      params.set("task_type", taskFilters.taskType);
+    }
+    if (taskFilters.status) {
+      params.set("status", taskFilters.status);
+    }
+    const query = params.toString();
+    return query ? `/api/tasks?${query}` : "/api/tasks";
+  }, [taskFilters]);
+  const tasks = useResource<Task[]>(taskPath, token, [taskPath]);
   const [creating, setCreating] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  const taskTypeLabel = (taskType: string) => {
+    switch (taskType) {
+      case "asset_analyze":
+        return "asset_analyze";
+      case "asset_extract_frames":
+        return "asset_extract_frames";
+      default:
+        return taskType;
+    }
+  };
 
   const createTask = async () => {
     setCreating(true);
@@ -1179,6 +1205,39 @@ function TasksPage({ token }: { token: string }) {
     <div data-testid="tasks-page">
       <Space direction="vertical" size="middle" className="page-stack">
         <Typography.Title level={3}>Tasks</Typography.Title>
+        <Card title="Task Filters">
+          <Space wrap>
+            <Select
+              data-testid="task-filter-type"
+              value={taskFilters.taskType || undefined}
+              placeholder="Task Type"
+              allowClear
+              style={{ minWidth: 220 }}
+              options={[
+                { value: "asset_extract_frames", label: "asset_extract_frames" },
+                { value: "asset_analyze", label: "asset_analyze" },
+                { value: "test", label: "test" }
+              ]}
+              onChange={(value) => setTaskFilters((current) => ({ ...current, taskType: value ?? "" }))}
+            />
+            <Select
+              data-testid="task-filter-status"
+              value={taskFilters.status || undefined}
+              placeholder="Status"
+              allowClear
+              style={{ minWidth: 160 }}
+              options={[
+                { value: "queued", label: "queued" },
+                { value: "running", label: "running" },
+                { value: "completed", label: "completed" },
+                { value: "failed", label: "failed" }
+              ]}
+              onChange={(value) => setTaskFilters((current) => ({ ...current, status: value ?? "" }))}
+            />
+            <Button onClick={() => setTaskFilters({ taskType: "", status: "" })}>Reset</Button>
+            <Button onClick={tasks.reload}>Refresh</Button>
+          </Space>
+        </Card>
         <Card title="Batch Edit Tasks" extra={<Button type="primary" loading={creating} onClick={createTask}>Create Test Task</Button>}>
           <Table<Task>
             rowKey="id"
@@ -1195,7 +1254,7 @@ function TasksPage({ token }: { token: string }) {
                   </Button>
                 )
               },
-              { title: "Type", dataIndex: "task_type" },
+              { title: "Type", dataIndex: "task_type", render: (value) => taskTypeLabel(value) },
               { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
               { title: "Asset", dataIndex: "asset_id", render: (value) => value || "-" },
               { title: "Retry", dataIndex: "retry_count" },
@@ -1216,7 +1275,7 @@ function TasksPage({ token }: { token: string }) {
       >
         {selectedTask ? (
           <Descriptions bordered column={1} size="small" data-testid="task-detail-modal">
-            <Descriptions.Item label="Task Type">{selectedTask.task_type}</Descriptions.Item>
+            <Descriptions.Item label="Task Type">{taskTypeLabel(selectedTask.task_type)}</Descriptions.Item>
             <Descriptions.Item label="Status">
               <Tag>{selectedTask.status}</Tag>
             </Descriptions.Item>

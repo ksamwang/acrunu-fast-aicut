@@ -362,6 +362,7 @@ func TestListAssetsSupportsExcludeDiscardedKeywordAndSorting(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update asset a review failed: %v", err)
 	}
+	time.Sleep(2 * time.Millisecond)
 	if _, err := service.UpdateAssetReview(assetC.ID, AssetReviewUpdate{
 		SceneDescription: assetC.SceneDescription,
 		UpdatedByUserID:  "editor-c",
@@ -379,6 +380,7 @@ func TestListAssetsSupportsExcludeDiscardedKeywordAndSorting(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update asset a analysis failed: %v", err)
 	}
+	time.Sleep(2 * time.Millisecond)
 	if err := service.UpdateAssetAnalysis(assetC.ID, AssetAnalysisUpdate{
 		AnalysisStatus:   "ready",
 		UsabilityStatus:  "usable",

@@ -287,6 +287,31 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     }
 
     if (url.includes("/api/tasks")) {
+      if (url.includes("/api/tasks/task-extract-1")) {
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: {
+              id: "task-extract-1",
+              task_type: "asset_extract_frames",
+              status: "completed",
+              asset_id: "asset-1",
+              payload_summary: {
+                asset_id: "asset-1",
+                storage_key: "assets/clean-shot.mp4",
+                duration_ms: 2066
+              },
+              retry_count: 0,
+              duration_ms: 180,
+              created_at: "2026-07-08T00:00:00Z",
+              started_at: "2026-07-08T00:00:00Z",
+              finished_at: "2026-07-08T00:00:00Z"
+            }
+          })
+        });
+        return;
+      }
+
       if (url.includes("/api/tasks/task-asset-analyze")) {
         await route.fulfill({
           contentType: "application/json",
@@ -351,30 +376,51 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
         return;
       }
 
+      const allTasks = [
+        {
+          id: "task-1",
+          task_type: "test",
+          status: "completed",
+          retry_count: 0,
+          duration_ms: 100,
+          created_at: "2026-07-08T00:00:00Z"
+        },
+        {
+          id: "task-extract-1",
+          task_type: "asset_extract_frames",
+          status: "completed",
+          asset_id: "asset-1",
+          retry_count: 0,
+          duration_ms: 180,
+          created_at: "2026-07-08T00:00:00Z"
+        },
+        {
+          id: "task-asset-analyze",
+          task_type: "asset_analyze",
+          status: "failed",
+          asset_id: "asset-1",
+          retry_count: 1,
+          duration_ms: 231,
+          error_message: "mock provider failed",
+          created_at: "2026-07-08T00:00:00Z"
+        }
+      ];
+      let tasks = allTasks;
+      if (url.includes("task_type=asset_extract_frames")) {
+        tasks = tasks.filter((task) => task.task_type === "asset_extract_frames");
+      }
+      if (url.includes("task_type=asset_analyze")) {
+        tasks = tasks.filter((task) => task.task_type === "asset_analyze");
+      }
+      if (url.includes("status=failed")) {
+        tasks = tasks.filter((task) => task.status === "failed");
+      }
+      if (url.includes("status=completed")) {
+        tasks = tasks.filter((task) => task.status === "completed");
+      }
       await route.fulfill({
         contentType: "application/json",
-        body: JSON.stringify({
-          data: [
-            {
-              id: "task-1",
-              task_type: "test",
-              status: "completed",
-              retry_count: 0,
-              duration_ms: 100,
-              created_at: "2026-07-08T00:00:00Z"
-            },
-            {
-              id: "task-asset-analyze",
-              task_type: "asset_analyze",
-              status: "failed",
-              asset_id: "asset-1",
-              retry_count: 1,
-              duration_ms: 231,
-              error_message: "mock provider failed",
-              created_at: "2026-07-08T00:00:00Z"
-            }
-          ]
-        })
+        body: JSON.stringify({ data: tasks })
       });
       return;
     }
@@ -467,9 +513,20 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await page.locator(".ant-menu-item").nth(2).click();
   await expect(page.getByTestId("tasks-page")).toBeVisible();
   await expect(page.getByText("task-1")).toBeVisible();
-  await expect(page.getByText("completed")).toBeVisible();
+  await expect(page.getByText("completed").first()).toBeVisible();
+  await expect(page.getByText("asset_extract_frames")).toBeVisible();
   await expect(page.getByText("asset_analyze")).toBeVisible();
   await expect(page.getByText("231 ms")).toBeVisible();
+  await page.getByTestId("task-filter-type").click();
+  await page.getByTitle("asset_extract_frames").click();
+  await expect(page.getByText("task-extract-1")).toBeVisible();
+  await expect(page.getByText("task-asset-analyze")).toHaveCount(0);
+  await page.getByRole("button", { name: "Reset" }).click();
+  await page.getByTestId("task-filter-type").click();
+  await page.getByTitle("asset_analyze").click();
+  await page.getByTestId("task-filter-status").click();
+  await page.getByTitle("failed").click();
+  await expect(page.getByText("task-asset-analyze")).toBeVisible();
   await page.getByRole("button", { name: "task-asset-analyze" }).click();
   await expect(page.getByTestId("task-detail-modal")).toBeVisible();
   await expect(page.getByText("mock provider failed")).toBeVisible();
