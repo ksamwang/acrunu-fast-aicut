@@ -163,3 +163,48 @@ func TestListAssetsSupportsTagDurationAudioAndSellingPointFilters(t *testing.T) 
 		t.Fatalf("expected filtered asset a.mp4, got %s", filtered[0].FileName)
 	}
 }
+
+func TestArchiveAndRestoreAssetInMemory(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "failed",
+		UsabilityStatus:   "needs_review",
+		ManualCleanStatus: "cleaned",
+		AnalysisError:     "mock provider failed",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	archived, err := service.ArchiveAsset(asset.ID, AssetArchiveUpdate{UpdatedByUserID: "editor-1"})
+	if err != nil {
+		t.Fatalf("archive asset failed: %v", err)
+	}
+	if archived.Status != "archived" {
+		t.Fatalf("expected archived status, got %s", archived.Status)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatalf("expected archived_at set")
+	}
+
+	restored, err := service.RestoreAsset(asset.ID, AssetArchiveUpdate{UpdatedByUserID: "editor-2"})
+	if err != nil {
+		t.Fatalf("restore asset failed: %v", err)
+	}
+	if restored.Status != "ready" {
+		t.Fatalf("expected ready status, got %s", restored.Status)
+	}
+	if restored.ArchivedAt != nil {
+		t.Fatalf("expected archived_at cleared")
+	}
+	if restored.UpdatedByUserID != "editor-2" {
+		t.Fatalf("expected updated_by_user_id editor-2, got %s", restored.UpdatedByUserID)
+	}
+}

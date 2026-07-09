@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/repository"
@@ -47,48 +47,48 @@ type SellingPoint struct {
 }
 
 type Asset struct {
-	ID                string    `json:"id"`
-	ProductID         string    `json:"product_id"`
-	AssetName         string    `json:"asset_name,omitempty"`
-	StorageKey        string    `json:"storage_key"`
-	FileName          string    `json:"file_name"`
-	FileExt           string    `json:"file_ext,omitempty"`
-	MimeType          string    `json:"mime_type,omitempty"`
-	FileSize          int64     `json:"file_size"`
-	Checksum          string    `json:"checksum,omitempty"`
-	SourceType        string    `json:"source_type"`
-	IngestionSource   string    `json:"ingestion_source,omitempty"`
-	DurationMs        int       `json:"duration_ms,omitempty"`
-	Width             int       `json:"width,omitempty"`
-	Height            int       `json:"height,omitempty"`
-	FPS               float64   `json:"fps,omitempty"`
-	Codec             string    `json:"codec,omitempty"`
-	Status            string    `json:"status"`
-	AnalysisStatus    string    `json:"analysis_status,omitempty"`
-	UsabilityStatus   string    `json:"usability_status,omitempty"`
-	ManualCleanStatus string    `json:"manual_clean_status"`
-	SourcePath        string    `json:"source_path,omitempty"`
-	SourceOriginalName string   `json:"source_original_name,omitempty"`
-	SourceInMs        int       `json:"source_in_ms,omitempty"`
-	SourceOutMs       int       `json:"source_out_ms,omitempty"`
-	HasAudio          bool      `json:"has_audio"`
-	AudioCodec        string    `json:"audio_codec,omitempty"`
-	BitrateKbps       int       `json:"bitrate_kbps,omitempty"`
-	SceneDescription  string    `json:"scene_description,omitempty"`
-	ShotSize          string    `json:"shot_size,omitempty"`
-	CameraMovement    string    `json:"camera_movement,omitempty"`
-	Subjects          []string  `json:"subjects,omitempty"`
-	SceneTags         []string  `json:"scene_tags,omitempty"`
-	QualityTags       []string  `json:"quality_tags,omitempty"`
-	ModelResult       map[string]any `json:"model_result,omitempty"`
-	ReviewerNotes     string    `json:"reviewer_notes,omitempty"`
-	AnalysisError     string    `json:"analysis_error,omitempty"`
-	CreatedByUserID   string    `json:"created_by_user_id"`
-	UpdatedByUserID   string    `json:"updated_by_user_id,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-	AnalyzedAt        *time.Time `json:"analyzed_at,omitempty"`
-	ArchivedAt        *time.Time `json:"archived_at,omitempty"`
+	ID                 string         `json:"id"`
+	ProductID          string         `json:"product_id"`
+	AssetName          string         `json:"asset_name,omitempty"`
+	StorageKey         string         `json:"storage_key"`
+	FileName           string         `json:"file_name"`
+	FileExt            string         `json:"file_ext,omitempty"`
+	MimeType           string         `json:"mime_type,omitempty"`
+	FileSize           int64          `json:"file_size"`
+	Checksum           string         `json:"checksum,omitempty"`
+	SourceType         string         `json:"source_type"`
+	IngestionSource    string         `json:"ingestion_source,omitempty"`
+	DurationMs         int            `json:"duration_ms,omitempty"`
+	Width              int            `json:"width,omitempty"`
+	Height             int            `json:"height,omitempty"`
+	FPS                float64        `json:"fps,omitempty"`
+	Codec              string         `json:"codec,omitempty"`
+	Status             string         `json:"status"`
+	AnalysisStatus     string         `json:"analysis_status,omitempty"`
+	UsabilityStatus    string         `json:"usability_status,omitempty"`
+	ManualCleanStatus  string         `json:"manual_clean_status"`
+	SourcePath         string         `json:"source_path,omitempty"`
+	SourceOriginalName string         `json:"source_original_name,omitempty"`
+	SourceInMs         int            `json:"source_in_ms,omitempty"`
+	SourceOutMs        int            `json:"source_out_ms,omitempty"`
+	HasAudio           bool           `json:"has_audio"`
+	AudioCodec         string         `json:"audio_codec,omitempty"`
+	BitrateKbps        int            `json:"bitrate_kbps,omitempty"`
+	SceneDescription   string         `json:"scene_description,omitempty"`
+	ShotSize           string         `json:"shot_size,omitempty"`
+	CameraMovement     string         `json:"camera_movement,omitempty"`
+	Subjects           []string       `json:"subjects,omitempty"`
+	SceneTags          []string       `json:"scene_tags,omitempty"`
+	QualityTags        []string       `json:"quality_tags,omitempty"`
+	ModelResult        map[string]any `json:"model_result,omitempty"`
+	ReviewerNotes      string         `json:"reviewer_notes,omitempty"`
+	AnalysisError      string         `json:"analysis_error,omitempty"`
+	CreatedByUserID    string         `json:"created_by_user_id"`
+	UpdatedByUserID    string         `json:"updated_by_user_id,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	AnalyzedAt         *time.Time     `json:"analyzed_at,omitempty"`
+	ArchivedAt         *time.Time     `json:"archived_at,omitempty"`
 }
 
 type CreateProductInput struct {
@@ -118,20 +118,20 @@ type UpdateSellingPointInput struct {
 }
 
 type ProductAssetService struct {
-	mu            sync.RWMutex
-	products      map[string]Product
-	sellingPoints map[string]SellingPoint
-	assets        map[string]Asset
+	mu                 sync.RWMutex
+	products           map[string]Product
+	sellingPoints      map[string]SellingPoint
+	assets             map[string]Asset
 	assetSellingPoints map[string][]string
-	queries       *db.Queries
-	assetRepo     *repository.AssetRepository
+	queries            *db.Queries
+	assetRepo          *repository.AssetRepository
 }
 
 func NewProductAssetService() *ProductAssetService {
 	return &ProductAssetService{
-		products:      map[string]Product{},
-		sellingPoints: map[string]SellingPoint{},
-		assets:        map[string]Asset{},
+		products:           map[string]Product{},
+		sellingPoints:      map[string]SellingPoint{},
+		assets:             map[string]Asset{},
 		assetSellingPoints: map[string][]string{},
 	}
 }
@@ -148,42 +148,42 @@ func (s *ProductAssetService) Queries() *db.Queries {
 }
 
 type CreateAssetInput struct {
-	ProductID         string
-	AssetName         string
-	StorageKey        string
-	FileName          string
-	FileExt           string
-	MimeType          string
-	FileSize          int64
-	Checksum          string
-	SourceType        string
-	IngestionSource   string
-	DurationMs        int
-	Width             int
-	Height            int
-	FPS               float64
-	Codec             string
-	Status            string
-	AnalysisStatus    string
-	UsabilityStatus   string
-	ManualCleanStatus string
-	SourcePath        string
+	ProductID          string
+	AssetName          string
+	StorageKey         string
+	FileName           string
+	FileExt            string
+	MimeType           string
+	FileSize           int64
+	Checksum           string
+	SourceType         string
+	IngestionSource    string
+	DurationMs         int
+	Width              int
+	Height             int
+	FPS                float64
+	Codec              string
+	Status             string
+	AnalysisStatus     string
+	UsabilityStatus    string
+	ManualCleanStatus  string
+	SourcePath         string
 	SourceOriginalName string
-	SourceInMs        int
-	SourceOutMs       int
-	HasAudio          bool
-	AudioCodec        string
-	BitrateKbps       int
-	SceneDescription  string
-	ShotSize          string
-	CameraMovement    string
-	Subjects          []string
-	SceneTags         []string
-	QualityTags       []string
-	ReviewerNotes     string
-	AnalysisError     string
-	SellingPointIDs   []string
-	CreatedByUserID   string
+	SourceInMs         int
+	SourceOutMs        int
+	HasAudio           bool
+	AudioCodec         string
+	BitrateKbps        int
+	SceneDescription   string
+	ShotSize           string
+	CameraMovement     string
+	Subjects           []string
+	SceneTags          []string
+	QualityTags        []string
+	ReviewerNotes      string
+	AnalysisError      string
+	SellingPointIDs    []string
+	CreatedByUserID    string
 }
 
 type AssetFilters struct {
@@ -237,6 +237,10 @@ type AssetReviewUpdate struct {
 	UpdatedByUserID  string
 }
 
+type AssetArchiveUpdate struct {
+	UpdatedByUserID string
+}
+
 func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error) {
 	if s.queries != nil {
 		return s.createAssetInPostgres(input)
@@ -276,46 +280,46 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 	}
 
 	asset := Asset{
-		ID:                uuid.NewString(),
-		ProductID:         input.ProductID,
-		AssetName:         assetName,
-		StorageKey:        input.StorageKey,
-		FileName:          input.FileName,
-		FileExt:           input.FileExt,
-		MimeType:          input.MimeType,
-		FileSize:          input.FileSize,
-		Checksum:          input.Checksum,
-		SourceType:        input.SourceType,
-		IngestionSource:   ingestionSource,
-		DurationMs:        input.DurationMs,
-		Width:             input.Width,
-		Height:            input.Height,
-		FPS:               input.FPS,
-		Codec:             input.Codec,
-		Status:            status,
-		AnalysisStatus:    analysisStatus,
-		UsabilityStatus:   usabilityStatus,
-		ManualCleanStatus: manualCleanStatus,
-		SourcePath:        input.SourcePath,
+		ID:                 uuid.NewString(),
+		ProductID:          input.ProductID,
+		AssetName:          assetName,
+		StorageKey:         input.StorageKey,
+		FileName:           input.FileName,
+		FileExt:            input.FileExt,
+		MimeType:           input.MimeType,
+		FileSize:           input.FileSize,
+		Checksum:           input.Checksum,
+		SourceType:         input.SourceType,
+		IngestionSource:    ingestionSource,
+		DurationMs:         input.DurationMs,
+		Width:              input.Width,
+		Height:             input.Height,
+		FPS:                input.FPS,
+		Codec:              input.Codec,
+		Status:             status,
+		AnalysisStatus:     analysisStatus,
+		UsabilityStatus:    usabilityStatus,
+		ManualCleanStatus:  manualCleanStatus,
+		SourcePath:         input.SourcePath,
 		SourceOriginalName: input.SourceOriginalName,
-		SourceInMs:        input.SourceInMs,
-		SourceOutMs:       input.SourceOutMs,
-		HasAudio:          input.HasAudio,
-		AudioCodec:        input.AudioCodec,
-		BitrateKbps:       input.BitrateKbps,
-		SceneDescription:  input.SceneDescription,
-		ShotSize:          input.ShotSize,
-		CameraMovement:    input.CameraMovement,
-		Subjects:          append([]string(nil), input.Subjects...),
-		SceneTags:         append([]string(nil), input.SceneTags...),
-		QualityTags:       append([]string(nil), input.QualityTags...),
-		ModelResult:       map[string]any{},
-		ReviewerNotes:     input.ReviewerNotes,
-		AnalysisError:     input.AnalysisError,
-		CreatedByUserID:   input.CreatedByUserID,
-		UpdatedByUserID:   input.CreatedByUserID,
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		SourceInMs:         input.SourceInMs,
+		SourceOutMs:        input.SourceOutMs,
+		HasAudio:           input.HasAudio,
+		AudioCodec:         input.AudioCodec,
+		BitrateKbps:        input.BitrateKbps,
+		SceneDescription:   input.SceneDescription,
+		ShotSize:           input.ShotSize,
+		CameraMovement:     input.CameraMovement,
+		Subjects:           append([]string(nil), input.Subjects...),
+		SceneTags:          append([]string(nil), input.SceneTags...),
+		QualityTags:        append([]string(nil), input.QualityTags...),
+		ModelResult:        map[string]any{},
+		ReviewerNotes:      input.ReviewerNotes,
+		AnalysisError:      input.AnalysisError,
+		CreatedByUserID:    input.CreatedByUserID,
+		UpdatedByUserID:    input.CreatedByUserID,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	s.assets[asset.ID] = asset
@@ -474,6 +478,49 @@ func (s *ProductAssetService) UpdateAssetReview(assetID string, update AssetRevi
 	asset.ReviewerNotes = update.ReviewerNotes
 	asset.UpdatedByUserID = update.UpdatedByUserID
 	asset.UpdatedAt = time.Now()
+	s.assets[assetID] = asset
+	return asset, nil
+}
+
+func (s *ProductAssetService) ArchiveAsset(assetID string, update AssetArchiveUpdate) (Asset, error) {
+	if s.queries != nil {
+		return s.archiveAssetInPostgres(assetID, update)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	asset, ok := s.assets[assetID]
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+
+	now := time.Now()
+	asset.Status = "archived"
+	asset.UpdatedByUserID = update.UpdatedByUserID
+	asset.UpdatedAt = now
+	asset.ArchivedAt = &now
+	s.assets[assetID] = asset
+	return asset, nil
+}
+
+func (s *ProductAssetService) RestoreAsset(assetID string, update AssetArchiveUpdate) (Asset, error) {
+	if s.queries != nil {
+		return s.restoreAssetInPostgres(assetID, update)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	asset, ok := s.assets[assetID]
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+
+	asset.Status = "ready"
+	asset.UpdatedByUserID = update.UpdatedByUserID
+	asset.UpdatedAt = time.Now()
+	asset.ArchivedAt = nil
 	s.assets[assetID] = asset
 	return asset, nil
 }
@@ -952,6 +999,36 @@ func (s *ProductAssetService) updateAssetReviewInPostgres(assetID string, update
 	return updated, nil
 }
 
+func (s *ProductAssetService) archiveAssetInPostgres(assetID string, update AssetArchiveUpdate) (Asset, error) {
+	if err := s.queries.ArchiveAsset(context.Background(), db.ArchiveAssetParams{
+		ID:              assetNullableUUIDParam(assetID),
+		UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
+	}); err != nil {
+		return Asset{}, err
+	}
+
+	updated, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+	return updated, nil
+}
+
+func (s *ProductAssetService) restoreAssetInPostgres(assetID string, update AssetArchiveUpdate) (Asset, error) {
+	if err := s.queries.RestoreAsset(context.Background(), db.RestoreAssetParams{
+		ID:              assetNullableUUIDParam(assetID),
+		UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
+	}); err != nil {
+		return Asset{}, err
+	}
+
+	updated, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+	return updated, nil
+}
+
 func AssetAnalysisUpdateFromResult(result modelgateway.AnalyzeAssetResult, analysisStatus string, analyzedAt time.Time) AssetAnalysisUpdate {
 	return AssetAnalysisUpdate{
 		AnalysisStatus:   analysisStatus,
@@ -995,95 +1072,95 @@ func sellingPointFromDB(row db.ProductSellingPoint) SellingPoint {
 
 func assetFromDBRecord(row repository.AssetRecord) Asset {
 	return Asset{
-		ID:                row.ID,
-		ProductID:         row.ProductID,
-		AssetName:         row.AssetName,
-		StorageKey:        row.StorageKey,
-		FileName:          row.FileName,
-		FileExt:           row.FileExt,
-		MimeType:          row.MimeType,
-		FileSize:          row.FileSize,
-		Checksum:          row.Checksum,
-		SourceType:        row.SourceType,
-		IngestionSource:   row.IngestionSource,
-		DurationMs:        row.DurationMs,
-		Width:             row.Width,
-		Height:            row.Height,
-		FPS:               row.FPS,
-		Codec:             row.Codec,
-		Status:            row.Status,
-		AnalysisStatus:    row.AnalysisStatus,
-		UsabilityStatus:   row.UsabilityStatus,
-		ManualCleanStatus: row.ManualCleanStatus,
-		SourcePath:        row.SourcePath,
+		ID:                 row.ID,
+		ProductID:          row.ProductID,
+		AssetName:          row.AssetName,
+		StorageKey:         row.StorageKey,
+		FileName:           row.FileName,
+		FileExt:            row.FileExt,
+		MimeType:           row.MimeType,
+		FileSize:           row.FileSize,
+		Checksum:           row.Checksum,
+		SourceType:         row.SourceType,
+		IngestionSource:    row.IngestionSource,
+		DurationMs:         row.DurationMs,
+		Width:              row.Width,
+		Height:             row.Height,
+		FPS:                row.FPS,
+		Codec:              row.Codec,
+		Status:             row.Status,
+		AnalysisStatus:     row.AnalysisStatus,
+		UsabilityStatus:    row.UsabilityStatus,
+		ManualCleanStatus:  row.ManualCleanStatus,
+		SourcePath:         row.SourcePath,
 		SourceOriginalName: row.SourceOriginalName,
-		SourceInMs:        row.SourceInMs,
-		SourceOutMs:       row.SourceOutMs,
-		HasAudio:          row.HasAudio,
-		AudioCodec:        row.AudioCodec,
-		BitrateKbps:       row.BitrateKbps,
-		SceneDescription:  row.SceneDescription,
-		ShotSize:          row.ShotSize,
-		CameraMovement:    row.CameraMovement,
-		Subjects:          decodeStringList(row.Subjects),
-		SceneTags:         decodeStringList(row.SceneTags),
-		QualityTags:       decodeStringList(row.QualityTags),
-		ModelResult:       jsonObject(row.ModelResult),
-		ReviewerNotes:     row.ReviewerNotes,
-		AnalysisError:     row.AnalysisError,
-		CreatedByUserID:   row.CreatedByUserID,
-		UpdatedByUserID:   row.UpdatedByUserID,
-		CreatedAt:         row.CreatedAt,
-		UpdatedAt:         row.UpdatedAt,
-		AnalyzedAt:        row.AnalyzedAt,
-		ArchivedAt:        row.ArchivedAt,
+		SourceInMs:         row.SourceInMs,
+		SourceOutMs:        row.SourceOutMs,
+		HasAudio:           row.HasAudio,
+		AudioCodec:         row.AudioCodec,
+		BitrateKbps:        row.BitrateKbps,
+		SceneDescription:   row.SceneDescription,
+		ShotSize:           row.ShotSize,
+		CameraMovement:     row.CameraMovement,
+		Subjects:           decodeStringList(row.Subjects),
+		SceneTags:          decodeStringList(row.SceneTags),
+		QualityTags:        decodeStringList(row.QualityTags),
+		ModelResult:        jsonObject(row.ModelResult),
+		ReviewerNotes:      row.ReviewerNotes,
+		AnalysisError:      row.AnalysisError,
+		CreatedByUserID:    row.CreatedByUserID,
+		UpdatedByUserID:    row.UpdatedByUserID,
+		CreatedAt:          row.CreatedAt,
+		UpdatedAt:          row.UpdatedAt,
+		AnalyzedAt:         row.AnalyzedAt,
+		ArchivedAt:         row.ArchivedAt,
 	}
 }
 
 func assetFromDBRow(row db.Asset) Asset {
 	return Asset{
-		ID:                assetUUIDString(row.ID),
-		ProductID:         assetUUIDString(row.ProductID),
-		AssetName:         assetTextString(row.AssetName),
-		StorageKey:        row.StorageKey,
-		FileName:          row.FileName,
-		FileExt:           assetTextString(row.FileExt),
-		MimeType:          assetTextString(row.MimeType),
-		FileSize:          row.FileSize,
-		Checksum:          assetTextString(row.Checksum),
-		SourceType:        row.SourceType,
-		IngestionSource:   row.IngestionSource,
-		DurationMs:        int4Value(row.DurationMs),
-		Width:             int4Value(row.Width),
-		Height:            int4Value(row.Height),
-		FPS:               numericValue(row.Fps),
-		Codec:             assetTextString(row.Codec),
-		Status:            row.Status,
-		AnalysisStatus:    row.AnalysisStatus,
-		UsabilityStatus:   row.UsabilityStatus,
-		ManualCleanStatus: row.ManualCleanStatus,
-		SourcePath:        assetTextString(row.SourcePath),
+		ID:                 assetUUIDString(row.ID),
+		ProductID:          assetUUIDString(row.ProductID),
+		AssetName:          assetTextString(row.AssetName),
+		StorageKey:         row.StorageKey,
+		FileName:           row.FileName,
+		FileExt:            assetTextString(row.FileExt),
+		MimeType:           assetTextString(row.MimeType),
+		FileSize:           row.FileSize,
+		Checksum:           assetTextString(row.Checksum),
+		SourceType:         row.SourceType,
+		IngestionSource:    row.IngestionSource,
+		DurationMs:         int4Value(row.DurationMs),
+		Width:              int4Value(row.Width),
+		Height:             int4Value(row.Height),
+		FPS:                numericValue(row.Fps),
+		Codec:              assetTextString(row.Codec),
+		Status:             row.Status,
+		AnalysisStatus:     row.AnalysisStatus,
+		UsabilityStatus:    row.UsabilityStatus,
+		ManualCleanStatus:  row.ManualCleanStatus,
+		SourcePath:         assetTextString(row.SourcePath),
 		SourceOriginalName: assetTextString(row.SourceOriginalName),
-		SourceInMs:        int4Value(row.SourceInMs),
-		SourceOutMs:       int4Value(row.SourceOutMs),
-		HasAudio:          row.HasAudio,
-		AudioCodec:        assetTextString(row.AudioCodec),
-		BitrateKbps:       int4Value(row.BitrateKbps),
-		SceneDescription:  assetTextString(row.SceneDescription),
-		ShotSize:          assetTextString(row.ShotSize),
-		CameraMovement:    assetTextString(row.CameraMovement),
-		Subjects:          decodeStringList(row.Subjects),
-		SceneTags:         decodeStringList(row.SceneTags),
-		QualityTags:       decodeStringList(row.QualityTags),
-		ModelResult:       jsonObject(row.ModelResult),
-		ReviewerNotes:     assetTextString(row.ReviewerNotes),
-		AnalysisError:     assetTextString(row.AnalysisError),
-		CreatedByUserID:   assetUUIDString(row.CreatedByUserID),
-		UpdatedByUserID:   assetUUIDString(row.UpdatedByUserID),
-		CreatedAt:         timeValue(row.CreatedAt),
-		UpdatedAt:         timeValue(row.UpdatedAt),
-		AnalyzedAt:        optionalTime(row.AnalyzedAt),
-		ArchivedAt:        optionalTime(row.ArchivedAt),
+		SourceInMs:         int4Value(row.SourceInMs),
+		SourceOutMs:        int4Value(row.SourceOutMs),
+		HasAudio:           row.HasAudio,
+		AudioCodec:         assetTextString(row.AudioCodec),
+		BitrateKbps:        int4Value(row.BitrateKbps),
+		SceneDescription:   assetTextString(row.SceneDescription),
+		ShotSize:           assetTextString(row.ShotSize),
+		CameraMovement:     assetTextString(row.CameraMovement),
+		Subjects:           decodeStringList(row.Subjects),
+		SceneTags:          decodeStringList(row.SceneTags),
+		QualityTags:        decodeStringList(row.QualityTags),
+		ModelResult:        jsonObject(row.ModelResult),
+		ReviewerNotes:      assetTextString(row.ReviewerNotes),
+		AnalysisError:      assetTextString(row.AnalysisError),
+		CreatedByUserID:    assetUUIDString(row.CreatedByUserID),
+		UpdatedByUserID:    assetUUIDString(row.UpdatedByUserID),
+		CreatedAt:          timeValue(row.CreatedAt),
+		UpdatedAt:          timeValue(row.UpdatedAt),
+		AnalyzedAt:         optionalTime(row.AnalyzedAt),
+		ArchivedAt:         optionalTime(row.ArchivedAt),
 	}
 }
 

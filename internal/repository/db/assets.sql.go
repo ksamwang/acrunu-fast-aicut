@@ -30,6 +30,25 @@ func (q *Queries) ArchiveAsset(ctx context.Context, arg ArchiveAssetParams) erro
 	return err
 }
 
+const restoreAsset = `-- name: RestoreAsset :exec
+UPDATE assets
+SET status = 'ready',
+    archived_at = NULL,
+    updated_by_user_id = $2,
+    updated_at = now()
+WHERE id = $1
+`
+
+type RestoreAssetParams struct {
+	ID              pgtype.UUID `json:"id"`
+	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
+}
+
+func (q *Queries) RestoreAsset(ctx context.Context, arg RestoreAssetParams) error {
+	_, err := q.db.Exec(ctx, restoreAsset, arg.ID, arg.UpdatedByUserID)
+	return err
+}
+
 const createAsset = `-- name: CreateAsset :one
 INSERT INTO assets (
     product_id,

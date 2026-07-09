@@ -50,3 +50,39 @@ func (s *Server) handleUpdateAssetReview(c *gin.Context) {
 
 	OK(c, asset)
 }
+
+func (s *Server) handleArchiveAsset(c *gin.Context) {
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+
+	asset, err := s.productAssetService.ArchiveAsset(c.Param("assetID"), services.AssetArchiveUpdate{
+		UpdatedByUserID: user.ID,
+	})
+	if err != nil {
+		handleProductError(c, err)
+		return
+	}
+
+	OK(c, asset)
+}
+
+func (s *Server) handleRestoreAsset(c *gin.Context) {
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+
+	asset, err := s.productAssetService.RestoreAsset(c.Param("assetID"), services.AssetArchiveUpdate{
+		UpdatedByUserID: user.ID,
+	})
+	if err != nil {
+		handleProductError(c, err)
+		return
+	}
+
+	OK(c, asset)
+}

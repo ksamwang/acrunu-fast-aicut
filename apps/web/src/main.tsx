@@ -386,6 +386,7 @@ function AssetsPage({ token }: { token: string }) {
   const [framesLoading, setFramesLoading] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState(false);
   const [savingAnalysis, setSavingAnalysis] = useState(false);
+  const [updatingArchive, setUpdatingArchive] = useState(false);
   const [reviewForm] = Form.useForm<AssetReviewPayload>();
 
   const assetPath = useMemo(() => {
@@ -492,6 +493,24 @@ function AssetsPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "Failed to update asset review");
     } finally {
       setSavingAnalysis(false);
+    }
+  };
+
+  const updateAssetArchiveState = async (asset: Asset, action: "archive" | "restore") => {
+    setUpdatingArchive(true);
+    try {
+      const updated = await apiRequest<Asset>(
+        `/api/assets/${asset.id}/${action}`,
+        { method: "POST" },
+        token
+      );
+      setSelectedAsset(updated);
+      await assets.reload();
+      message.success(action === "archive" ? "Asset archived" : "Asset restored");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : `Failed to ${action} asset`);
+    } finally {
+      setUpdatingArchive(false);
     }
   };
 
@@ -722,6 +741,26 @@ function AssetsPage({ token }: { token: string }) {
                       Save Review
                     </Button>
                   ) : null}
+                  {selectedAsset.status === "archived" ? (
+                    <Button
+                      size="small"
+                      loading={updatingArchive}
+                      onClick={() => void updateAssetArchiveState(selectedAsset, "restore")}
+                      data-testid="restore-asset"
+                    >
+                      Restore Asset
+                    </Button>
+                  ) : (
+                    <Button
+                      size="small"
+                      danger
+                      loading={updatingArchive}
+                      onClick={() => void updateAssetArchiveState(selectedAsset, "archive")}
+                      data-testid="archive-asset"
+                    >
+                      Archive Asset
+                    </Button>
+                  )}
                 </Space>
 
                 {editingAnalysis ? (

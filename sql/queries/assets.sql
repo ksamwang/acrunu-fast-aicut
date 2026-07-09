@@ -140,3 +140,11 @@ SET status = 'archived',
     updated_by_user_id = $2,
     updated_at = now()
 WHERE id = $1;
+
+-- name: RestoreAsset :exec
+UPDATE assets
+SET status = 'ready',
+    archived_at = NULL,
+    updated_by_user_id = $2,
+    updated_at = now()
+WHERE id = $1;

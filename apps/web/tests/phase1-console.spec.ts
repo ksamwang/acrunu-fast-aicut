@@ -23,7 +23,8 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     subjects: ["product"],
     scene_tags: ["indoor", "demo"],
     quality_tags: [] as string[],
-    reviewer_notes: ""
+    reviewer_notes: "",
+    archived_at: undefined as string | undefined
   };
   const filteredAsset = {
     ...asset,
@@ -120,6 +121,32 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     }
 
     if (url.includes("/api/assets")) {
+      if (url.includes("/api/assets/asset-1/archive") && route.request().method() === "POST") {
+        asset = {
+          ...asset,
+          status: "archived",
+          archived_at: "2026-07-08T00:01:00Z"
+        };
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({ data: asset })
+        });
+        return;
+      }
+
+      if (url.includes("/api/assets/asset-1/restore") && route.request().method() === "POST") {
+        asset = {
+          ...asset,
+          status: "ready",
+          archived_at: undefined
+        };
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({ data: asset })
+        });
+        return;
+      }
+
       if (url.includes("/api/assets/asset-1/review") && route.request().method() === "PUT") {
         const body = route.request().postDataJSON() as Record<string, unknown>;
         asset = {
@@ -298,6 +325,11 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await expect(page.getByText("manual revised description")).toBeVisible();
   await expect(page.getByText("reviewed by editor")).toBeVisible();
   await expect(page.getByText("soft_focus")).toBeVisible();
+  await expect(page.getByText("None")).toBeVisible();
+  await page.getByTestId("archive-asset").click();
+  await expect(page.getByText("archived")).toBeVisible();
+  await page.getByTestId("restore-asset").click();
+  await expect(page.getByTestId("archive-asset")).toBeVisible();
   await page.locator(".ant-modal-close").click();
   await expect(page.getByRole("dialog")).toBeHidden();
 

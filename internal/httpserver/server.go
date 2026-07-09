@@ -108,6 +108,8 @@ func (s *Server) routes() {
 	protected.GET("/assets/:assetID", s.handleGetAsset)
 	protected.GET("/assets/:assetID/frames", s.handleListAssetFrames)
 	protected.PUT("/assets/:assetID/review", s.handleUpdateAssetReview)
+	protected.POST("/assets/:assetID/archive", s.handleArchiveAsset)
+	protected.POST("/assets/:assetID/restore", s.handleRestoreAsset)
 	protected.POST("/tasks/test", s.handleCreateTestTask)
 	protected.GET("/tasks", s.handleListTasks)
 	protected.GET("/tasks/:taskID", s.handleGetTask)

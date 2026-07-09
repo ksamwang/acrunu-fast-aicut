@@ -81,3 +81,76 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 		t.Fatalf("expected updated user id editor-1, got %s", updated.UpdatedByUserID)
 	}
 }
+
+func TestHandleArchiveAndRestoreAsset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	asset, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "failed",
+		UsabilityStatus:   "needs_review",
+		ManualCleanStatus: "cleaned",
+		AnalysisError:     "mock provider failed",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	userToken := "Bearer " + makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	})
+
+	archiveReq := httptest.NewRequest(http.MethodPost, "/api/assets/"+asset.ID+"/archive", nil)
+	archiveReq.Header.Set("Authorization", userToken)
+	archiveRecorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(archiveRecorder, archiveReq)
+
+	if archiveRecorder.Code != http.StatusOK {
+		t.Fatalf("expected archive status 200, got %d, body=%s", archiveRecorder.Code, archiveRecorder.Body.String())
+	}
+
+	archived, ok := productAssetService.GetAsset(asset.ID)
+	if !ok {
+		t.Fatalf("expected asset to exist after archive")
+	}
+	if archived.Status != "archived" {
+		t.Fatalf("expected archived status, got %s", archived.Status)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatalf("expected archived_at to be set")
+	}
+
+	restoreReq := httptest.NewRequest(http.MethodPost, "/api/assets/"+asset.ID+"/restore", nil)
+	restoreReq.Header.Set("Authorization", userToken)
+	restoreRecorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(restoreRecorder, restoreReq)
+
+	if restoreRecorder.Code != http.StatusOK {
+		t.Fatalf("expected restore status 200, got %d, body=%s", restoreRecorder.Code, restoreRecorder.Body.String())
+	}
+
+	restored, ok := productAssetService.GetAsset(asset.ID)
+	if !ok {
+		t.Fatalf("expected asset to exist after restore")
+	}
+	if restored.Status != "ready" {
+		t.Fatalf("expected ready status after restore, got %s", restored.Status)
+	}
+	if restored.ArchivedAt != nil {
+		t.Fatalf("expected archived_at cleared after restore")
+	}
+}

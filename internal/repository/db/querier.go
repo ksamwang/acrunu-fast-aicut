@@ -39,6 +39,7 @@ type Querier interface {
 	ListSystemConfigs(ctx context.Context) ([]SystemConfig, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	RemoveAssetSellingPoint(ctx context.Context, arg RemoveAssetSellingPointParams) error
+	RestoreAsset(ctx context.Context, arg RestoreAssetParams) error
 	UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalysisParams) error
 	UpdateAssetMediaInfo(ctx context.Context, arg UpdateAssetMediaInfoParams) error
 	UpdateAssetReview(ctx context.Context, arg UpdateAssetReviewParams) error
