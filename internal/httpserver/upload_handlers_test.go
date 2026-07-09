@@ -6,6 +6,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -266,5 +268,90 @@ func TestHandleUploadCleanShotDetectsDuplicates(t *testing.T) {
 	duplicates, ok := second["duplicate_assets"].([]any)
 	if !ok || len(duplicates) != 1 {
 		t.Fatalf("expected one duplicate asset in response, got %#v", second["duplicate_assets"])
+	}
+}
+
+func TestHandleUploadCleanShotPersistsProbeFailureWithoutFrameTask(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	server := New(Options{
+		Config:              config.Config{StorageRoot: tempDir, QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	ffprobeScript := filepath.Join(tempDir, "ffprobe-fail.cmd")
+	if err := os.WriteFile(ffprobeScript, []byte("@echo off\r\nexit /b 1\r\n"), 0644); err != nil {
+		t.Fatalf("write ffprobe stub failed: %v", err)
+	}
+	t.Setenv("FFPROBE_PATH", ffprobeScript)
+
+	token, err := server.uploadTokenService.Create(product.ID, "user-1", 30*time.Minute)
+	if err != nil {
+		t.Fatalf("create upload token failed: %v", err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("source_type", "visual_only"); err != nil {
+		t.Fatalf("write source_type failed: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", "broken.txt")
+	if err != nil {
+		t.Fatalf("create form file failed: %v", err)
+	}
+	if _, err := part.Write([]byte("not-a-real-video")); err != nil {
+		t.Fatalf("write file content failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/uploads/clean-shot", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Upload-Token", token.Token)
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal upload response failed: %v", err)
+	}
+
+	assetPayload, ok := response.Data["asset"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected asset payload, got %#v", response.Data["asset"])
+	}
+	assetID, _ := assetPayload["id"].(string)
+	if assetID == "" {
+		t.Fatalf("expected asset id in response, got %#v", assetPayload)
+	}
+
+	asset, ok := productAssetService.GetAsset(assetID)
+	if !ok {
+		t.Fatalf("expected asset to persist after probe failure")
+	}
+	if asset.Status != "failed" {
+		t.Fatalf("expected asset status failed, got %s", asset.Status)
+	}
+	if asset.AnalysisStatus != "failed" {
+		t.Fatalf("expected analysis status failed, got %s", asset.AnalysisStatus)
+	}
+	if asset.AnalysisError == "" {
+		t.Fatalf("expected analysis error to be recorded")
+	}
+	if _, exists := response.Data["frame_task_id"]; exists {
+		t.Fatalf("expected no frame task when probe fails, got %#v", response.Data["frame_task_id"])
+	}
+	if _, exists := response.Data["probe_error"]; !exists {
+		t.Fatalf("expected probe_error in response")
 	}
 }

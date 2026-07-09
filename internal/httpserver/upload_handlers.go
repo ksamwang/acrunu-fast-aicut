@@ -106,8 +106,12 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 	probeResult, probeErr := ffmpeg.Probe(context.Background(), fullPath)
 	status := "ready"
+	analysisStatus := "pending_analysis"
+	analysisError := ""
 	if probeErr != nil {
 		status = "failed"
+		analysisStatus = "failed"
+		analysisError = probeErr.Error()
 	}
 
 	asset, err := s.productAssetService.CreateAsset(services.CreateAssetInput{
@@ -127,7 +131,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		FPS:                probeResult.FPS,
 		Codec:              probeResult.Codec,
 		Status:             status,
-		AnalysisStatus:     "pending_analysis",
+		AnalysisStatus:     analysisStatus,
 		UsabilityStatus:    usabilityStatus,
 		ManualCleanStatus:  manualCleanStatus,
 		SourcePath:         sourcePath,
@@ -136,6 +140,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		AudioCodec:         probeResult.AudioCodec,
 		BitrateKbps:        probeResult.BitrateKbps,
 		ReviewerNotes:      reviewerNotes,
+		AnalysisError:      analysisError,
 		SellingPointIDs:    sellingPointIDs,
 		CreatedByUserID:    token.UserID,
 	})
@@ -150,19 +155,21 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	if len(duplicates) > 0 {
 		response["duplicate_assets"] = duplicates
 	}
-	frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), token.UserID, asset.ProductID, servicesQueueExtractPayload(asset))
-	if taskErr != nil {
-		response["frame_task_error"] = taskErr.Error()
-	} else {
-		response["frame_task"] = frameTask
-	}
-	if frameTask.ID != "" {
-		response["frame_task_id"] = frameTask.ID
-	}
-	if frameTask.ID != "" {
-		if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(frameTask.ID, asset.ID, asset.StorageKey, asset.DurationMs); enqueueErr != nil {
-			_ = s.taskService.MarkFailed(c.Request.Context(), frameTask.ID, enqueueErr.Error())
-			response["frame_task_error"] = enqueueErr.Error()
+	if probeErr == nil {
+		frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), token.UserID, asset.ProductID, servicesQueueExtractPayload(asset))
+		if taskErr != nil {
+			response["frame_task_error"] = taskErr.Error()
+		} else {
+			response["frame_task"] = frameTask
+		}
+		if frameTask.ID != "" {
+			response["frame_task_id"] = frameTask.ID
+		}
+		if frameTask.ID != "" {
+			if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(frameTask.ID, asset.ID, asset.StorageKey, asset.DurationMs); enqueueErr != nil {
+				_ = s.taskService.MarkFailed(c.Request.Context(), frameTask.ID, enqueueErr.Error())
+				response["frame_task_error"] = enqueueErr.Error()
+			}
 		}
 	}
 	if probeErr != nil {
