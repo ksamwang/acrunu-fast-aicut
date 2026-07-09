@@ -869,11 +869,14 @@ function AssetsPage({ token }: { token: string }) {
     sellingPointID: "",
     sourceType: "",
     status: "",
+    usabilityStatus: "",
+    shotSize: "",
     tag: "",
     keyword: "",
     minDurationMs: "",
     maxDurationMs: "",
     hasAudio: "",
+    likelyHasSpeech: "",
     excludeDiscarded: "",
     sortBy: ""
   });
@@ -905,6 +908,12 @@ function AssetsPage({ token }: { token: string }) {
     if (filters.status) {
       params.set("status", filters.status);
     }
+    if (filters.usabilityStatus) {
+      params.set("usability_status", filters.usabilityStatus);
+    }
+    if (filters.shotSize) {
+      params.set("shot_size", filters.shotSize);
+    }
     if (filters.tag) {
       params.set("tag", filters.tag);
     }
@@ -919,6 +928,9 @@ function AssetsPage({ token }: { token: string }) {
     }
     if (filters.hasAudio) {
       params.set("has_audio", filters.hasAudio);
+    }
+    if (filters.likelyHasSpeech) {
+      params.set("likely_has_speech", filters.likelyHasSpeech);
     }
     if (filters.excludeDiscarded) {
       params.set("exclude_discarded", filters.excludeDiscarded);
@@ -1168,6 +1180,39 @@ function AssetsPage({ token }: { token: string }) {
                 setFilters((current) => ({ ...current, status: value ?? "" }));
               }}
             />
+            <Select
+              data-testid="asset-filter-usability-status"
+              value={filters.usabilityStatus || undefined}
+              placeholder="可用状态"
+              allowClear
+              style={{ minWidth: 160 }}
+              options={[
+                { value: "usable", label: "可用" },
+                { value: "needs_review", label: "待复核" },
+                { value: "discarded", label: "废弃" }
+              ]}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, usabilityStatus: value ?? "" }));
+              }}
+            />
+            <Select
+              data-testid="asset-filter-shot-size"
+              value={filters.shotSize || undefined}
+              placeholder="景别"
+              allowClear
+              style={{ minWidth: 160 }}
+              options={[
+                { value: "close_up", label: "特写" },
+                { value: "medium_close_up", label: "近景" },
+                { value: "medium_shot", label: "中景" },
+                { value: "wide_shot", label: "远景" }
+              ]}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, shotSize: value ?? "" }));
+              }}
+            />
             <Input
               data-testid="asset-filter-tag"
               value={filters.tag}
@@ -1224,6 +1269,21 @@ function AssetsPage({ token }: { token: string }) {
               }}
             />
             <Select
+              data-testid="asset-filter-likely-has-speech"
+              value={filters.likelyHasSpeech || undefined}
+              placeholder="是否有人声"
+              allowClear
+              style={{ minWidth: 160 }}
+              options={[
+                { value: "true", label: "有人声" },
+                { value: "false", label: "无人声" }
+              ]}
+              onChange={(value) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, likelyHasSpeech: value ?? "" }));
+              }}
+            />
+            <Select
               data-testid="asset-filter-exclude-discarded"
               value={filters.excludeDiscarded || undefined}
               placeholder="可用性"
@@ -1262,11 +1322,14 @@ function AssetsPage({ token }: { token: string }) {
                   sellingPointID: "",
                   sourceType: "",
                   status: "",
+                  usabilityStatus: "",
+                  shotSize: "",
                   tag: "",
                   keyword: "",
                   minDurationMs: "",
                   maxDurationMs: "",
                   hasAudio: "",
+                  likelyHasSpeech: "",
                   excludeDiscarded: "",
                   sortBy: ""
                 });

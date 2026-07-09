@@ -202,6 +202,75 @@ func TestHandleListAssetsSupportsKeywordDiscardedAndSort(t *testing.T) {
 	}
 }
 
+func TestHandleListAssetsSupportsShotSizeLikelyHasSpeechAndUsabilityFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	_, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "talk.mp4",
+		StorageKey:        "assets/talk.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		ShotSize:          "medium_close_up",
+		LikelyHasSpeech:   true,
+	})
+	if err != nil {
+		t.Fatalf("create asset talk failed: %v", err)
+	}
+	_, err = productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "visual.mp4",
+		StorageKey:        "assets/visual.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "needs_review",
+		ManualCleanStatus: "cleaned",
+		ShotSize:          "wide_shot",
+		LikelyHasSpeech:   false,
+	})
+	if err != nil {
+		t.Fatalf("create asset visual failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/assets?shot_size=medium_close_up&likely_has_speech=true&usability_status=usable", nil)
+	req.Header.Set("Authorization", "Bearer "+makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	}))
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data assetListResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if response.Data.Total != 1 || len(response.Data.Items) != 1 {
+		t.Fatalf("expected one filtered asset, got %+v", response.Data)
+	}
+	if response.Data.Items[0].FileName != "talk.mp4" {
+		t.Fatalf("expected talk.mp4, got %+v", response.Data.Items[0])
+	}
+}
+
 func TestHandleUploadCleanShotDetectsDuplicates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

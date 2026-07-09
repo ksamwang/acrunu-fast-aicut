@@ -217,12 +217,14 @@ type AssetFilters struct {
 	Status           string
 	AnalysisStatus   string
 	UsabilityStatus  string
+	ShotSize         string
 	SellingPointID   string
 	Tag              string
 	Keyword          string
 	MinDurationMs    *int
 	MaxDurationMs    *int
 	HasAudio         *bool
+	LikelyHasSpeech  *bool
 	ExcludeDiscarded bool
 	SortBy           string
 }
@@ -444,6 +446,9 @@ func (s *ProductAssetService) ListAssets(filters AssetFilters) []Asset {
 		if filters.UsabilityStatus != "" && asset.UsabilityStatus != filters.UsabilityStatus {
 			continue
 		}
+		if filters.ShotSize != "" && asset.ShotSize != filters.ShotSize {
+			continue
+		}
 		if filters.SellingPointID != "" && !containsSliceValue(s.assetSellingPoints[asset.ID], filters.SellingPointID) {
 			continue
 		}
@@ -464,6 +469,9 @@ func (s *ProductAssetService) ListAssets(filters AssetFilters) []Asset {
 			continue
 		}
 		if filters.HasAudio != nil && asset.HasAudio != *filters.HasAudio {
+			continue
+		}
+		if filters.LikelyHasSpeech != nil && asset.LikelyHasSpeech != *filters.LikelyHasSpeech {
 			continue
 		}
 		assets = append(assets, asset)
@@ -1197,11 +1205,13 @@ func (s *ProductAssetService) listAssetsFromPostgres(filters AssetFilters) []Ass
 		Status:          filters.Status,
 		AnalysisStatus:  filters.AnalysisStatus,
 		UsabilityStatus: filters.UsabilityStatus,
+		ShotSize:        filters.ShotSize,
 		SellingPointID:  filters.SellingPointID,
 		Tag:             filters.Tag,
 		MinDurationMs:   filters.MinDurationMs,
 		MaxDurationMs:   filters.MaxDurationMs,
 		HasAudio:        filters.HasAudio,
+		LikelyHasSpeech: filters.LikelyHasSpeech,
 	})
 	if err != nil {
 		return nil

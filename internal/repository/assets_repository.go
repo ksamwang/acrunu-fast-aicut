@@ -95,11 +95,13 @@ type AssetFilters struct {
 	Status          string
 	AnalysisStatus  string
 	UsabilityStatus string
+	ShotSize        string
 	SellingPointID  string
 	Tag             string
 	MinDurationMs   *int
 	MaxDurationMs   *int
 	HasAudio        *bool
+	LikelyHasSpeech *bool
 }
 
 type SpeechSegmentFilters struct {
@@ -156,11 +158,13 @@ func (r *AssetRepository) List(ctx context.Context, filters AssetFilters) ([]Ass
 		Status:          textParam(filters.Status),
 		AnalysisStatus:  textParam(filters.AnalysisStatus),
 		UsabilityStatus: textParam(filters.UsabilityStatus),
+		ShotSize:        textParam(filters.ShotSize),
 		SellingPointID:  nullableUUIDParam(filters.SellingPointID),
 		Tag:             textParam(filters.Tag),
 		MinDurationMs:   int4PtrParam(filters.MinDurationMs),
 		MaxDurationMs:   int4PtrParam(filters.MaxDurationMs),
 		HasAudio:        boolPtrParam(filters.HasAudio),
+		LikelyHasSpeech: boolPtrParam(filters.LikelyHasSpeech),
 	})
 	if err != nil {
 		return nil, err

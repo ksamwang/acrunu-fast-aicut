@@ -275,6 +275,57 @@ func TestListAssetsSupportsTagDurationAudioAndSellingPointFilters(t *testing.T) 
 	}
 }
 
+func TestListAssetsSupportsShotSizeLikelyHasSpeechAndUsabilityFilters(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+
+	_, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		ShotSize:          "medium_close_up",
+		LikelyHasSpeech:   true,
+	})
+	if err != nil {
+		t.Fatalf("create asset a failed: %v", err)
+	}
+
+	_, err = service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "b.mp4",
+		StorageKey:        "assets/b.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "needs_review",
+		ManualCleanStatus: "cleaned",
+		ShotSize:          "wide_shot",
+		LikelyHasSpeech:   false,
+	})
+	if err != nil {
+		t.Fatalf("create asset b failed: %v", err)
+	}
+
+	likelyHasSpeech := true
+	filtered := service.ListAssets(AssetFilters{
+		ShotSize:        "medium_close_up",
+		UsabilityStatus: "usable",
+		LikelyHasSpeech: &likelyHasSpeech,
+	})
+
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered asset, got %d", len(filtered))
+	}
+	if filtered[0].FileName != "a.mp4" {
+		t.Fatalf("expected filtered asset a.mp4, got %s", filtered[0].FileName)
+	}
+}
+
 func TestArchiveAndRestoreAssetInMemory(t *testing.T) {
 	service := NewProductAssetService()
 	product := service.CreateProduct(CreateProductInput{Name: "P1"})
