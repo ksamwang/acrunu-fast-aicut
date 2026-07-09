@@ -158,6 +158,82 @@ type SystemConfig = {
 
 type ViewKey = "products" | "assets" | "tasks" | "settings";
 
+const roleLabels: Record<string, string> = {
+  admin: "管理员",
+  user: "用户"
+};
+
+const productStatusLabels: Record<string, string> = {
+  active: "启用",
+  archived: "已归档"
+};
+
+const assetStatusLabels: Record<string, string> = {
+  active: "启用",
+  archived: "已归档",
+  uploaded: "已上传",
+  ready: "可用"
+};
+
+const analysisStatusLabels: Record<string, string> = {
+  pending_analysis: "待分析",
+  analyzing: "分析中",
+  ready: "已完成",
+  failed: "失败"
+};
+
+const sourceTypeLabels: Record<string, string> = {
+  visual_only: "纯画面",
+  talking_head: "口播",
+  "local-agent": "本地代理",
+  "server-upload": "服务端上传",
+  "manual-import": "手动导入"
+};
+
+const usabilityStatusLabels: Record<string, string> = {
+  usable: "可用",
+  needs_review: "待复核",
+  discarded: "废弃"
+};
+
+const manualCleanStatusLabels: Record<string, string> = {
+  cleaned: "已清洗"
+};
+
+const shotSizeLabels: Record<string, string> = {
+  close_up: "特写",
+  medium_close_up: "近景",
+  medium_shot: "中景",
+  wide_shot: "远景"
+};
+
+const cameraMovementLabels: Record<string, string> = {
+  static: "固定机位",
+  slow_push_in: "缓慢推进",
+  pan: "平移",
+  handheld: "手持"
+};
+
+const taskStatusLabels: Record<string, string> = {
+  queued: "排队中",
+  running: "执行中",
+  completed: "已完成",
+  failed: "失败"
+};
+
+const taskTypeLabels: Record<string, string> = {
+  asset_analyze: "素材分析",
+  asset_extract_frames: "素材抽帧",
+  test: "测试任务"
+};
+
+function translateValue(value: string | undefined | null, labels: Record<string, string>) {
+  if (!value) {
+    return "-";
+  }
+  return labels[value] ?? value;
+}
+
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -170,7 +246,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
 
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "Request failed");
+    throw new Error(payload?.error?.message ?? "请求失败");
   }
   return payload.data as T;
 }
@@ -189,7 +265,7 @@ function useResource<T>(path: string | null, token: string, deps: React.Dependen
     try {
       setData(await apiRequest<T>(path, {}, token));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Load failed");
+      message.error(error instanceof Error ? error.message : "加载失败");
     } finally {
       setLoading(false);
     }
@@ -250,7 +326,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
 
   return (
     <div className="login-shell" data-testid="login-page">
-      <Card className="login-card" title="AICut Console">
+      <Card className="login-card" title="AICut 控制台">
         <Form
           layout="vertical"
           initialValues={{ username: "admin", password: "admin" }}
@@ -263,20 +339,20 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
               });
               onLogin(session);
             } catch (error) {
-              message.error(error instanceof Error ? error.message : "Login failed");
+              message.error(error instanceof Error ? error.message : "登录失败");
             } finally {
               setLoading(false);
             }
           }}
         >
-          <Form.Item name="username" label="Username" rules={[{ required: true }]}>
+          <Form.Item name="username" label="用户名" rules={[{ required: true, message: "请输入用户名" }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="password" label="Password" rules={[{ required: true }]}>
+          <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
             <Input.Password />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={loading} block data-testid="login-submit">
-            Sign In
+            登录
           </Button>
         </Form>
       </Card>
@@ -325,7 +401,7 @@ function ProductsPage({ token }: { token: string }) {
 
   const createSellingPoint = async () => {
     if (!selectedProductID) {
-      message.warning("Select a product first");
+      message.warning("请先选择产品");
       return;
     }
     const values = await sellingPointForm.validateFields();
@@ -347,8 +423,8 @@ function ProductsPage({ token }: { token: string }) {
 
   return (
     <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>Products</Typography.Title>
-      <Card title="Product List" extra={<Button type="primary" onClick={() => setProductOpen(true)}>New Product</Button>}>
+      <Typography.Title level={3}>产品</Typography.Title>
+      <Card title="产品列表" extra={<Button type="primary" onClick={() => setProductOpen(true)}>新建产品</Button>}>
         <Table<Product>
           rowKey="id"
           loading={products.loading}
@@ -359,31 +435,31 @@ function ProductsPage({ token }: { token: string }) {
           } })}
           rowClassName={(record) => (record.id === selectedProductID ? "selected-row" : "")}
           columns={[
-            { title: "Product", dataIndex: "name" },
-            { title: "Category", dataIndex: "category" },
-            { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> }
+            { title: "产品", dataIndex: "name" },
+            { title: "分类", dataIndex: "category" },
+            { title: "状态", dataIndex: "status", render: (status) => <Tag>{translateValue(status, productStatusLabels)}</Tag> }
           ]}
         />
       </Card>
-      <Card title="Product Stats">
+      <Card title="产品统计">
         {selectedProduct ? (
           <Descriptions bordered column={3} size="small">
-            <Descriptions.Item label="Product">{selectedProduct.name}</Descriptions.Item>
-            <Descriptions.Item label="Assets">
+            <Descriptions.Item label="产品">{selectedProduct.name}</Descriptions.Item>
+            <Descriptions.Item label="素材数">
               <span data-testid="product-asset-count">{productStats.data?.asset_count ?? 0}</span>
             </Descriptions.Item>
-            <Descriptions.Item label="Usable">
+            <Descriptions.Item label="可用素材">
               <span data-testid="product-usable-asset-count">{productStats.data?.usable_asset_count ?? 0}</span>
             </Descriptions.Item>
-            <Descriptions.Item label="Pending Analysis">
+            <Descriptions.Item label="待分析">
               <span data-testid="product-pending-analysis-count">{productStats.data?.pending_analysis_count ?? 0}</span>
             </Descriptions.Item>
           </Descriptions>
         ) : (
-          <Typography.Text type="secondary">Select a product to view stats.</Typography.Text>
+          <Typography.Text type="secondary">请选择一个产品查看统计信息。</Typography.Text>
         )}
       </Card>
-      <Card title="Selling Points" extra={<Button disabled={!selectedProductID} onClick={() => setSellingPointOpen(true)}>New Selling Point</Button>}>
+      <Card title="卖点" extra={<Button disabled={!selectedProductID} onClick={() => setSellingPointOpen(true)}>新建卖点</Button>}>
         <Table<SellingPoint>
           rowKey="id"
           loading={sellingPoints.loading}
@@ -391,14 +467,14 @@ function ProductsPage({ token }: { token: string }) {
           onRow={(record) => ({ onClick: () => setSelectedSellingPointID(record.id) })}
           rowClassName={(record) => (record.id === selectedSellingPointID ? "selected-row" : "")}
           columns={[
-            { title: "Title", dataIndex: "title" },
-            { title: "Priority", dataIndex: "priority" },
-            { title: "Assets", dataIndex: "asset_count", render: (value) => value ?? 0 },
-            { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> }
+            { title: "标题", dataIndex: "title" },
+            { title: "优先级", dataIndex: "priority" },
+            { title: "关联素材", dataIndex: "asset_count", render: (value) => value ?? 0 },
+            { title: "状态", dataIndex: "status", render: (status) => <Tag>{translateValue(status, productStatusLabels)}</Tag> }
           ]}
         />
       </Card>
-      <Card title="Selling Point Assets">
+      <Card title="卖点关联素材">
         {selectedSellingPoint ? (
           <Table<Asset>
             rowKey="id"
@@ -406,41 +482,41 @@ function ProductsPage({ token }: { token: string }) {
             dataSource={sellingPointAssets.data ?? []}
             pagination={false}
             columns={[
-              { title: "Selling Point", render: () => selectedSellingPoint.title },
-              { title: "Asset", render: (_, asset) => asset.asset_name || asset.file_name },
-              { title: "Type", dataIndex: "source_type" },
-              { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
-              { title: "Analysis", dataIndex: "analysis_status", render: (status) => status || "-" }
+              { title: "卖点", render: () => selectedSellingPoint.title },
+              { title: "素材", render: (_, asset) => asset.asset_name || asset.file_name },
+              { title: "类型", dataIndex: "source_type", render: (value) => translateValue(value, sourceTypeLabels) },
+              { title: "状态", dataIndex: "status", render: (status) => <Tag>{translateValue(status, assetStatusLabels)}</Tag> },
+              { title: "分析状态", dataIndex: "analysis_status", render: (status) => translateValue(status, analysisStatusLabels) }
             ]}
           />
         ) : (
-          <Typography.Text type="secondary">Select a selling point to view related assets.</Typography.Text>
+          <Typography.Text type="secondary">请选择一个卖点查看关联素材。</Typography.Text>
         )}
       </Card>
 
-      <Modal title="New Product" open={productOpen} onOk={createProduct} onCancel={() => setProductOpen(false)}>
+      <Modal title="新建产品" open={productOpen} onOk={createProduct} onCancel={() => setProductOpen(false)} okText="确认" cancelText="取消">
         <Form form={productForm} layout="vertical">
-          <Form.Item name="name" label="Product Name" rules={[{ required: true }]}>
+          <Form.Item name="name" label="产品名称" rules={[{ required: true, message: "请输入产品名称" }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="category" label="Category">
+          <Form.Item name="category" label="分类">
             <Input />
           </Form.Item>
-          <Form.Item name="description" label="Description">
+          <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
       </Modal>
 
-      <Modal title="New Selling Point" open={sellingPointOpen} onOk={createSellingPoint} onCancel={() => setSellingPointOpen(false)}>
+      <Modal title="新建卖点" open={sellingPointOpen} onOk={createSellingPoint} onCancel={() => setSellingPointOpen(false)} okText="确认" cancelText="取消">
         <Form form={sellingPointForm} layout="vertical">
-          <Form.Item name="title" label="Title" rules={[{ required: true }]}>
+          <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入卖点标题" }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="priority" label="Priority" initialValue={0}>
+          <Form.Item name="priority" label="优先级" initialValue={0}>
             <InputNumber min={0} />
           </Form.Item>
-          <Form.Item name="description" label="Description">
+          <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
@@ -552,7 +628,7 @@ function AssetsPage({ token }: { token: string }) {
         setFrames(response.frames);
       } catch (error) {
         setFrames([]);
-        message.error(error instanceof Error ? error.message : "Failed to load frame previews");
+        message.error(error instanceof Error ? error.message : "加载抽帧预览失败");
       } finally {
         setFramesLoading(false);
       }
@@ -569,7 +645,7 @@ function AssetsPage({ token }: { token: string }) {
         });
       } catch (error) {
         setAssetSellingPoints([]);
-        message.error(error instanceof Error ? error.message : "Failed to load asset selling points");
+        message.error(error instanceof Error ? error.message : "加载素材卖点失败");
       }
     };
 
@@ -621,9 +697,9 @@ function AssetsPage({ token }: { token: string }) {
       setSelectedAsset(updated);
       setEditingAnalysis(false);
       await assets.reload();
-      message.success("Asset review updated");
+      message.success("素材复核已更新");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Failed to update asset review");
+      message.error(error instanceof Error ? error.message : "更新素材复核失败");
     } finally {
       setSavingAnalysis(false);
     }
@@ -639,9 +715,9 @@ function AssetsPage({ token }: { token: string }) {
       );
       setSelectedAsset(updated);
       await assets.reload();
-      message.success(action === "archive" ? "Asset archived" : "Asset restored");
+      message.success(action === "archive" ? "素材已归档" : "素材已恢复");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : `Failed to ${action} asset`);
+      message.error(error instanceof Error ? error.message : "更新素材状态失败");
     } finally {
       setUpdatingArchive(false);
     }
@@ -664,9 +740,9 @@ function AssetsPage({ token }: { token: string }) {
         token
       );
       setAssetSellingPoints(updated);
-      message.success("Asset selling points updated");
+      message.success("素材卖点关联已更新");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Failed to update asset selling points");
+      message.error(error instanceof Error ? error.message : "更新素材卖点失败");
     } finally {
       setSavingSellingPoints(false);
     }
@@ -675,19 +751,19 @@ function AssetsPage({ token }: { token: string }) {
   return (
     <div data-testid="assets-page">
       <Space direction="vertical" size="middle" className="page-stack">
-        <Typography.Title level={3}>Asset Library</Typography.Title>
-        <Card title="Local Agent Entry">
+        <Typography.Title level={3}>素材库</Typography.Title>
+        <Card title="本地代理入口">
           <Space direction="vertical" className="wide-space">
             <Input defaultValue="http://127.0.0.1:58721" />
-            <Button type="primary">Open Local Agent</Button>
+            <Button type="primary">打开本地代理</Button>
           </Space>
         </Card>
-        <Card title="Filters">
+        <Card title="筛选条件">
           <Space wrap>
             <Select
               data-testid="asset-filter-product"
               value={filters.productID || undefined}
-              placeholder="Product"
+              placeholder="产品"
               allowClear
               style={{ minWidth: 180 }}
               options={(products.data ?? []).map((product) => ({ value: product.id, label: product.name }))}
@@ -701,7 +777,7 @@ function AssetsPage({ token }: { token: string }) {
             <Select
               data-testid="asset-filter-selling-point"
               value={filters.sellingPointID || undefined}
-              placeholder="Selling Point"
+              placeholder="卖点"
               allowClear
               style={{ minWidth: 180 }}
               disabled={!filters.productID}
@@ -714,12 +790,12 @@ function AssetsPage({ token }: { token: string }) {
             <Select
               data-testid="asset-filter-source-type"
               value={filters.sourceType || undefined}
-              placeholder="Source Type"
+              placeholder="素材类型"
               allowClear
               style={{ minWidth: 160 }}
               options={[
-                { value: "visual_only", label: "visual_only" },
-                { value: "talking_head", label: "talking_head" }
+                { value: "visual_only", label: "纯画面" },
+                { value: "talking_head", label: "口播" }
               ]}
               onChange={(value) => {
                 setAssetPage(1);
@@ -729,14 +805,14 @@ function AssetsPage({ token }: { token: string }) {
             <Select
               data-testid="asset-filter-status"
               value={filters.status || undefined}
-              placeholder="Status"
+              placeholder="状态"
               allowClear
               style={{ minWidth: 160 }}
               options={[
-                { value: "ready", label: "ready" },
-                { value: "failed", label: "failed" },
-                { value: "uploaded", label: "uploaded" },
-                { value: "archived", label: "archived" }
+                { value: "ready", label: "已完成" },
+                { value: "failed", label: "失败" },
+                { value: "uploaded", label: "已上传" },
+                { value: "archived", label: "已归档" }
               ]}
               onChange={(value) => {
                 setAssetPage(1);
@@ -746,7 +822,7 @@ function AssetsPage({ token }: { token: string }) {
             <Input
               data-testid="asset-filter-tag"
               value={filters.tag}
-              placeholder="Tag"
+              placeholder="标签"
               style={{ width: 180 }}
               onChange={(event) => {
                 setAssetPage(1);
@@ -756,7 +832,7 @@ function AssetsPage({ token }: { token: string }) {
             <Input
               data-testid="asset-filter-keyword"
               value={filters.keyword}
-              placeholder="Scene keyword"
+              placeholder="画面关键词"
               style={{ width: 180 }}
               onChange={(event) => {
                 setAssetPage(1);
@@ -766,7 +842,7 @@ function AssetsPage({ token }: { token: string }) {
             <Input
               data-testid="asset-filter-min-duration"
               value={filters.minDurationMs}
-              placeholder="Min ms"
+              placeholder="最小时长毫秒"
               style={{ width: 120 }}
               onChange={(event) => {
                 setAssetPage(1);
@@ -776,7 +852,7 @@ function AssetsPage({ token }: { token: string }) {
             <Input
               data-testid="asset-filter-max-duration"
               value={filters.maxDurationMs}
-              placeholder="Max ms"
+              placeholder="最大时长毫秒"
               style={{ width: 120 }}
               onChange={(event) => {
                 setAssetPage(1);
@@ -786,12 +862,12 @@ function AssetsPage({ token }: { token: string }) {
             <Select
               data-testid="asset-filter-has-audio"
               value={filters.hasAudio || undefined}
-              placeholder="Has Audio"
+              placeholder="是否含音频"
               allowClear
               style={{ minWidth: 140 }}
               options={[
-                { value: "true", label: "audio only" },
-                { value: "false", label: "mute only" }
+                { value: "true", label: "是" },
+                { value: "false", label: "否" }
               ]}
               onChange={(value) => {
                 setAssetPage(1);
@@ -801,11 +877,11 @@ function AssetsPage({ token }: { token: string }) {
             <Select
               data-testid="asset-filter-exclude-discarded"
               value={filters.excludeDiscarded || undefined}
-              placeholder="Availability"
+              placeholder="可用性"
               allowClear
               style={{ minWidth: 160 }}
               options={[
-                { value: "true", label: "exclude discarded" }
+                { value: "true", label: "排除废弃" }
               ]}
               onChange={(value) => {
                 setAssetPage(1);
@@ -815,12 +891,12 @@ function AssetsPage({ token }: { token: string }) {
             <Select
               data-testid="asset-filter-sort"
               value={filters.sortBy || undefined}
-              placeholder="Sort"
+              placeholder="排序"
               allowClear
               style={{ minWidth: 180 }}
               options={[
-                { value: "updated_at_desc", label: "recently updated" },
-                { value: "analyzed_at_desc", label: "recently analyzed" }
+                { value: "updated_at_desc", label: "最近更新时间" },
+                { value: "analyzed_at_desc", label: "最近分析时间" }
               ]}
               onChange={(value) => {
                 setAssetPage(1);
@@ -828,6 +904,7 @@ function AssetsPage({ token }: { token: string }) {
               }}
             />
             <Button
+              data-testid="asset-filter-reset"
               onClick={() => {
                 setAssetPage(1);
                 setAssetPageSize(20);
@@ -847,12 +924,12 @@ function AssetsPage({ token }: { token: string }) {
                 setProductForSellingPoints("");
               }}
             >
-              Reset
+              重置
             </Button>
-            <Button onClick={assets.reload}>Refresh</Button>
+            <Button data-testid="asset-filter-refresh" onClick={assets.reload}>刷新</Button>
           </Space>
         </Card>
-        <Card title="Assets">
+        <Card title="素材列表">
           <Table<Asset>
             rowKey="id"
             loading={assets.loading}
@@ -871,38 +948,38 @@ function AssetsPage({ token }: { token: string }) {
             onRow={(record) => ({ onClick: () => setSelectedAsset(record) })}
             columns={[
               {
-                title: "Asset",
+                title: "素材",
                 render: (_, asset) => (
                   <Button type="link" className="table-link-button" onClick={() => setSelectedAsset(asset)}>
                     {asset.asset_name || asset.file_name}
                   </Button>
                 )
               },
-              { title: "File", dataIndex: "file_name" },
+              { title: "文件", dataIndex: "file_name" },
               {
-                title: "Product",
+                title: "产品",
                 render: (_, asset) => productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"
               },
-              { title: "Type", dataIndex: "source_type" },
-              { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
+              { title: "类型", dataIndex: "source_type", render: (value) => translateValue(value, sourceTypeLabels) },
+              { title: "状态", dataIndex: "status", render: (status) => <Tag>{translateValue(status, assetStatusLabels)}</Tag> },
               {
-                title: "Analysis",
+                title: "分析状态",
                 dataIndex: "analysis_status",
-                render: (status) => (status ? <Tag color="blue">{status}</Tag> : "-")
+                render: (status) => (status ? <Tag color="blue">{translateValue(status, analysisStatusLabels)}</Tag> : "-")
               },
-              { title: "Duration", render: (_, asset) => formatDuration(asset.duration_ms) },
+              { title: "时长", render: (_, asset) => formatDuration(asset.duration_ms) },
               {
-                title: "Shot Size",
+                title: "景别",
                 dataIndex: "shot_size",
-                render: (value) => value || "-"
+                render: (value) => translateValue(value, shotSizeLabels)
               },
               {
-                title: "Movement",
+                title: "运镜",
                 dataIndex: "camera_movement",
-                render: (value) => value || "-"
+                render: (value) => translateValue(value, cameraMovementLabels)
               },
               {
-                title: "Tags",
+                title: "标签",
                 render: (_, asset) => (
                   <Typography.Text className="summary-text">
                     {asset.scene_tags && asset.scene_tags.length > 0
@@ -914,7 +991,7 @@ function AssetsPage({ token }: { token: string }) {
                 )
               },
               {
-                title: "Resolution",
+                title: "分辨率",
                 render: (_, asset) => (asset.width && asset.height ? `${asset.width}x${asset.height}` : "-")
               }
             ]}
@@ -923,7 +1000,7 @@ function AssetsPage({ token }: { token: string }) {
       </Space>
 
       <Modal
-        title={selectedAsset ? `Asset Detail: ${selectedAsset.asset_name || selectedAsset.file_name}` : "Asset Detail"}
+        title={selectedAsset ? `素材详情：${selectedAsset.asset_name || selectedAsset.file_name}` : "素材详情"}
         open={selectedAsset !== null}
         footer={null}
         width={960}
@@ -932,24 +1009,26 @@ function AssetsPage({ token }: { token: string }) {
         {selectedAsset ? (
           <Space direction="vertical" size="large" className="wide-space" data-testid="asset-detail-modal">
             <Descriptions bordered column={2} size="small">
-              <Descriptions.Item label="File">{selectedAsset.file_name}</Descriptions.Item>
-              <Descriptions.Item label="Source Type">{selectedAsset.source_type}</Descriptions.Item>
-              <Descriptions.Item label="Status">{selectedAsset.status}</Descriptions.Item>
-              <Descriptions.Item label="Analysis">{selectedAsset.analysis_status || "-"}</Descriptions.Item>
-              <Descriptions.Item label="Duration">{formatDuration(selectedAsset.duration_ms)}</Descriptions.Item>
-              <Descriptions.Item label="Resolution">
+              <Descriptions.Item label="文件">{selectedAsset.file_name}</Descriptions.Item>
+              <Descriptions.Item label="素材类型">{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Descriptions.Item>
+              <Descriptions.Item label="状态">{translateValue(selectedAsset.status, assetStatusLabels)}</Descriptions.Item>
+              <Descriptions.Item label="分析状态">{translateValue(selectedAsset.analysis_status, analysisStatusLabels)}</Descriptions.Item>
+              <Descriptions.Item label="时长">{formatDuration(selectedAsset.duration_ms)}</Descriptions.Item>
+              <Descriptions.Item label="分辨率">
                 {selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}x${selectedAsset.height}` : "-"}
               </Descriptions.Item>
-              <Descriptions.Item label="FPS">{selectedAsset.fps ?? "-"}</Descriptions.Item>
-              <Descriptions.Item label="Codec">{selectedAsset.codec || "-"}</Descriptions.Item>
-              <Descriptions.Item label="Has Audio">{selectedAsset.has_audio ? "yes" : "no"}</Descriptions.Item>
-              <Descriptions.Item label="Audio Codec">{selectedAsset.audio_codec || "-"}</Descriptions.Item>
-              <Descriptions.Item label="Bitrate">{selectedAsset.bitrate_kbps ? `${selectedAsset.bitrate_kbps} kbps` : "-"}</Descriptions.Item>
-              <Descriptions.Item label="Manual Clean">{selectedAsset.manual_clean_status || "-"}</Descriptions.Item>
-              <Descriptions.Item label="Usability">{selectedAsset.usability_status || "-"}</Descriptions.Item>
+              <Descriptions.Item label="帧率">{selectedAsset.fps ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="视频编码">{selectedAsset.codec || "-"}</Descriptions.Item>
+              <Descriptions.Item label="是否含音频">{selectedAsset.has_audio ? "是" : "否"}</Descriptions.Item>
+              <Descriptions.Item label="音频编码">{selectedAsset.audio_codec || "-"}</Descriptions.Item>
+              <Descriptions.Item label="码率">{selectedAsset.bitrate_kbps ? `${selectedAsset.bitrate_kbps} kbps` : "-"}</Descriptions.Item>
+              <Descriptions.Item label="人工清洗状态">
+                {translateValue(selectedAsset.manual_clean_status, manualCleanStatusLabels)}
+              </Descriptions.Item>
+              <Descriptions.Item label="可用性">{translateValue(selectedAsset.usability_status, usabilityStatusLabels)}</Descriptions.Item>
             </Descriptions>
 
-            <Card title="Analysis Summary">
+            <Card title="分析摘要">
               <Space direction="vertical" className="wide-space">
                 <Space>
                   <Button
@@ -968,11 +1047,11 @@ function AssetsPage({ token }: { token: string }) {
                       });
                     }}
                   >
-                    {editingAnalysis ? "Cancel Edit" : "Edit Tags"}
+                    {editingAnalysis ? "取消编辑" : "编辑标签"}
                   </Button>
                   {editingAnalysis ? (
                     <Button type="primary" size="small" loading={savingAnalysis} onClick={saveAnalysisReview} data-testid="save-asset-review">
-                      Save Review
+                      保存复核
                     </Button>
                   ) : null}
                   {selectedAsset.status === "archived" ? (
@@ -982,7 +1061,7 @@ function AssetsPage({ token }: { token: string }) {
                       onClick={() => void updateAssetArchiveState(selectedAsset, "restore")}
                       data-testid="restore-asset"
                     >
-                      Restore Asset
+                      恢复素材
                     </Button>
                   ) : (
                     <Button
@@ -992,105 +1071,105 @@ function AssetsPage({ token }: { token: string }) {
                       onClick={() => void updateAssetArchiveState(selectedAsset, "archive")}
                       data-testid="archive-asset"
                     >
-                      Archive Asset
+                      归档素材
                     </Button>
                   )}
                 </Space>
 
                 {editingAnalysis ? (
                   <Form form={reviewForm} layout="vertical" data-testid="asset-review-form">
-                    <Form.Item name="scene_description" label="Scene Description">
+                    <Form.Item name="scene_description" label="画面描述">
                       <Input.TextArea rows={3} />
                     </Form.Item>
-                    <Form.Item name="shot_size" label="Shot Size">
+                    <Form.Item name="shot_size" label="景别">
                       <Select
                         allowClear
                         options={[
-                          { value: "close_up", label: "close_up" },
-                          { value: "medium_close_up", label: "medium_close_up" },
-                          { value: "medium_shot", label: "medium_shot" },
-                          { value: "wide_shot", label: "wide_shot" }
+                          { value: "close_up", label: "特写" },
+                          { value: "medium_close_up", label: "近景" },
+                          { value: "medium_shot", label: "中景" },
+                          { value: "wide_shot", label: "远景" }
                         ]}
                       />
                     </Form.Item>
-                    <Form.Item name="camera_movement" label="Camera Movement">
+                    <Form.Item name="camera_movement" label="运镜">
                       <Select
                         allowClear
                         options={[
-                          { value: "static", label: "static" },
-                          { value: "slow_push_in", label: "slow_push_in" },
-                          { value: "pan", label: "pan" },
-                          { value: "handheld", label: "handheld" }
+                          { value: "static", label: "固定机位" },
+                          { value: "slow_push_in", label: "缓慢推进" },
+                          { value: "pan", label: "平移" },
+                          { value: "handheld", label: "手持" }
                         ]}
                       />
                     </Form.Item>
-                    <Form.Item name="subjects" label="Subjects">
+                    <Form.Item name="subjects" label="主体标签">
                       <Select mode="tags" tokenSeparators={[","]} open={false} />
                     </Form.Item>
-                    <Form.Item name="scene_tags" label="Scene Tags">
+                    <Form.Item name="scene_tags" label="场景标签">
                       <Select mode="tags" tokenSeparators={[","]} open={false} />
                     </Form.Item>
-                    <Form.Item name="quality_tags" label="Quality Tags">
+                    <Form.Item name="quality_tags" label="质量标签">
                       <Select mode="tags" tokenSeparators={[","]} open={false} />
                     </Form.Item>
-                    <Form.Item name="usability_status" label="Usability Status">
+                    <Form.Item name="usability_status" label="可用性">
                       <Select
                         options={[
-                          { value: "usable", label: "usable" },
-                          { value: "needs_review", label: "needs_review" },
-                          { value: "discarded", label: "discarded" }
+                          { value: "usable", label: "可用" },
+                          { value: "needs_review", label: "待复核" },
+                          { value: "discarded", label: "废弃" }
                         ]}
                       />
                     </Form.Item>
-                    <Form.Item name="reviewer_notes" label="Reviewer Notes">
+                    <Form.Item name="reviewer_notes" label="复核备注">
                       <Input.TextArea rows={2} />
                     </Form.Item>
                   </Form>
                 ) : (
                   <Descriptions bordered column={1} size="small" data-testid="asset-analysis-panel">
-                    <Descriptions.Item label="Scene Description">
-                      {selectedAsset.scene_description || <Typography.Text type="secondary">No analysis output yet.</Typography.Text>}
+                    <Descriptions.Item label="画面描述">
+                      {selectedAsset.scene_description || <Typography.Text type="secondary">暂无分析结果。</Typography.Text>}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Shot Size">
-                      {selectedAsset.shot_size || "-"}
+                    <Descriptions.Item label="景别">
+                      {translateValue(selectedAsset.shot_size, shotSizeLabels)}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Camera Movement">
-                      {selectedAsset.camera_movement || "-"}
+                    <Descriptions.Item label="运镜">
+                      {translateValue(selectedAsset.camera_movement, cameraMovementLabels)}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Subjects">
-                      {renderTagList(selectedAsset.subjects, "No detected subjects")}
+                    <Descriptions.Item label="主体标签">
+                      {renderTagList(selectedAsset.subjects, "暂无主体标签")}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Scene Tags">
-                      {renderTagList(selectedAsset.scene_tags, "No scene tags")}
+                    <Descriptions.Item label="场景标签">
+                      {renderTagList(selectedAsset.scene_tags, "暂无场景标签")}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Quality Tags">
-                      {renderTagList(selectedAsset.quality_tags, "No quality issues")}
+                    <Descriptions.Item label="质量标签">
+                      {renderTagList(selectedAsset.quality_tags, "暂无质量问题")}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Reviewer Notes">
-                      {selectedAsset.reviewer_notes || <Typography.Text type="secondary">None</Typography.Text>}
+                    <Descriptions.Item label="复核备注">
+                      {selectedAsset.reviewer_notes || <Typography.Text type="secondary">无</Typography.Text>}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Analysis Error">
-                      {selectedAsset.analysis_error || <Typography.Text type="secondary">None</Typography.Text>}
+                    <Descriptions.Item label="分析错误">
+                      {selectedAsset.analysis_error || <Typography.Text type="secondary">无</Typography.Text>}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Model Result">
+                    <Descriptions.Item label="模型原始结果">
                       {selectedAsset.model_result && Object.keys(selectedAsset.model_result).length > 0 ? (
                         <pre className="json-block">{JSON.stringify(selectedAsset.model_result, null, 2)}</pre>
                       ) : (
-                        <Typography.Text type="secondary">No raw model output</Typography.Text>
+                        <Typography.Text type="secondary">暂无模型原始输出</Typography.Text>
                       )}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Model Labels">
+                    <Descriptions.Item label="模型标准化标签">
                       {selectedAsset.model_labels && Object.keys(selectedAsset.model_labels).length > 0 ? (
                         <pre className="json-block">{JSON.stringify(selectedAsset.model_labels, null, 2)}</pre>
                       ) : (
-                        <Typography.Text type="secondary">No normalized model labels</Typography.Text>
+                        <Typography.Text type="secondary">暂无标准化模型标签</Typography.Text>
                       )}
                     </Descriptions.Item>
-                    <Descriptions.Item label="Review Overrides">
+                    <Descriptions.Item label="人工覆盖结果">
                       {selectedAsset.review_overrides && Object.keys(selectedAsset.review_overrides).length > 0 ? (
                         <pre className="json-block">{JSON.stringify(selectedAsset.review_overrides, null, 2)}</pre>
                       ) : (
-                        <Typography.Text type="secondary">No manual overrides</Typography.Text>
+                        <Typography.Text type="secondary">暂无人工覆盖</Typography.Text>
                       )}
                     </Descriptions.Item>
                   </Descriptions>
@@ -1099,7 +1178,7 @@ function AssetsPage({ token }: { token: string }) {
             </Card>
 
             <Card
-              title="Selling Points"
+              title="卖点关联"
               extra={
                 <Button
                   type="primary"
@@ -1108,17 +1187,17 @@ function AssetsPage({ token }: { token: string }) {
                   onClick={saveAssetSellingPoints}
                   data-testid="save-asset-selling-points"
                 >
-                  Save Selling Points
+                  保存卖点关联
                 </Button>
               }
             >
               <Space direction="vertical" className="wide-space">
                 <Form form={sellingPointForm} layout="vertical">
-                  <Form.Item name="selling_point_ids" label="Related Selling Points">
+                  <Form.Item name="selling_point_ids" label="关联卖点">
                     <Select
                       mode="multiple"
                       allowClear
-                      placeholder="Select selling points"
+                      placeholder="请选择卖点"
                       options={(assetDetailSellingPoints.data ?? []).map((item) => ({
                         value: item.id,
                         label: item.title
@@ -1128,7 +1207,7 @@ function AssetsPage({ token }: { token: string }) {
                   </Form.Item>
                 </Form>
                 <Descriptions bordered column={1} size="small">
-                  <Descriptions.Item label="Current Relations">
+                  <Descriptions.Item label="当前关联">
                     {assetSellingPoints.length > 0 ? (
                       <Space wrap size={[6, 6]}>
                         {assetSellingPoints.map((item) => (
@@ -1136,16 +1215,16 @@ function AssetsPage({ token }: { token: string }) {
                         ))}
                       </Space>
                     ) : (
-                      <Typography.Text type="secondary">No selling points linked.</Typography.Text>
+                      <Typography.Text type="secondary">暂无关联卖点。</Typography.Text>
                     )}
                   </Descriptions.Item>
                 </Descriptions>
               </Space>
             </Card>
 
-            <Card title="Frame Previews" loading={framesLoading}>
+            <Card title="抽帧预览" loading={framesLoading}>
               {frames.length === 0 ? (
-                <Empty description="No extracted frames yet" />
+                <Empty description="暂无抽帧结果" />
               ) : (
                 <div className="frame-grid">
                   {frames.map((frame) => (
@@ -1156,7 +1235,7 @@ function AssetsPage({ token }: { token: string }) {
                         alt={`frame-${frame.frame_index}`}
                       />
                       <Typography.Text strong>{formatTimestamp(frame.timestamp_ms)}</Typography.Text>
-                      <Typography.Text type="secondary">Frame #{frame.frame_index}</Typography.Text>
+                      <Typography.Text type="secondary">第 {frame.frame_index} 帧</Typography.Text>
                     </div>
                   ))}
                 </div>
@@ -1191,14 +1270,7 @@ function TasksPage({ token }: { token: string }) {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const taskTypeLabel = (taskType: string) => {
-    switch (taskType) {
-      case "asset_analyze":
-        return "asset_analyze";
-      case "asset_extract_frames":
-        return "asset_extract_frames";
-      default:
-        return taskType;
-    }
+    return translateValue(taskType, taskTypeLabels);
   };
 
   const createTask = async () => {
@@ -1207,7 +1279,7 @@ function TasksPage({ token }: { token: string }) {
       await apiRequest<Task>("/api/tasks/test", { method: "POST" }, token);
       await tasks.reload();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Create task failed");
+      message.error(error instanceof Error ? error.message : "创建任务失败");
     } finally {
       setCreating(false);
     }
@@ -1219,7 +1291,7 @@ function TasksPage({ token }: { token: string }) {
       const task = await apiRequest<Task>(`/api/tasks/${taskID}`, {}, token);
       setSelectedTask(task);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "Load task failed");
+      message.error(error instanceof Error ? error.message : "加载任务失败");
     } finally {
       setDetailLoading(false);
     }
@@ -1228,41 +1300,41 @@ function TasksPage({ token }: { token: string }) {
   return (
     <div data-testid="tasks-page">
       <Space direction="vertical" size="middle" className="page-stack">
-        <Typography.Title level={3}>Tasks</Typography.Title>
-        <Card title="Task Filters">
+        <Typography.Title level={3}>任务</Typography.Title>
+        <Card title="任务筛选">
           <Space wrap>
             <Select
               data-testid="task-filter-type"
               value={taskFilters.taskType || undefined}
-              placeholder="Task Type"
+              placeholder="任务类型"
               allowClear
               style={{ minWidth: 220 }}
               options={[
-                { value: "asset_extract_frames", label: "asset_extract_frames" },
-                { value: "asset_analyze", label: "asset_analyze" },
-                { value: "test", label: "test" }
+                { value: "asset_extract_frames", label: "素材抽帧" },
+                { value: "asset_analyze", label: "素材分析" },
+                { value: "test", label: "测试任务" }
               ]}
               onChange={(value) => setTaskFilters((current) => ({ ...current, taskType: value ?? "" }))}
             />
             <Select
               data-testid="task-filter-status"
               value={taskFilters.status || undefined}
-              placeholder="Status"
+              placeholder="状态"
               allowClear
               style={{ minWidth: 160 }}
               options={[
-                { value: "queued", label: "queued" },
-                { value: "running", label: "running" },
-                { value: "completed", label: "completed" },
-                { value: "failed", label: "failed" }
+                { value: "queued", label: "排队中" },
+                { value: "running", label: "执行中" },
+                { value: "completed", label: "已完成" },
+                { value: "failed", label: "失败" }
               ]}
               onChange={(value) => setTaskFilters((current) => ({ ...current, status: value ?? "" }))}
             />
-            <Button onClick={() => setTaskFilters({ taskType: "", status: "" })}>Reset</Button>
-            <Button onClick={tasks.reload}>Refresh</Button>
+            <Button data-testid="task-filter-reset" onClick={() => setTaskFilters({ taskType: "", status: "" })}>重置</Button>
+            <Button data-testid="task-filter-refresh" onClick={tasks.reload}>刷新</Button>
           </Space>
         </Card>
-        <Card title="Batch Edit Tasks" extra={<Button type="primary" loading={creating} onClick={createTask}>Create Test Task</Button>}>
+        <Card title="批量剪辑任务" extra={<Button type="primary" loading={creating} onClick={createTask}>创建测试任务</Button>}>
           <Table<Task>
             rowKey="id"
             loading={tasks.loading}
@@ -1270,7 +1342,7 @@ function TasksPage({ token }: { token: string }) {
             onRow={(record) => ({ onClick: () => void openTaskDetail(record.id) })}
             columns={[
               {
-                title: "Task ID",
+                title: "任务 ID",
                 dataIndex: "id",
                 render: (value: string, task) => (
                   <Button type="link" className="table-link-button" onClick={() => void openTaskDetail(task.id)}>
@@ -1278,19 +1350,19 @@ function TasksPage({ token }: { token: string }) {
                   </Button>
                 )
               },
-              { title: "Type", dataIndex: "task_type", render: (value) => taskTypeLabel(value) },
-              { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
-              { title: "Asset", dataIndex: "asset_id", render: (value) => value || "-" },
-              { title: "Retry", dataIndex: "retry_count" },
-              { title: "Duration", dataIndex: "duration_ms", render: (value) => (value ? `${value} ms` : "-") },
-              { title: "Created At", dataIndex: "created_at", render: (value) => formatDateTime(value) }
+              { title: "类型", dataIndex: "task_type", render: (value) => taskTypeLabel(value) },
+              { title: "状态", dataIndex: "status", render: (status) => <Tag>{translateValue(status, taskStatusLabels)}</Tag> },
+              { title: "素材 ID", dataIndex: "asset_id", render: (value) => value || "-" },
+              { title: "重试次数", dataIndex: "retry_count" },
+              { title: "耗时", dataIndex: "duration_ms", render: (value) => (value ? `${value} 毫秒` : "-") },
+              { title: "创建时间", dataIndex: "created_at", render: (value) => formatDateTime(value) }
             ]}
           />
         </Card>
       </Space>
 
       <Modal
-        title={selectedTask ? `Task Detail: ${selectedTask.id}` : "Task Detail"}
+        title={selectedTask ? `任务详情：${selectedTask.id}` : "任务详情"}
         open={selectedTask !== null}
         footer={null}
         width={840}
@@ -1299,24 +1371,24 @@ function TasksPage({ token }: { token: string }) {
       >
         {selectedTask ? (
           <Descriptions bordered column={1} size="small" data-testid="task-detail-modal">
-            <Descriptions.Item label="Task Type">{taskTypeLabel(selectedTask.task_type)}</Descriptions.Item>
-            <Descriptions.Item label="Status">
-              <Tag>{selectedTask.status}</Tag>
+            <Descriptions.Item label="任务类型">{taskTypeLabel(selectedTask.task_type)}</Descriptions.Item>
+            <Descriptions.Item label="状态">
+              <Tag>{translateValue(selectedTask.status, taskStatusLabels)}</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="Asset ID">{selectedTask.asset_id || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Retry Count">{selectedTask.retry_count}</Descriptions.Item>
-            <Descriptions.Item label="Duration">{selectedTask.duration_ms ? `${selectedTask.duration_ms} ms` : "-"}</Descriptions.Item>
-            <Descriptions.Item label="Created At">{formatDateTime(selectedTask.created_at)}</Descriptions.Item>
-            <Descriptions.Item label="Started At">{formatDateTime(selectedTask.started_at)}</Descriptions.Item>
-            <Descriptions.Item label="Finished At">{formatDateTime(selectedTask.finished_at)}</Descriptions.Item>
-            <Descriptions.Item label="Error Message">
-              {selectedTask.error_message || <Typography.Text type="secondary">None</Typography.Text>}
+            <Descriptions.Item label="素材 ID">{selectedTask.asset_id || "-"}</Descriptions.Item>
+            <Descriptions.Item label="重试次数">{selectedTask.retry_count}</Descriptions.Item>
+            <Descriptions.Item label="耗时">{selectedTask.duration_ms ? `${selectedTask.duration_ms} 毫秒` : "-"}</Descriptions.Item>
+            <Descriptions.Item label="创建时间">{formatDateTime(selectedTask.created_at)}</Descriptions.Item>
+            <Descriptions.Item label="开始时间">{formatDateTime(selectedTask.started_at)}</Descriptions.Item>
+            <Descriptions.Item label="结束时间">{formatDateTime(selectedTask.finished_at)}</Descriptions.Item>
+            <Descriptions.Item label="错误信息">
+              {selectedTask.error_message || <Typography.Text type="secondary">无</Typography.Text>}
             </Descriptions.Item>
-            <Descriptions.Item label="Payload Summary">
+            <Descriptions.Item label="负载摘要">
               {selectedTask.payload_summary && Object.keys(selectedTask.payload_summary).length > 0 ? (
                 <pre className="json-block">{JSON.stringify(selectedTask.payload_summary, null, 2)}</pre>
               ) : (
-                <Typography.Text type="secondary">No payload summary</Typography.Text>
+                <Typography.Text type="secondary">暂无负载摘要</Typography.Text>
               )}
             </Descriptions.Item>
           </Descriptions>
@@ -1331,17 +1403,17 @@ function SettingsPage({ token }: { token: string }) {
 
   return (
     <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>System Settings</Typography.Title>
-      <Card title="Model and Concurrency" extra={<Button onClick={configs.reload}>Refresh</Button>}>
+      <Typography.Title level={3}>系统设置</Typography.Title>
+      <Card title="模型与并发配置" extra={<Button onClick={configs.reload}>刷新</Button>}>
         <Table<SystemConfig>
           rowKey="key"
           loading={configs.loading}
           dataSource={configs.data ?? []}
           columns={[
-            { title: "Key", dataIndex: "key" },
-            { title: "Value", dataIndex: "value", render: (value) => JSON.stringify(value) },
-            { title: "Type", dataIndex: "type" },
-            { title: "Description", dataIndex: "description" }
+            { title: "键", dataIndex: "key" },
+            { title: "值", dataIndex: "value", render: (value) => JSON.stringify(value) },
+            { title: "类型", dataIndex: "type" },
+            { title: "说明", dataIndex: "description" }
           ]}
         />
       </Card>
@@ -1352,10 +1424,10 @@ function SettingsPage({ token }: { token: string }) {
 function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [view, setView] = useState<ViewKey>("products");
   const menuItems = [
-    { key: "products", label: "Products" },
-    { key: "assets", label: "Assets" },
-    { key: "tasks", label: "Tasks" },
-    ...(session.user.role === "admin" ? [{ key: "settings", label: "Settings" }] : [])
+    { key: "products", label: "产品" },
+    { key: "assets", label: "素材" },
+    { key: "tasks", label: "任务" },
+    ...(session.user.role === "admin" ? [{ key: "settings", label: "设置" }] : [])
   ];
 
   return (
@@ -1367,9 +1439,11 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
       <Layout>
         <Layout.Header className="topbar">
           <Space>
-            <Tag color={session.user.role === "admin" ? "blue" : "default"}>{session.user.role}</Tag>
+            <Tag color={session.user.role === "admin" ? "blue" : "default"}>
+              {translateValue(session.user.role, roleLabels)}
+            </Tag>
             <Typography.Text>{session.user.display_name}</Typography.Text>
-            <Button onClick={onLogout}>Sign Out</Button>
+            <Button onClick={onLogout}>退出登录</Button>
           </Space>
         </Layout.Header>
         <Layout.Content className="content">
