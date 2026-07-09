@@ -41,6 +41,7 @@ type Querier interface {
 	RemoveAssetSellingPoint(ctx context.Context, arg RemoveAssetSellingPointParams) error
 	RestoreAsset(ctx context.Context, arg RestoreAssetParams) error
 	UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalysisParams) error
+	UpdateAssetEmbedding(ctx context.Context, arg UpdateAssetEmbeddingParams) error
 	UpdateAssetMediaInfo(ctx context.Context, arg UpdateAssetMediaInfoParams) error
 	UpdateAssetReview(ctx context.Context, arg UpdateAssetReviewParams) error
 	UpdateAssetStatus(ctx context.Context, arg UpdateAssetStatusParams) error

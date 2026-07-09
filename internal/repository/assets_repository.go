@@ -3,12 +3,15 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/repository/db"
 )
+
+var ErrVectorSearchNotImplemented = errors.New("vector search not implemented")
 
 type AssetRecord struct {
 	ID                 string          `json:"id"`
@@ -48,6 +51,7 @@ type AssetRecord struct {
 	ModelLabels        json.RawMessage `json:"model_labels,omitempty"`
 	ModelResult        json.RawMessage `json:"model_result,omitempty"`
 	ReviewOverrides    json.RawMessage `json:"review_overrides,omitempty"`
+	Embedding          json.RawMessage `json:"embedding,omitempty"`
 	ReviewerNotes      string          `json:"reviewer_notes,omitempty"`
 	AnalysisError      string          `json:"analysis_error,omitempty"`
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
@@ -126,6 +130,11 @@ type UpdateSpeechSegmentInput struct {
 
 type AssetRepository struct {
 	queries db.Querier
+}
+
+type AssetVectorRepository interface {
+	UpdateEmbedding(ctx context.Context, assetID string, embedding []float64) error
+	SearchByEmbedding(ctx context.Context, queryEmbedding []float64, limit int) ([]AssetRecord, error)
 }
 
 func NewAssetRepository(queries db.Querier) *AssetRepository {
@@ -250,6 +259,21 @@ func (r *AssetRepository) ListFrameSnapshotsByAsset(ctx context.Context, assetID
 	return items, nil
 }
 
+func (r *AssetRepository) UpdateEmbedding(ctx context.Context, assetID string, embedding []float64) error {
+	payload, err := json.Marshal(embedding)
+	if err != nil {
+		return err
+	}
+	return r.queries.UpdateAssetEmbedding(ctx, db.UpdateAssetEmbeddingParams{
+		ID:        uuidParam(assetID),
+		Embedding: payload,
+	})
+}
+
+func (r *AssetRepository) SearchByEmbedding(ctx context.Context, queryEmbedding []float64, limit int) ([]AssetRecord, error) {
+	return nil, ErrVectorSearchNotImplemented
+}
+
 func assetFromDB(row db.Asset) AssetRecord {
 	return AssetRecord{
 		ID:                 uuidString(row.ID),
@@ -289,6 +313,7 @@ func assetFromDB(row db.Asset) AssetRecord {
 		ModelLabels:        cloneJSON(row.ModelLabels),
 		ModelResult:        cloneJSON(row.ModelResult),
 		ReviewOverrides:    cloneJSON(row.ReviewOverrides),
+		Embedding:          cloneJSON(row.Embedding),
 		ReviewerNotes:      textString(row.ReviewerNotes),
 		AnalysisError:      textString(row.AnalysisError),
 		Metadata:           cloneJSON(row.Metadata),

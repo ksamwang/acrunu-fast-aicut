@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -56,6 +58,7 @@ func TestAssetFromDB(t *testing.T) {
 		ModelLabels:        []byte(`{"scene_description":"driver installs product"}`),
 		ModelResult:        []byte(`{"score":0.92}`),
 		ReviewOverrides:    []byte(`{"scene_description":"manual override"}`),
+		Embedding:          []byte(`[0.12,0.34,0.56]`),
 		ReviewerNotes:      pgText("usable after crop"),
 		AnalysisError:      pgText(""),
 		Metadata:           []byte(`{"source":"demo"}`),
@@ -87,6 +90,9 @@ func TestAssetFromDB(t *testing.T) {
 	}
 	if string(record.ReviewOverrides) != `{"scene_description":"manual override"}` {
 		t.Fatalf("expected review_overrides json to map, got %s", string(record.ReviewOverrides))
+	}
+	if string(record.Embedding) != `[0.12,0.34,0.56]` {
+		t.Fatalf("expected embedding json to map, got %s", string(record.Embedding))
 	}
 	if !record.LikelyHasSpeech {
 		t.Fatalf("expected likely_has_speech to map")
@@ -131,6 +137,15 @@ func TestSpeechSegmentFromDB(t *testing.T) {
 	}
 	if record.Transcript != "大家好" {
 		t.Fatalf("expected transcript to map, got %q", record.Transcript)
+	}
+}
+
+func TestAssetRepositorySearchByEmbeddingReturnsPlaceholderError(t *testing.T) {
+	repo := NewAssetRepository(nil)
+
+	_, err := repo.SearchByEmbedding(context.Background(), []float64{0.1, 0.2}, 5)
+	if !errors.Is(err, ErrVectorSearchNotImplemented) {
+		t.Fatalf("expected ErrVectorSearchNotImplemented, got %v", err)
 	}
 }
 

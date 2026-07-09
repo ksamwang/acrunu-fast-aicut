@@ -55,6 +55,7 @@ type Asset struct {
 	ModelLabels        []byte             `json:"model_labels"`
 	ReviewOverrides    []byte             `json:"review_overrides"`
 	LikelyHasSpeech    bool               `json:"likely_has_speech"`
+	Embedding          []byte             `json:"embedding"`
 }
 
 type AssetFrameSnapshot struct {

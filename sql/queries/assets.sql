@@ -139,6 +139,12 @@ SET reviewer_notes = $2,
     updated_at = now()
 WHERE id = $1;
 
+-- name: UpdateAssetEmbedding :exec
+UPDATE assets
+SET embedding = $2,
+    updated_at = now()
+WHERE id = $1;
+
 -- name: ArchiveAsset :exec
 UPDATE assets
 SET status = 'archived',
