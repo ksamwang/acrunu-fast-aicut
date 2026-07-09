@@ -1,0 +1,14 @@
+ARG GO_VERSION=1.25
+
+FROM golang:${GO_VERSION}-bookworm AS builder
+
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
+RUN go install github.com/pressly/goose/v3/cmd/goose@latest
+
+FROM debian:bookworm-slim
+
+COPY --from=builder /go/bin/goose /usr/local/bin/goose
+
+ENTRYPOINT ["goose"]

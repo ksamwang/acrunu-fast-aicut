@@ -6,7 +6,7 @@ param(
     [switch]$AllowDirty,
     [switch]$RunMigrations,
     [string]$DatabaseUrl = "postgres://aicut:aicut@localhost:5432/aicut?sslmode=disable",
-    [string]$MigrationImage = "golang:1.25-bookworm"
+    [string]$MigratorImage = "aicut-migrator:latest"
 )
 
 Set-StrictMode -Version Latest
@@ -74,8 +74,8 @@ try {
     )
 
     if ($RunMigrations) {
-        $migrationCommand = "docker run --rm --network container:aicut-postgres -v '$RemoteDir/migrations:/migrations:ro' -e GOPROXY='https://goproxy.cn,direct' -e GOSUMDB='sum.golang.google.cn' -e DATABASE_URL='$DatabaseUrl' $MigrationImage sh -lc 'go install github.com/pressly/goose/v3/cmd/goose@latest && /go/bin/goose -dir /migrations postgres `"`$DATABASE_URL`" up'"
-        $remoteCommands += $migrationCommand
+        $remoteCommands += "docker build -f deploy/MigrationDockerfile -t '$MigratorImage' ."
+        $remoteCommands += "docker run --rm --network container:aicut-postgres -v '$RemoteDir/migrations:/migrations:ro' '$MigratorImage' -dir /migrations postgres '$DatabaseUrl' up"
     }
 
     $remoteCommands += @(

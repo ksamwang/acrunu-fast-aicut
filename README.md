@@ -198,13 +198,13 @@ git commit -m "更新说明"
 .\scripts\deploy-server.ps1 -RunMigrations
 ```
 
-`-RunMigrations` 会在服务器上启动一个临时 Docker 容器运行 `goose`，不要求本机或服务器系统安装 `goose`。该容器复用 `aicut-postgres` 的网络命名空间，并连接：
+`-RunMigrations` 会先在服务器上构建 `aicut-migrator:latest`，再启动一个临时 Docker 容器运行 `goose`，不要求本机或服务器系统安装 `goose`。该容器复用 `aicut-postgres` 的网络命名空间，并连接：
 
 ```text
 postgres://<db-user>:<db-password>@localhost:5432/aicut?sslmode=disable
 ```
 
-首次执行时服务器可能需要拉取 `golang:1.25-bookworm` 镜像并安装 goose，耗时会稍长。
+首次执行时服务器可能需要拉取 `golang:1.25-bookworm` 镜像并构建迁移镜像，耗时会稍长。
 
 脚本使用 `git archive HEAD` 打包已提交代码，不会同步本机 `.env`、`storage/`、未跟踪文件和临时产物。服务端 `.env` 需要在服务器上单独维护。
 
