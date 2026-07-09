@@ -49,6 +49,14 @@ type SellingPoint = {
   description?: string;
   priority: number;
   status: string;
+  asset_count?: number;
+};
+
+type ProductStats = {
+  product_id: string;
+  asset_count: number;
+  usable_asset_count: number;
+  pending_analysis_count: number;
 };
 
 type Asset = {
@@ -151,11 +159,16 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
   return payload.data as T;
 }
 
-function useResource<T>(path: string, token: string, deps: React.DependencyList = []) {
+function useResource<T>(path: string | null, token: string, deps: React.DependencyList = []) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
 
   const reload = async () => {
+    if (!path) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       setData(await apiRequest<T>(path, {}, token));
@@ -168,7 +181,7 @@ function useResource<T>(path: string, token: string, deps: React.DependencyList 
 
   useEffect(() => {
     void reload();
-  }, deps);
+  }, [path, ...deps]);
 
   return { data, loading, reload };
 }
@@ -258,10 +271,21 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
 function ProductsPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token);
   const [selectedProductID, setSelectedProductID] = useState<string | null>(null);
+  const [selectedSellingPointID, setSelectedSellingPointID] = useState<string | null>(null);
   const sellingPoints = useResource<SellingPoint[]>(
-    selectedProductID ? `/api/products/${selectedProductID}/selling-points` : "/api/products/none/selling-points",
+    selectedProductID ? `/api/products/${selectedProductID}/selling-points` : null,
     token,
     [selectedProductID]
+  );
+  const productStats = useResource<ProductStats>(
+    selectedProductID ? `/api/products/${selectedProductID}/stats` : null,
+    token,
+    [selectedProductID]
+  );
+  const sellingPointAssets = useResource<Asset[]>(
+    selectedSellingPointID ? `/api/selling-points/${selectedSellingPointID}/assets` : null,
+    token,
+    [selectedSellingPointID]
   );
   const [productOpen, setProductOpen] = useState(false);
   const [sellingPointOpen, setSellingPointOpen] = useState(false);
@@ -302,6 +326,9 @@ function ProductsPage({ token }: { token: string }) {
     await sellingPoints.reload();
   };
 
+  const selectedProduct = (products.data ?? []).find((product) => product.id === selectedProductID) ?? null;
+  const selectedSellingPoint = (sellingPoints.data ?? []).find((item) => item.id === selectedSellingPointID) ?? null;
+
   return (
     <Space direction="vertical" size="middle" className="page-stack">
       <Typography.Title level={3}>Products</Typography.Title>
@@ -310,7 +337,10 @@ function ProductsPage({ token }: { token: string }) {
           rowKey="id"
           loading={products.loading}
           dataSource={products.data ?? []}
-          onRow={(record) => ({ onClick: () => setSelectedProductID(record.id) })}
+          onRow={(record) => ({ onClick: () => {
+            setSelectedProductID(record.id);
+            setSelectedSellingPointID(null);
+          } })}
           rowClassName={(record) => (record.id === selectedProductID ? "selected-row" : "")}
           columns={[
             { title: "Product", dataIndex: "name" },
@@ -319,17 +349,57 @@ function ProductsPage({ token }: { token: string }) {
           ]}
         />
       </Card>
+      <Card title="Product Stats">
+        {selectedProduct ? (
+          <Descriptions bordered column={3} size="small">
+            <Descriptions.Item label="Product">{selectedProduct.name}</Descriptions.Item>
+            <Descriptions.Item label="Assets">
+              <span data-testid="product-asset-count">{productStats.data?.asset_count ?? 0}</span>
+            </Descriptions.Item>
+            <Descriptions.Item label="Usable">
+              <span data-testid="product-usable-asset-count">{productStats.data?.usable_asset_count ?? 0}</span>
+            </Descriptions.Item>
+            <Descriptions.Item label="Pending Analysis">
+              <span data-testid="product-pending-analysis-count">{productStats.data?.pending_analysis_count ?? 0}</span>
+            </Descriptions.Item>
+          </Descriptions>
+        ) : (
+          <Typography.Text type="secondary">Select a product to view stats.</Typography.Text>
+        )}
+      </Card>
       <Card title="Selling Points" extra={<Button disabled={!selectedProductID} onClick={() => setSellingPointOpen(true)}>New Selling Point</Button>}>
         <Table<SellingPoint>
           rowKey="id"
           loading={sellingPoints.loading}
           dataSource={selectedProductID ? sellingPoints.data ?? [] : []}
+          onRow={(record) => ({ onClick: () => setSelectedSellingPointID(record.id) })}
+          rowClassName={(record) => (record.id === selectedSellingPointID ? "selected-row" : "")}
           columns={[
             { title: "Title", dataIndex: "title" },
             { title: "Priority", dataIndex: "priority" },
+            { title: "Assets", dataIndex: "asset_count", render: (value) => value ?? 0 },
             { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> }
           ]}
         />
+      </Card>
+      <Card title="Selling Point Assets">
+        {selectedSellingPoint ? (
+          <Table<Asset>
+            rowKey="id"
+            loading={sellingPointAssets.loading}
+            dataSource={sellingPointAssets.data ?? []}
+            pagination={false}
+            columns={[
+              { title: "Selling Point", render: () => selectedSellingPoint.title },
+              { title: "Asset", render: (_, asset) => asset.asset_name || asset.file_name },
+              { title: "Type", dataIndex: "source_type" },
+              { title: "Status", dataIndex: "status", render: (status) => <Tag>{status}</Tag> },
+              { title: "Analysis", dataIndex: "analysis_status", render: (status) => status || "-" }
+            ]}
+          />
+        ) : (
+          <Typography.Text type="secondary">Select a selling point to view related assets.</Typography.Text>
+        )}
       </Card>
 
       <Modal title="New Product" open={productOpen} onOk={createProduct} onCancel={() => setProductOpen(false)}>
@@ -367,7 +437,7 @@ function AssetsPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token);
   const [productForSellingPoints, setProductForSellingPoints] = useState<string>("");
   const sellingPoints = useResource<SellingPoint[]>(
-    productForSellingPoints ? `/api/products/${productForSellingPoints}/selling-points` : "/api/products/none/selling-points",
+    productForSellingPoints ? `/api/products/${productForSellingPoints}/selling-points` : null,
     token,
     [productForSellingPoints]
   );

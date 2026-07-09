@@ -208,3 +208,87 @@ func TestArchiveAndRestoreAssetInMemory(t *testing.T) {
 		t.Fatalf("expected updated_by_user_id editor-2, got %s", restored.UpdatedByUserID)
 	}
 }
+
+func TestGetProductAssetStatsAndSellingPointAssetsInMemory(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	sellingPoint, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{
+		Title:    "Auto Wake",
+		Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("create selling point failed: %v", err)
+	}
+
+	_, err = service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SellingPointIDs:   []string{sellingPoint.ID},
+	})
+	if err != nil {
+		t.Fatalf("create asset 1 failed: %v", err)
+	}
+
+	_, err = service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "b.mp4",
+		StorageKey:        "assets/b.mp4",
+		SourceType:        "talking_head",
+		Status:            "ready",
+		AnalysisStatus:    "pending_analysis",
+		UsabilityStatus:   "needs_review",
+		ManualCleanStatus: "cleaned",
+		SellingPointIDs:   []string{sellingPoint.ID},
+	})
+	if err != nil {
+		t.Fatalf("create asset 2 failed: %v", err)
+	}
+
+	_, err = service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "c.mp4",
+		StorageKey:        "assets/c.mp4",
+		SourceType:        "visual_only",
+		Status:            "archived",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SellingPointIDs:   []string{sellingPoint.ID},
+	})
+	if err != nil {
+		t.Fatalf("create asset 3 failed: %v", err)
+	}
+
+	stats, err := service.GetProductAssetStats(product.ID)
+	if err != nil {
+		t.Fatalf("get product stats failed: %v", err)
+	}
+	if stats.AssetCount != 2 {
+		t.Fatalf("expected asset count 2, got %d", stats.AssetCount)
+	}
+	if stats.UsableAssetCount != 1 {
+		t.Fatalf("expected usable asset count 1, got %d", stats.UsableAssetCount)
+	}
+	if stats.PendingAnalysisCount != 1 {
+		t.Fatalf("expected pending analysis count 1, got %d", stats.PendingAnalysisCount)
+	}
+
+	sellingPoints := service.ListSellingPoints(product.ID)
+	if len(sellingPoints) != 1 || sellingPoints[0].AssetCount != 2 {
+		t.Fatalf("expected selling point asset count 2, got %#v", sellingPoints)
+	}
+
+	assets, err := service.ListAssetsBySellingPoint(sellingPoint.ID)
+	if err != nil {
+		t.Fatalf("list assets by selling point failed: %v", err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("expected 2 non-archived assets, got %d", len(assets))
+	}
+}

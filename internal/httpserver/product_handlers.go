@@ -58,6 +58,15 @@ func (s *Server) handleGetProduct(c *gin.Context) {
 	OK(c, product)
 }
 
+func (s *Server) handleGetProductStats(c *gin.Context) {
+	stats, err := s.productAssetService.GetProductAssetStats(c.Param("productID"))
+	if err != nil {
+		handleProductError(c, err)
+		return
+	}
+	OK(c, stats)
+}
+
 func (s *Server) handleUpdateProduct(c *gin.Context) {
 	var req updateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -98,6 +107,15 @@ func (s *Server) handleCreateSellingPoint(c *gin.Context) {
 
 func (s *Server) handleListSellingPoints(c *gin.Context) {
 	OK(c, s.productAssetService.ListSellingPoints(c.Param("productID")))
+}
+
+func (s *Server) handleListSellingPointAssets(c *gin.Context) {
+	assets, err := s.productAssetService.ListAssetsBySellingPoint(c.Param("sellingPointID"))
+	if err != nil {
+		handleProductError(c, err)
+		return
+	}
+	OK(c, assets)
 }
 
 func (s *Server) handleUpdateSellingPoint(c *gin.Context) {

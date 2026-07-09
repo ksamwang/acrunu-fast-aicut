@@ -85,7 +85,32 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
       return;
     }
 
+    if (url.includes("/api/selling-points/sp-1/assets")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: [asset, filteredAsset]
+        })
+      });
+      return;
+    }
+
     if (url.includes("/api/products")) {
+      if (url.includes("/api/products/product-1/stats")) {
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: {
+              product_id: "product-1",
+              asset_count: 2,
+              usable_asset_count: 1,
+              pending_analysis_count: 1
+            }
+          })
+        });
+        return;
+      }
+
       if (url.includes("/selling-points")) {
         await route.fulfill({
           contentType: "application/json",
@@ -96,7 +121,8 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
                 product_id: "product-1",
                 title: "Auto Wake",
                 priority: 1,
-                status: "active"
+                status: "active",
+                asset_count: 2
               }
             ]
           })
@@ -287,6 +313,17 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   await expect(page.getByTestId("login-page")).toBeVisible();
   await page.getByTestId("login-submit").click();
   await expect(page.getByTestId("console-app")).toBeVisible();
+
+  await expect(page.getByText("Smart Light")).toBeVisible();
+  await page.getByRole("cell", { name: "Smart Light" }).click();
+  await expect(page.getByText("Pending Analysis")).toBeVisible();
+  await expect(page.getByTestId("product-asset-count")).toHaveText("2");
+  await expect(page.getByTestId("product-usable-asset-count")).toHaveText("1");
+  await expect(page.getByTestId("product-pending-analysis-count")).toHaveText("1");
+  await page.getByRole("cell", { name: "Auto Wake" }).click();
+  await expect(page.getByText("Selling Point Assets")).toBeVisible();
+  await expect(page.getByText("clean-shot")).toBeVisible();
+  await expect(page.getByText("mute-shot")).toBeVisible();
 
   await page.locator(".ant-menu-item").nth(1).click();
   await expect(page.getByTestId("assets-page")).toBeVisible();

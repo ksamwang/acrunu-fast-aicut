@@ -42,6 +42,7 @@ type SellingPoint struct {
 	Description string    `json:"description,omitempty"`
 	Priority    int       `json:"priority"`
 	Status      string    `json:"status"`
+	AssetCount  int       `json:"asset_count,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -208,6 +209,13 @@ type AssetFrameSnapshot struct {
 	Width       int       `json:"width,omitempty"`
 	Height      int       `json:"height,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+type ProductAssetStats struct {
+	ProductID            string `json:"product_id"`
+	AssetCount           int    `json:"asset_count"`
+	UsableAssetCount     int    `json:"usable_asset_count"`
+	PendingAnalysisCount int    `json:"pending_analysis_count"`
 }
 
 type AssetAnalysisUpdate struct {
@@ -566,6 +574,28 @@ func (s *ProductAssetService) ListProducts() []Product {
 	return products
 }
 
+func (s *ProductAssetService) GetProductAssetStats(productID string) (ProductAssetStats, error) {
+	if _, err := s.GetProduct(productID); err != nil {
+		return ProductAssetStats{}, err
+	}
+
+	assets := s.ListAssets(AssetFilters{ProductID: productID})
+	stats := ProductAssetStats{ProductID: productID}
+	for _, asset := range assets {
+		if asset.Status == "archived" {
+			continue
+		}
+		stats.AssetCount++
+		if asset.UsabilityStatus == "usable" {
+			stats.UsableAssetCount++
+		}
+		if asset.AnalysisStatus == "pending_analysis" || asset.AnalysisStatus == "analyzing" {
+			stats.PendingAnalysisCount++
+		}
+	}
+	return stats, nil
+}
+
 func (s *ProductAssetService) GetProduct(id string) (Product, error) {
 	if s.queries != nil {
 		return s.getProductFromPostgres(id)
@@ -669,7 +699,36 @@ func (s *ProductAssetService) ListSellingPoints(productID string) []SellingPoint
 		}
 		return items[i].Priority > items[j].Priority
 	})
-	return items
+	return s.decorateSellingPointsWithAssetCounts(items)
+}
+
+func (s *ProductAssetService) ListAssetsBySellingPoint(sellingPointID string) ([]Asset, error) {
+	if sellingPointID == "" {
+		return nil, ErrSellingPointNotFound
+	}
+
+	if s.queries == nil {
+		s.mu.RLock()
+		_, ok := s.sellingPoints[sellingPointID]
+		s.mu.RUnlock()
+		if !ok {
+			return nil, ErrSellingPointNotFound
+		}
+	} else {
+		if _, err := s.getSellingPointByIDFromPostgres(sellingPointID); err != nil {
+			return nil, err
+		}
+	}
+
+	assets := s.ListAssets(AssetFilters{SellingPointID: sellingPointID})
+	filtered := make([]Asset, 0, len(assets))
+	for _, asset := range assets {
+		if asset.Status == "archived" {
+			continue
+		}
+		filtered = append(filtered, asset)
+	}
+	return filtered, nil
 }
 
 func (s *ProductAssetService) UpdateSellingPoint(id string, input UpdateSellingPointInput) (SellingPoint, error) {
@@ -808,7 +867,18 @@ func (s *ProductAssetService) listSellingPointsFromPostgres(productID string) []
 	for _, row := range rows {
 		items = append(items, sellingPointFromDB(row))
 	}
-	return items
+	return s.decorateSellingPointsWithAssetCounts(items)
+}
+
+func (s *ProductAssetService) getSellingPointByIDFromPostgres(id string) (SellingPoint, error) {
+	row, err := s.queries.GetSellingPointByID(context.Background(), assetNullableUUIDParam(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SellingPoint{}, ErrSellingPointNotFound
+		}
+		return SellingPoint{}, err
+	}
+	return sellingPointFromDB(row), nil
 }
 
 func (s *ProductAssetService) updateSellingPointInPostgres(id string, input UpdateSellingPointInput) (SellingPoint, error) {
@@ -1068,6 +1138,26 @@ func sellingPointFromDB(row db.ProductSellingPoint) SellingPoint {
 		CreatedAt:   timeValue(row.CreatedAt),
 		UpdatedAt:   timeValue(row.UpdatedAt),
 	}
+}
+
+func (s *ProductAssetService) decorateSellingPointsWithAssetCounts(items []SellingPoint) []SellingPoint {
+	if len(items) == 0 {
+		return items
+	}
+
+	for i := range items {
+		assets := s.ListAssets(AssetFilters{SellingPointID: items[i].ID})
+		count := 0
+		for _, asset := range assets {
+			if asset.Status == "archived" {
+				continue
+			}
+			count++
+		}
+		items[i].AssetCount = count
+	}
+
+	return items
 }
 
 func assetFromDBRecord(row repository.AssetRecord) Asset {
