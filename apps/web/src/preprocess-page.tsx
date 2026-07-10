@@ -888,6 +888,7 @@ export function PreprocessPage({ token }: { token: string }) {
                   fps={selectedItem.probe.fps}
                   trimInMs={watchedSourceInMs}
                   trimOutMs={watchedSourceOutMs}
+                  hotkeysEnabled={!!selectedItem && !framesPreviewOpen && !cleanShotPreviewOpen}
                   onTrimChange={(range) => updateTrimRange(range.inMs, range.outMs)}
                   analysisOverlay={
                     <div className="preprocess-analysis-overlay">

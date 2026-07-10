@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Space, Typography } from "antd";
+import { Button, Space, Tooltip, Typography } from "antd";
 
 type TrimRange = {
   inFrame: number;
@@ -16,6 +16,7 @@ type VideoTrimEditorProps = {
   fps?: number;
   trimInMs: number;
   trimOutMs: number;
+  hotkeysEnabled?: boolean;
   analysisOverlay?: React.ReactNode;
   onTrimChange: (range: TrimRange) => void;
 };
@@ -49,6 +50,60 @@ function formatSeconds(seconds: number) {
     return `${rest.toFixed(3)}s`;
   }
   return `${minutes}:${rest.toFixed(3).padStart(6, "0")}`;
+}
+
+function SvgIcon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg className="video-trim-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {children}
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <SvgIcon>
+      <path d="M8 5v14l11-7z" />
+    </SvgIcon>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <SvgIcon>
+      <path d="M8 5v14" />
+      <path d="M16 5v14" />
+    </SvgIcon>
+  );
+}
+
+function JumpToInIcon() {
+  return (
+    <SvgIcon>
+      <path d="M7 5v14" />
+      <path d="M18 7l-7 5 7 5z" />
+    </SvgIcon>
+  );
+}
+
+function JumpToOutIcon() {
+  return (
+    <SvgIcon>
+      <path d="M17 5v14" />
+      <path d="M6 7l7 5-7 5z" />
+    </SvgIcon>
+  );
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(
+    target.closest(
+      'input, textarea, select, button, a, [contenteditable="true"], [role="button"], .ant-btn, .ant-select, .ant-select-dropdown, .ant-picker-dropdown'
+    )
+  );
 }
 
 function chooseRulerInterval(durationSeconds: number) {
@@ -96,6 +151,7 @@ export function VideoTrimEditor({
   fps,
   trimInMs,
   trimOutMs,
+  hotkeysEnabled = false,
   analysisOverlay,
   onTrimChange
 }: VideoTrimEditorProps) {
@@ -134,6 +190,14 @@ export function VideoTrimEditor({
     if (videoRef.current) {
       videoRef.current.currentTime = nextFrame / frameRate;
     }
+  };
+
+  const currentPlaybackFrame = () => {
+    const video = videoRef.current;
+    if (video) {
+      return msToFrame(video.currentTime * 1000, frameRate, totalFrames);
+    }
+    return safeCurrentFrame;
   };
 
   useEffect(() => {
@@ -276,9 +340,53 @@ export function VideoTrimEditor({
     if (safeCurrentFrame < inFrame || safeCurrentFrame >= outFrame) {
       seekToFrame(inFrame);
     }
-    await video.play();
-    setIsPlaying(true);
+    try {
+      await video.play();
+      setIsPlaying(true);
+    } catch {
+      setIsPlaying(false);
+    }
   };
+
+  const setInPointAtCurrentFrame = () => {
+    const nextInFrame = clamp(currentPlaybackFrame(), 0, outFrame - MIN_TRIM_FRAMES);
+    emitTrim(nextInFrame, outFrame);
+  };
+
+  const setOutPointAtCurrentFrame = () => {
+    const nextOutFrame = clamp(currentPlaybackFrame(), inFrame + MIN_TRIM_FRAMES, totalFrames);
+    emitTrim(inFrame, nextOutFrame);
+  };
+
+  useEffect(() => {
+    if (!hotkeysEnabled) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+      if (event.code === "Space") {
+        event.preventDefault();
+        void togglePlay();
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "i") {
+        event.preventDefault();
+        setInPointAtCurrentFrame();
+        return;
+      }
+      if (key === "o") {
+        event.preventDefault();
+        setOutPointAtCurrentFrame();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hotkeysEnabled, inFrame, outFrame, safeCurrentFrame, totalFrames, frameRate]);
 
   const handleTimeUpdate = () => {
     const video = videoRef.current;
@@ -332,15 +440,33 @@ export function VideoTrimEditor({
       <div className="video-trim-control-panel">
         <div className="video-trim-toolbar">
           <Space size="small" wrap>
-            <Button size="small" onClick={() => void togglePlay()}>
-              {isPlaying ? "暂停" : "播放"}
-            </Button>
-            <Button size="small" onClick={() => seekToFrame(inFrame)}>
-              到起点
-            </Button>
-            <Button size="small" onClick={() => seekToFrame(outFrame)}>
-              到终点
-            </Button>
+            <Tooltip title={isPlaying ? "暂停（Space）" : "播放（Space）"}>
+              <Button
+                size="small"
+                className="video-trim-icon-button"
+                aria-label={isPlaying ? "暂停" : "播放"}
+                icon={isPlaying ? <PauseIcon /> : <PlayIcon />}
+                onClick={() => void togglePlay()}
+              />
+            </Tooltip>
+            <Tooltip title="跳到入点">
+              <Button
+                size="small"
+                className="video-trim-icon-button"
+                aria-label="跳到入点"
+                icon={<JumpToInIcon />}
+                onClick={() => seekToFrame(inFrame)}
+              />
+            </Tooltip>
+            <Tooltip title="跳到出点">
+              <Button
+                size="small"
+                className="video-trim-icon-button"
+                aria-label="跳到出点"
+                icon={<JumpToOutIcon />}
+                onClick={() => seekToFrame(outFrame)}
+              />
+            </Tooltip>
           </Space>
           <Typography.Text className="video-trim-timecode">
             {formatSeconds(safeCurrentFrame / frameRate)} / {formatSeconds(totalFrames / frameRate)}

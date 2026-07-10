@@ -774,6 +774,28 @@ body {
   font-weight: 600;
 }
 
+.video-trim-icon-button {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+
+.video-trim-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.video-trim-icon path:first-child:last-child {
+  fill: currentColor;
+  stroke: none;
+}
+
 .video-trim-right-tools {
   justify-content: flex-end;
 }
