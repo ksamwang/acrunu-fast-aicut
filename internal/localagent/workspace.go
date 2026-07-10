@@ -297,6 +297,9 @@ func (w *Workspace) PreviewFrames(ctx context.Context, itemID string, input Work
 	if err != nil {
 		return WorkspaceItem{}, err
 	}
+	if err := validateExtractedFrames(frames, len(frameTimestamps)); err != nil {
+		return WorkspaceItem{}, err
+	}
 
 	frameSnapshots := make([]WorkspaceFrameSnapshot, 0, len(frames))
 	for _, frame := range frames {
@@ -646,6 +649,9 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 	if err != nil {
 		return WorkspaceItem{}, err
 	}
+	if err := validateExtractedFrames(frames, len(frameTimestamps)); err != nil {
+		return WorkspaceItem{}, err
+	}
 
 	frameSnapshots := make([]WorkspaceFrameSnapshot, 0, len(frames))
 	for _, frame := range frames {
@@ -675,6 +681,9 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 	frameDir := filepath.Join(w.root, "items", item.ID, "vlm-frames")
 	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
 	if err != nil {
+		return modelgateway.AnalyzeAssetResult{}, nil, err
+	}
+	if err := validateExtractedFrames(frames, len(frameTimestamps)); err != nil {
 		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
 
@@ -912,6 +921,22 @@ func msToFrame(timestampMs int, fps float64) int {
 
 func frameToMs(frame int, fps float64) int {
 	return int(math.Round((float64(frame) / fps) * 1000))
+}
+
+func validateExtractedFrames(frames []ffmpeg.ExtractedFrame, expectedCount int) error {
+	if len(frames) != expectedCount {
+		return fmt.Errorf("expected %d extracted frames, got %d", expectedCount, len(frames))
+	}
+	for _, frame := range frames {
+		info, err := os.Stat(frame.OutputPath)
+		if err != nil {
+			return fmt.Errorf("extracted frame %d missing: %w", frame.FrameIndex, err)
+		}
+		if info.IsDir() || info.Size() == 0 {
+			return fmt.Errorf("extracted frame %d is empty", frame.FrameIndex)
+		}
+	}
+	return nil
 }
 
 func sanitizeFileName(name string) string {

@@ -46,7 +46,7 @@ func TestPhase2VLMMockAnalysisIntegration(t *testing.T) {
 	if err := os.WriteFile(ffprobeScriptPath, []byte(ffprobeScript), 0644); err != nil {
 		t.Fatalf("write ffprobe mock failed: %v", err)
 	}
-	ffmpegScript := "@echo off\r\nset output=\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\nset output=%~1\r\nshift\r\ngoto loop\r\n:done\r\nbreak>\"%output%\"\r\n"
+	ffmpegScript := "@echo off\r\nset output=\r\n:loop\r\nif \"%~1\"==\"\" goto done\r\nset output=%~1\r\nshift\r\ngoto loop\r\n:done\r\necho frame>\"%output%\"\r\n"
 	if err := os.WriteFile(ffmpegScriptPath, []byte(ffmpegScript), 0644); err != nil {
 		t.Fatalf("write ffmpeg mock failed: %v", err)
 	}

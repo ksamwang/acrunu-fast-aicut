@@ -324,6 +324,10 @@ func (s *Server) handleWorkspaceItemFile(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "file not found"})
 		return
 	}
+	if _, err := os.Stat(path); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "file not found", "path": path})
+		return
+	}
 	http.ServeFile(w, r, path)
 }
 
