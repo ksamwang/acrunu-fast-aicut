@@ -127,8 +127,8 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 		return AnalyzeAssetResult{}, NewError(ErrorCodeInvalidResponse, "vlm response is empty", false, nil)
 	}
 
-	var result AnalyzeAssetResult
-	if err := json.Unmarshal([]byte(chatResp.Choices[0].Message.Content), &result); err != nil {
+	result, err := decodeAnalyzeAssetResult(chatResp.Choices[0].Message.Content)
+	if err != nil {
 		return AnalyzeAssetResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode vlm json output failed: %v", err), false, err)
 	}
 	if result.ModelResult == nil {
@@ -138,6 +138,103 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 	result.ModelResult["model"] = a.model
 	result.ModelResult["max_tokens"] = a.maxTokens
 	return result, nil
+}
+
+func decodeAnalyzeAssetResult(content string) (AnalyzeAssetResult, error) {
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return AnalyzeAssetResult{}, err
+	}
+	return AnalyzeAssetResult{
+		SceneDescription:  stringFromRaw(raw["scene_description"]),
+		ShotSize:          stringFromRaw(raw["shot_size"]),
+		CameraMovement:    stringFromRaw(raw["camera_movement"]),
+		VisualTags:        stringSliceFromRaw(raw["visual_tags"]),
+		QualityTags:       stringSliceFromRaw(raw["quality_tags"]),
+		VisibleProduct:    boolFromRaw(raw["visible_product"]),
+		ProductPosition:   stringFromRaw(raw["product_position"]),
+		SceneContext:      stringFromRaw(raw["scene_context"]),
+		ActionDescription: stringFromRaw(raw["action_description"]),
+		PeoplePresence:    boolFromRaw(raw["people_presence"]),
+		FaceVisible:       boolFromRaw(raw["face_visible"]),
+		LightingCondition: stringFromRaw(raw["lighting_condition"]),
+		ModelResult:       mapFromRaw(raw["model_result"]),
+	}, nil
+}
+
+func stringFromRaw(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case nil:
+		return ""
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func stringSliceFromRaw(value any) []string {
+	switch typed := value.(type) {
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := stringFromRaw(item); text != "" {
+				result = append(result, text)
+			}
+		}
+		return result
+	case []string:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := strings.TrimSpace(item); text != "" {
+				result = append(result, text)
+			}
+		}
+		return result
+	case string:
+		parts := strings.FieldsFunc(typed, func(r rune) bool {
+			return r == ',' || r == '，' || r == '、' || r == ';' || r == '；' || r == '\n'
+		})
+		result := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if text := strings.TrimSpace(part); text != "" {
+				result = append(result, text)
+			}
+		}
+		return result
+	default:
+		if text := stringFromRaw(value); text != "" {
+			return []string{text}
+		}
+		return nil
+	}
+}
+
+func boolFromRaw(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "yes", "y", "1", "visible", "present", "有", "是", "可见", "出现", "有人", "露脸":
+			return true
+		default:
+			return false
+		}
+	case float64:
+		return typed != 0
+	case int:
+		return typed != 0
+	default:
+		return false
+	}
+}
+
+func mapFromRaw(value any) map[string]any {
+	if typed, ok := value.(map[string]any); ok {
+		return typed
+	}
+	return nil
 }
 
 func imageDataURL(path string) (string, error) {

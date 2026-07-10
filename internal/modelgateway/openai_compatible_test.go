@@ -71,3 +71,35 @@ func TestOpenAICompatibleAnalyzerRequestsJSONOutput(t *testing.T) {
 		t.Fatalf("unexpected result %#v", result)
 	}
 }
+
+func TestDecodeAnalyzeAssetResultNormalizesStringBooleans(t *testing.T) {
+	result, err := decodeAnalyzeAssetResult(`{
+		"scene_description":"车内产品亮灯展示",
+		"shot_size":"close_up",
+		"camera_movement":"static",
+		"visual_tags":"车内、产品特写",
+		"quality_tags":"画面清晰",
+		"visible_product":"可见",
+		"product_position":"center",
+		"scene_context":"车内",
+		"action_description":"展示产品亮灯效果",
+		"people_presence":"无",
+		"face_visible":"false",
+		"lighting_condition":"夜间弱光"
+	}`)
+	if err != nil {
+		t.Fatalf("decodeAnalyzeAssetResult failed: %v", err)
+	}
+	if !result.VisibleProduct {
+		t.Fatalf("expected visible_product string to become true")
+	}
+	if result.PeoplePresence || result.FaceVisible {
+		t.Fatalf("expected negative string booleans to become false, got %#v", result)
+	}
+	if len(result.VisualTags) != 2 || result.VisualTags[0] != "车内" || result.VisualTags[1] != "产品特写" {
+		t.Fatalf("expected string tags to split, got %#v", result.VisualTags)
+	}
+	if len(result.QualityTags) != 1 || result.QualityTags[0] != "画面清晰" {
+		t.Fatalf("expected string quality tags to normalize, got %#v", result.QualityTags)
+	}
+}
