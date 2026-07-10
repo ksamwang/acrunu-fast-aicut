@@ -242,6 +242,13 @@ function formatResolution(width?: number, height?: number) {
   return `${width} x ${height}`;
 }
 
+function formatProbeFPS(fps?: number) {
+  if (!fps || !Number.isFinite(fps)) {
+    return "待读取";
+  }
+  return `${fps.toFixed(3)} fps`;
+}
+
 function formatTimestamp(durationMs: number) {
   const totalSeconds = Math.floor(durationMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -889,6 +896,7 @@ export function PreprocessPage({ token }: { token: string }) {
                         <Descriptions.Item label="状态">{workspaceStatusLabels[selectedItem.status]}</Descriptions.Item>
                         <Descriptions.Item label="时长">{formatProbeDuration(selectedItem.probe.duration_ms)}</Descriptions.Item>
                         <Descriptions.Item label="分辨率">{formatResolution(selectedItem.probe.width, selectedItem.probe.height)}</Descriptions.Item>
+                        <Descriptions.Item label="帧率">{formatProbeFPS(selectedItem.probe.fps)}</Descriptions.Item>
                         <Descriptions.Item label="画面描述">{selectedItem.analysis?.scene_description || "-"}</Descriptions.Item>
                         <Descriptions.Item label="景别">
                           {selectedItem.analysis?.shot_size

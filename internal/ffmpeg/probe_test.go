@@ -2,6 +2,7 @@ package ffmpeg
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,6 +57,37 @@ func TestProbeUsesFFProbeOutput(t *testing.T) {
 	}
 	if result.FPS < 29.9 || result.FPS > 30.1 {
 		t.Fatalf("expected fps close to 29.97, got %.3f", result.FPS)
+	}
+}
+
+func TestProbeResultJSONUsesSnakeCaseKeys(t *testing.T) {
+	payload, err := json.Marshal(ProbeResult{
+		DurationMs:    2400,
+		Width:         1080,
+		Height:        1920,
+		FPS:           100,
+		Codec:         "h264",
+		HasAudio:      true,
+		AudioCodec:    "aac",
+		AudioChannels: 2,
+		BitrateKbps:   8000,
+	})
+	if err != nil {
+		t.Fatalf("marshal probe result failed: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode probe result json failed: %v", err)
+	}
+
+	for _, key := range []string{"duration_ms", "width", "height", "fps", "codec", "has_audio", "audio_codec", "audio_channels", "bitrate_kbps"} {
+		if _, ok := decoded[key]; !ok {
+			t.Fatalf("expected json key %q in %s", key, string(payload))
+		}
+	}
+	if _, ok := decoded["DurationMs"]; ok {
+		t.Fatalf("did not expect PascalCase json key in %s", string(payload))
 	}
 }
 

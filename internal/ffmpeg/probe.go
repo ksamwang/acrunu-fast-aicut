@@ -9,15 +9,15 @@ import (
 )
 
 type ProbeResult struct {
-	DurationMs    int
-	Width         int
-	Height        int
-	FPS           float64
-	Codec         string
-	HasAudio      bool
-	AudioCodec    string
-	AudioChannels int
-	BitrateKbps   int
+	DurationMs    int     `json:"duration_ms"`
+	Width         int     `json:"width"`
+	Height        int     `json:"height"`
+	FPS           float64 `json:"fps"`
+	Codec         string  `json:"codec"`
+	HasAudio      bool    `json:"has_audio"`
+	AudioCodec    string  `json:"audio_codec"`
+	AudioChannels int     `json:"audio_channels"`
+	BitrateKbps   int     `json:"bitrate_kbps"`
 }
 
 type probeOutput struct {
