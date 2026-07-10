@@ -76,6 +76,7 @@ type WorkspaceItem = {
   asset_name?: string;
   source_type?: "visual_only" | "talking_head";
   original_file_name: string;
+  original_probe?: WorkspaceProbe;
   source_in_ms: number;
   source_out_ms: number;
   interpret_fps_enabled?: boolean;
@@ -344,6 +345,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [previewingFrames, setPreviewingFrames] = useState(false);
   const [startingVLMLabel, setStartingVLMLabel] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  const [applyingInterpretFPS, setApplyingInterpretFPS] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -811,18 +813,62 @@ export function PreprocessPage({ token }: { token: string }) {
     setInterpretFPSModalOpen(true);
   };
 
-  const sourceFPS = selectedItem?.probe.fps ?? 0;
+  const sourceFPS = selectedItem?.original_probe?.fps ?? selectedItem?.probe.fps ?? 0;
+  const workingFPS = selectedItem?.probe.fps ?? 0;
   const selectedDurationMs = Math.max(0, Number(watchedSourceOutMs) - Number(watchedSourceInMs));
   const interpretFPSAvailable = watchedSourceType === "visual_only" && sourceFPS > 25;
   const interpretSpeedRatio = watchedInterpretFPS && sourceFPS > 0 ? watchedPlaybackFPS / sourceFPS : 1;
+  const interpretBaseDurationMs = selectedItem?.interpret_fps_enabled
+    ? selectedItem.original_probe?.duration_ms ?? selectedDurationMs
+    : selectedDurationMs;
   const interpretedDurationMs =
-    watchedInterpretFPS && interpretSpeedRatio > 0 ? Math.round(selectedDurationMs / interpretSpeedRatio) : selectedDurationMs;
+    watchedInterpretFPS && interpretSpeedRatio > 0 ? Math.round(interpretBaseDurationMs / interpretSpeedRatio) : selectedDurationMs;
 
   const updateInterpretFPS = (enabled: boolean, playbackFPS = watchedPlaybackFPS) => {
     form.setFieldsValue({
       interpret_fps_enabled: enabled,
       playback_fps: playbackFPS
     });
+  };
+
+  const applyInterpretFPSSettings = async () => {
+    if (!selectedItem) {
+      return;
+    }
+    if (watchedInterpretFPS) {
+      if (!interpretFPSAvailable) {
+        message.warning("升格只支持高于 25fps 的纯画面素材");
+        return;
+      }
+      if (watchedPlaybackFPS < 25 || watchedPlaybackFPS >= sourceFPS) {
+        message.warning("播放帧率需要大于等于 25fps，且低于源素材帧率");
+        return;
+      }
+    }
+
+    const values = await form.validateFields();
+    setApplyingInterpretFPS(true);
+    try {
+      const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values)
+      });
+      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      const sourceOutMs = response.item.source_out_ms > 0 ? response.item.source_out_ms : response.item.probe.duration_ms ?? 0;
+      form.setFieldsValue({
+        source_in_ms: response.item.source_in_ms ?? 0,
+        source_out_ms: sourceOutMs,
+        interpret_fps_enabled: Boolean(response.item.interpret_fps_enabled),
+        playback_fps: response.item.playback_fps || 25
+      });
+      setInterpretFPSModalOpen(false);
+      message.success(response.item.interpret_fps_enabled ? "升格工作源已生成" : "已恢复原始工作源");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "应用升格设置失败");
+    } finally {
+      setApplyingInterpretFPS(false);
+    }
   };
 
   return (
@@ -1183,19 +1229,8 @@ export function PreprocessPage({ token }: { token: string }) {
       <Modal
         open={interpretFPSModalOpen}
         onCancel={() => setInterpretFPSModalOpen(false)}
-        onOk={() => {
-          if (watchedInterpretFPS) {
-            if (!interpretFPSAvailable) {
-              message.warning("升格只支持高于 25fps 的纯画面素材");
-              return;
-            }
-            if (watchedPlaybackFPS < 25 || watchedPlaybackFPS >= sourceFPS) {
-              message.warning("播放帧率需要大于等于 25fps，且低于源素材帧率");
-              return;
-            }
-          }
-          setInterpretFPSModalOpen(false);
-        }}
+        onOk={() => void applyInterpretFPSSettings()}
+        confirmLoading={applyingInterpretFPS}
         width={620}
         title="升格 / 解释帧率"
         okText="应用"
@@ -1215,6 +1250,7 @@ export function PreprocessPage({ token }: { token: string }) {
               {sourceTypeLabels[watchedSourceType || selectedItem?.source_type || "visual_only"] ?? "-"}
             </Descriptions.Item>
             <Descriptions.Item label="源帧率">{formatProbeFPS(sourceFPS)}</Descriptions.Item>
+            <Descriptions.Item label="当前工作源帧率">{formatProbeFPS(workingFPS)}</Descriptions.Item>
             <Descriptions.Item label="当前选区">{formatDuration(selectedDurationMs)}</Descriptions.Item>
           </Descriptions>
           <div className="preprocess-interpret-row">

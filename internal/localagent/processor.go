@@ -8,6 +8,7 @@ import (
 
 type Processor interface {
 	Cut(ctx context.Context, sourcePath string, outputPath string, sourceInMs int, sourceOutMs int, options ffmpeg.CutOptions) error
+	InterpretFPS(ctx context.Context, sourcePath string, outputPath string, sourceFPS float64, playbackFPS float64, durationMs int) error
 	Probe(ctx context.Context, filePath string) (ffmpeg.ProbeResult, error)
 	ExtractFrames(ctx context.Context, inputPath string, outputDir string, timestampsMs []int) ([]ffmpeg.ExtractedFrame, error)
 }
@@ -20,6 +21,10 @@ func NewProcessor() Processor {
 
 func (p processor) Cut(ctx context.Context, sourcePath string, outputPath string, sourceInMs int, sourceOutMs int, options ffmpeg.CutOptions) error {
 	return ffmpeg.CutWithOptions(ctx, sourcePath, outputPath, sourceInMs, sourceOutMs, options)
+}
+
+func (p processor) InterpretFPS(ctx context.Context, sourcePath string, outputPath string, sourceFPS float64, playbackFPS float64, durationMs int) error {
+	return ffmpeg.InterpretFPS(ctx, sourcePath, outputPath, sourceFPS, playbackFPS, durationMs)
 }
 
 func (p processor) Probe(ctx context.Context, filePath string) (ffmpeg.ProbeResult, error) {

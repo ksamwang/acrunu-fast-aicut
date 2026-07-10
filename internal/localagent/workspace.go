@@ -37,40 +37,42 @@ const (
 )
 
 type WorkspaceItem struct {
-	ID               string                   `json:"id"`
-	Status           string                   `json:"status"`
-	ProductID        string                   `json:"product_id,omitempty"`
-	SubmittedAssetID string                   `json:"submitted_asset_id,omitempty"`
-	AssetName        string                   `json:"asset_name,omitempty"`
-	SourceType       string                   `json:"source_type,omitempty"`
-	OriginalFileName string                   `json:"original_file_name"`
-	SourceFileName   string                   `json:"source_file_name"`
-	SourceFileSize   int64                    `json:"source_file_size"`
-	SourcePath       string                   `json:"source_path"`
-	CleanShotPath    string                   `json:"clean_shot_path,omitempty"`
-	CleanShotName    string                   `json:"clean_shot_name,omitempty"`
-	Checksum         string                   `json:"checksum,omitempty"`
-	SourceInMs       int                      `json:"source_in_ms"`
-	SourceOutMs      int                      `json:"source_out_ms"`
-	InterpretFPS     bool                     `json:"interpret_fps_enabled"`
-	PlaybackFPS      float64                  `json:"playback_fps,omitempty"`
-	SpeedRatio       float64                  `json:"speed_ratio,omitempty"`
-	Transcript       string                   `json:"transcript,omitempty"`
-	ReviewerNotes    string                   `json:"reviewer_notes,omitempty"`
-	Probe            ffmpeg.ProbeResult       `json:"probe"`
-	PreviewInMs      int                      `json:"preview_in_ms,omitempty"`
-	PreviewOutMs     int                      `json:"preview_out_ms,omitempty"`
-	PreviewFrames    []WorkspaceFrameSnapshot `json:"preview_frame_snapshots,omitempty"`
-	FrameSnapshots   []WorkspaceFrameSnapshot `json:"frame_snapshots,omitempty"`
-	Analysis         *WorkspaceAnalysis       `json:"analysis,omitempty"`
-	VLMStatus        string                   `json:"vlm_status,omitempty"`
-	VLMError         string                   `json:"vlm_error,omitempty"`
-	VLMStartedAt     *time.Time               `json:"vlm_started_at,omitempty"`
-	VLMFinishedAt    *time.Time               `json:"vlm_finished_at,omitempty"`
-	LastError        string                   `json:"last_error,omitempty"`
-	CreatedAt        time.Time                `json:"created_at"`
-	UpdatedAt        time.Time                `json:"updated_at"`
-	SubmittedAt      *time.Time               `json:"submitted_at,omitempty"`
+	ID                 string                   `json:"id"`
+	Status             string                   `json:"status"`
+	ProductID          string                   `json:"product_id,omitempty"`
+	SubmittedAssetID   string                   `json:"submitted_asset_id,omitempty"`
+	AssetName          string                   `json:"asset_name,omitempty"`
+	SourceType         string                   `json:"source_type,omitempty"`
+	OriginalFileName   string                   `json:"original_file_name"`
+	OriginalSourcePath string                   `json:"original_source_path,omitempty"`
+	OriginalProbe      ffmpeg.ProbeResult       `json:"original_probe,omitempty"`
+	SourceFileName     string                   `json:"source_file_name"`
+	SourceFileSize     int64                    `json:"source_file_size"`
+	SourcePath         string                   `json:"source_path"`
+	CleanShotPath      string                   `json:"clean_shot_path,omitempty"`
+	CleanShotName      string                   `json:"clean_shot_name,omitempty"`
+	Checksum           string                   `json:"checksum,omitempty"`
+	SourceInMs         int                      `json:"source_in_ms"`
+	SourceOutMs        int                      `json:"source_out_ms"`
+	InterpretFPS       bool                     `json:"interpret_fps_enabled"`
+	PlaybackFPS        float64                  `json:"playback_fps,omitempty"`
+	SpeedRatio         float64                  `json:"speed_ratio,omitempty"`
+	Transcript         string                   `json:"transcript,omitempty"`
+	ReviewerNotes      string                   `json:"reviewer_notes,omitempty"`
+	Probe              ffmpeg.ProbeResult       `json:"probe"`
+	PreviewInMs        int                      `json:"preview_in_ms,omitempty"`
+	PreviewOutMs       int                      `json:"preview_out_ms,omitempty"`
+	PreviewFrames      []WorkspaceFrameSnapshot `json:"preview_frame_snapshots,omitempty"`
+	FrameSnapshots     []WorkspaceFrameSnapshot `json:"frame_snapshots,omitempty"`
+	Analysis           *WorkspaceAnalysis       `json:"analysis,omitempty"`
+	VLMStatus          string                   `json:"vlm_status,omitempty"`
+	VLMError           string                   `json:"vlm_error,omitempty"`
+	VLMStartedAt       *time.Time               `json:"vlm_started_at,omitempty"`
+	VLMFinishedAt      *time.Time               `json:"vlm_finished_at,omitempty"`
+	LastError          string                   `json:"last_error,omitempty"`
+	CreatedAt          time.Time                `json:"created_at"`
+	UpdatedAt          time.Time                `json:"updated_at"`
+	SubmittedAt        *time.Time               `json:"submitted_at,omitempty"`
 }
 
 type WorkspaceFrameSnapshot struct {
@@ -214,7 +216,7 @@ func (w *Workspace) DuplicateItem(itemID string) (WorkspaceItem, error) {
 	return duplicate, nil
 }
 
-func (w *Workspace) SaveItem(itemID string, input WorkspaceSaveInput) (WorkspaceItem, error) {
+func (w *Workspace) SaveItem(ctx context.Context, itemID string, input WorkspaceSaveInput) (WorkspaceItem, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -222,7 +224,8 @@ func (w *Workspace) SaveItem(itemID string, input WorkspaceSaveInput) (Workspace
 	if !ok {
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
-	if err := validateSaveInput(input, item.Probe.FPS); err != nil {
+	item = normalizeWorkspaceItem(item)
+	if err := validateSaveInput(input, effectiveOriginalProbe(item).FPS); err != nil {
 		return WorkspaceItem{}, err
 	}
 
@@ -230,9 +233,9 @@ func (w *Workspace) SaveItem(itemID string, input WorkspaceSaveInput) (Workspace
 	item.SourceType = input.SourceType
 	item.SourceInMs = input.SourceInMs
 	item.SourceOutMs = input.SourceOutMs
-	item.InterpretFPS = input.InterpretFPS
-	item.PlaybackFPS = input.PlaybackFPS
-	item.SpeedRatio = resolveSpeedRatio(item.Probe.FPS, input.InterpretFPS, input.PlaybackFPS)
+	if err := w.applyWorkingSourceLocked(ctx, &item, input); err != nil {
+		return WorkspaceItem{}, err
+	}
 	item.Transcript = strings.TrimSpace(input.Transcript)
 	item.ReviewerNotes = strings.TrimSpace(input.ReviewerNotes)
 	if item.Status != workspaceStatusReadyToSubmit && item.Status != workspaceStatusSubmitted {
@@ -516,9 +519,32 @@ func (w *Workspace) load() error {
 
 	w.order = append([]string(nil), state.Order...)
 	for _, item := range state.Items {
-		w.items[item.ID] = item
+		w.items[item.ID] = normalizeWorkspaceItem(item)
 	}
 	return nil
+}
+
+func normalizeWorkspaceItem(item WorkspaceItem) WorkspaceItem {
+	if item.OriginalSourcePath == "" {
+		item.OriginalSourcePath = item.SourcePath
+	}
+	if item.OriginalProbe == (ffmpeg.ProbeResult{}) {
+		item.OriginalProbe = item.Probe
+	}
+	if item.PlaybackFPS == 0 && item.InterpretFPS {
+		item.PlaybackFPS = item.Probe.FPS
+	}
+	if item.SpeedRatio == 0 {
+		item.SpeedRatio = resolveSpeedRatio(effectiveOriginalProbe(item).FPS, item.InterpretFPS, item.PlaybackFPS)
+	}
+	return item
+}
+
+func effectiveOriginalProbe(item WorkspaceItem) ffmpeg.ProbeResult {
+	if item.OriginalProbe != (ffmpeg.ProbeResult{}) {
+		return item.OriginalProbe
+	}
+	return item.Probe
 }
 
 func (w *Workspace) persistLocked() error {
@@ -578,19 +604,21 @@ func (w *Workspace) importFileLocked(ctx context.Context, header *multipart.File
 
 	now := time.Now()
 	item := WorkspaceItem{
-		ID:               itemID,
-		Status:           workspaceStatusPending,
-		OriginalFileName: header.Filename,
-		SourceFileName:   sourceFileName,
-		SourceFileSize:   header.Size,
-		SourcePath:       sourcePath,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                 itemID,
+		Status:             workspaceStatusPending,
+		OriginalFileName:   header.Filename,
+		OriginalSourcePath: sourcePath,
+		SourceFileName:     sourceFileName,
+		SourceFileSize:     header.Size,
+		SourcePath:         sourcePath,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	probe, err := w.processor.Probe(ctx, sourcePath)
 	if err == nil {
 		item.Probe = probe
+		item.OriginalProbe = probe
 		item.SourceOutMs = probe.DurationMs
 	} else {
 		item.LastError = err.Error()
@@ -602,6 +630,7 @@ func (w *Workspace) importFileLocked(ctx context.Context, header *multipart.File
 }
 
 func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, error) {
+	source = normalizeWorkspaceItem(source)
 	itemID := uuid.NewString()
 	itemDir := filepath.Join(w.root, "items", itemID)
 	if err := os.MkdirAll(itemDir, 0755); err != nil {
@@ -616,24 +645,37 @@ func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, er
 	if err := copyFile(source.SourcePath, sourcePath); err != nil {
 		return WorkspaceItem{}, err
 	}
+	originalSourceExt := filepath.Ext(source.OriginalSourcePath)
+	if originalSourceExt == "" {
+		originalSourceExt = sourceExt
+	}
+	originalSourcePath := filepath.Join(itemDir, "original-source"+originalSourceExt)
+	if err := copyFile(source.OriginalSourcePath, originalSourcePath); err != nil {
+		return WorkspaceItem{}, err
+	}
 
 	now := time.Now()
 	duplicate := WorkspaceItem{
-		ID:               itemID,
-		Status:           workspaceStatusSaved,
-		AssetName:        source.AssetName,
-		SourceType:       source.SourceType,
-		OriginalFileName: source.OriginalFileName,
-		SourceFileName:   source.SourceFileName,
-		SourceFileSize:   source.SourceFileSize,
-		SourcePath:       sourcePath,
-		SourceInMs:       source.SourceInMs,
-		SourceOutMs:      source.SourceOutMs,
-		Transcript:       source.Transcript,
-		ReviewerNotes:    source.ReviewerNotes,
-		Probe:            source.Probe,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                 itemID,
+		Status:             workspaceStatusSaved,
+		AssetName:          source.AssetName,
+		SourceType:         source.SourceType,
+		OriginalFileName:   source.OriginalFileName,
+		OriginalSourcePath: originalSourcePath,
+		OriginalProbe:      source.OriginalProbe,
+		SourceFileName:     source.SourceFileName,
+		SourceFileSize:     source.SourceFileSize,
+		SourcePath:         sourcePath,
+		SourceInMs:         source.SourceInMs,
+		SourceOutMs:        source.SourceOutMs,
+		InterpretFPS:       source.InterpretFPS,
+		PlaybackFPS:        source.PlaybackFPS,
+		SpeedRatio:         source.SpeedRatio,
+		Transcript:         source.Transcript,
+		ReviewerNotes:      source.ReviewerNotes,
+		Probe:              source.Probe,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if duplicate.SourceType == "" || duplicate.SourceOutMs <= duplicate.SourceInMs {
@@ -645,15 +687,70 @@ func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, er
 	return duplicate, nil
 }
 
+func (w *Workspace) applyWorkingSourceLocked(ctx context.Context, item *WorkspaceItem, input WorkspaceSaveInput) error {
+	originalProbe := effectiveOriginalProbe(*item)
+	if input.InterpretFPS {
+		workingPath := filepath.Join(w.root, "items", item.ID, "working-source.mp4")
+		needsRebuild := !item.InterpretFPS || item.SourcePath != workingPath || item.PlaybackFPS != input.PlaybackFPS
+		if needsRebuild {
+			if originalProbe.DurationMs <= 0 {
+				return fmt.Errorf("source duration is required for interpret fps")
+			}
+			if err := w.processor.InterpretFPS(ctx, item.OriginalSourcePath, workingPath, originalProbe.FPS, input.PlaybackFPS, originalProbe.DurationMs); err != nil {
+				return err
+			}
+			probe, err := w.processor.Probe(ctx, workingPath)
+			if err != nil {
+				return err
+			}
+			item.SourcePath = workingPath
+			item.Probe = probe
+			item.SourceInMs = 0
+			item.SourceOutMs = probe.DurationMs
+			item.PreviewInMs = 0
+			item.PreviewOutMs = 0
+			item.PreviewFrames = nil
+			item.FrameSnapshots = nil
+			item.Analysis = nil
+			item.CleanShotPath = ""
+			item.CleanShotName = ""
+			item.Checksum = ""
+			item.LastError = ""
+			item.Status = workspaceStatusSaved
+		}
+		item.InterpretFPS = true
+		item.PlaybackFPS = input.PlaybackFPS
+		item.SpeedRatio = resolveSpeedRatio(originalProbe.FPS, true, input.PlaybackFPS)
+		return nil
+	}
+
+	if item.InterpretFPS {
+		item.SourcePath = item.OriginalSourcePath
+		item.Probe = originalProbe
+		item.SourceInMs = 0
+		item.SourceOutMs = originalProbe.DurationMs
+		item.PreviewInMs = 0
+		item.PreviewOutMs = 0
+		item.PreviewFrames = nil
+		item.FrameSnapshots = nil
+		item.Analysis = nil
+		item.CleanShotPath = ""
+		item.CleanShotName = ""
+		item.Checksum = ""
+		item.LastError = ""
+		item.Status = workspaceStatusSaved
+	}
+	item.InterpretFPS = false
+	item.PlaybackFPS = 0
+	item.SpeedRatio = 1
+	return nil
+}
+
 func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (WorkspaceItem, error) {
 	itemDir := filepath.Join(w.root, "items", item.ID)
 	cleanShotPath := filepath.Join(itemDir, "clean-shot"+filepath.Ext(item.SourceFileName))
 
-	if err := w.processor.Cut(ctx, item.SourcePath, cleanShotPath, item.SourceInMs, item.SourceOutMs, ffmpeg.CutOptions{
-		InterpretFPSEnabled: item.InterpretFPS,
-		SourceFPS:           item.Probe.FPS,
-		PlaybackFPS:         item.PlaybackFPS,
-	}); err != nil {
+	if err := w.processor.Cut(ctx, item.SourcePath, cleanShotPath, item.SourceInMs, item.SourceOutMs, ffmpeg.CutOptions{}); err != nil {
 		return WorkspaceItem{}, err
 	}
 
@@ -976,7 +1073,7 @@ func validateItemForPrepare(item WorkspaceItem) error {
 	if item.SourceType == "talking_head" && strings.TrimSpace(item.Transcript) == "" {
 		return fmt.Errorf("transcript is required for talking head")
 	}
-	if err := validateInterpretFPS(item.SourceType, item.Probe.FPS, item.InterpretFPS, item.PlaybackFPS); err != nil {
+	if err := validateInterpretFPS(item.SourceType, effectiveOriginalProbe(item).FPS, item.InterpretFPS, item.PlaybackFPS); err != nil {
 		return err
 	}
 	return nil

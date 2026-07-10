@@ -213,7 +213,7 @@ func (s *Server) handleWorkspaceItemSave(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
 		return
 	}
-	item, err := s.workspace.SaveItem(itemID, input)
+	item, err := s.workspace.SaveItem(r.Context(), itemID, input)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
@@ -350,6 +350,7 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"asset_name":            item.AssetName,
 		"source_type":           item.SourceType,
 		"original_file_name":    item.OriginalFileName,
+		"original_probe":        effectiveOriginalProbe(item),
 		"source_file_name":      item.SourceFileName,
 		"source_file_size":      item.SourceFileSize,
 		"source_in_ms":          item.SourceInMs,
@@ -372,8 +373,8 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"updated_at":            item.UpdatedAt,
 		"submitted_at":          item.SubmittedAt,
 		"checksum":              item.Checksum,
-		"source_url":            s.fileURL(r, item.ID, "source", 0),
-		"clean_shot_url":        s.fileURL(r, item.ID, "clean-shot", 0),
+		"source_url":            versionedURL(s.fileURL(r, item.ID, "source", 0), item.UpdatedAt),
+		"clean_shot_url":        versionedURL(s.fileURL(r, item.ID, "clean-shot", 0), item.UpdatedAt),
 	}
 
 	frames := make([]map[string]any, 0, len(item.FrameSnapshots))
@@ -412,6 +413,13 @@ func (s *Server) fileURL(r *http.Request, itemID string, kind string, frameIndex
 	default:
 		return ""
 	}
+}
+
+func versionedURL(value string, updatedAt time.Time) string {
+	if value == "" || updatedAt.IsZero() {
+		return value
+	}
+	return fmt.Sprintf("%s?v=%d", value, updatedAt.UnixNano())
 }
 
 func (s *Server) withMiddleware(next http.Handler) http.Handler {

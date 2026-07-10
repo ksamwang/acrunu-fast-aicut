@@ -59,6 +59,14 @@ func CutWithOptions(ctx context.Context, inputPath string, outputPath string, st
 	return nil
 }
 
+func InterpretFPS(ctx context.Context, inputPath string, outputPath string, sourceFPS float64, playbackFPS float64, durationMs int) error {
+	return CutWithOptions(ctx, inputPath, outputPath, 0, durationMs, CutOptions{
+		InterpretFPSEnabled: true,
+		SourceFPS:           sourceFPS,
+		PlaybackFPS:         playbackFPS,
+	})
+}
+
 func validateCutOptions(options CutOptions) error {
 	if !options.InterpretFPSEnabled {
 		return nil

@@ -34,6 +34,14 @@ func (stubProcessor) Cut(_ context.Context, sourcePath string, outputPath string
 	return os.WriteFile(outputPath, data, 0644)
 }
 
+func (stubProcessor) InterpretFPS(_ context.Context, sourcePath string, outputPath string, _ float64, _ float64, _ int) error {
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(outputPath, append([]byte("interpreted:"), data...), 0644)
+}
+
 func (stubProcessor) Probe(_ context.Context, _ string) (ffmpeg.ProbeResult, error) {
 	return ffmpeg.ProbeResult{
 		DurationMs: 6000,
@@ -107,7 +115,7 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 		t.Fatalf("expected pending status, got %s", item.Status)
 	}
 
-	saved, err := workspace.SaveItem(item.ID, WorkspaceSaveInput{
+	saved, err := workspace.SaveItem(context.Background(), item.ID, WorkspaceSaveInput{
 		AssetName:   "测试素材",
 		SourceType:  "talking_head",
 		SourceInMs:  0,
@@ -205,7 +213,7 @@ func TestWorkspaceSaveInterpretFPS(t *testing.T) {
 	}
 	item := imported[0]
 
-	saved, err := workspace.SaveItem(item.ID, WorkspaceSaveInput{
+	saved, err := workspace.SaveItem(context.Background(), item.ID, WorkspaceSaveInput{
 		AssetName:    "slow shot",
 		SourceType:   "visual_only",
 		SourceInMs:   0,
@@ -224,6 +232,17 @@ func TestWorkspaceSaveInterpretFPS(t *testing.T) {
 	}
 	if saved.SpeedRatio != 25.0/30.0 {
 		t.Fatalf("expected speed ratio %v, got %v", 25.0/30.0, saved.SpeedRatio)
+	}
+	if saved.OriginalSourcePath == "" || saved.SourcePath == saved.OriginalSourcePath {
+		t.Fatalf("expected interpret fps to switch to a working source, got source=%q original=%q", saved.SourcePath, saved.OriginalSourcePath)
+	}
+
+	prepared, err := workspace.PrepareItem(context.Background(), item.ID)
+	if err != nil {
+		t.Fatalf("PrepareItem() after interpret fps error = %v", err)
+	}
+	if prepared.Status != workspaceStatusReadyToSubmit {
+		t.Fatalf("expected ready_to_submit status, got %s", prepared.Status)
 	}
 }
 
@@ -280,7 +299,7 @@ func TestWorkspaceRejectsInvalidInterpretFPS(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ImportFiles() error = %v", err)
 			}
-			if _, err := workspace.SaveItem(imported[0].ID, tt.input); err == nil {
+			if _, err := workspace.SaveItem(context.Background(), imported[0].ID, tt.input); err == nil {
 				t.Fatalf("expected SaveItem() error")
 			}
 		})
@@ -398,7 +417,7 @@ func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 	}
 	item := imported[0]
 
-	if _, err := workspace.SaveItem(item.ID, WorkspaceSaveInput{
+	if _, err := workspace.SaveItem(context.Background(), item.ID, WorkspaceSaveInput{
 		AssetName:   "test asset",
 		SourceType:  "talking_head",
 		SourceInMs:  0,
@@ -471,7 +490,7 @@ func TestWorkspaceDuplicateItemSupportsMultipleCleanShotsFromSingleSource(t *tes
 	}
 	original := imported[0]
 
-	original, err = workspace.SaveItem(original.ID, WorkspaceSaveInput{
+	original, err = workspace.SaveItem(context.Background(), original.ID, WorkspaceSaveInput{
 		AssetName:   "shot-1",
 		SourceType:  "visual_only",
 		SourceInMs:  0,
@@ -498,7 +517,7 @@ func TestWorkspaceDuplicateItemSupportsMultipleCleanShotsFromSingleSource(t *tes
 		t.Fatalf("expected duplicate status saved, got %s", duplicate.Status)
 	}
 
-	duplicate, err = workspace.SaveItem(duplicate.ID, WorkspaceSaveInput{
+	duplicate, err = workspace.SaveItem(context.Background(), duplicate.ID, WorkspaceSaveInput{
 		AssetName:   "shot-2",
 		SourceType:  "visual_only",
 		SourceInMs:  2500,
@@ -559,7 +578,7 @@ func TestWorkspaceDoesNotCreateServerAssetUntilSubmit(t *testing.T) {
 		t.Fatalf("expected no server assets after import")
 	}
 
-	if _, err := workspace.SaveItem(item.ID, WorkspaceSaveInput{
+	if _, err := workspace.SaveItem(context.Background(), item.ID, WorkspaceSaveInput{
 		AssetName:   "test asset",
 		SourceType:  "talking_head",
 		SourceInMs:  0,
