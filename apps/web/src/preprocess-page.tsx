@@ -334,6 +334,16 @@ function createImportThumbnail(objectUrl: string): Promise<{ thumbnailUrl?: stri
   });
 }
 
+function disableButtonTabStops(root: HTMLElement | null) {
+  root?.querySelectorAll("button").forEach((button) => {
+    button.tabIndex = -1;
+  });
+}
+
+function isButtonElementTarget(target: EventTarget | null) {
+  return target instanceof Element ? target.closest("button") : null;
+}
+
 export function PreprocessPage({ token }: { token: string }) {
   const [items, setItems] = useState<WorkspaceItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -361,6 +371,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
   const initializedEditorItemIDRef = useRef<string | null>(null);
+  const preprocessWorkbenchRef = useRef<HTMLFormElement | null>(null);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
   const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
@@ -467,6 +478,34 @@ export function PreprocessPage({ token }: { token: string }) {
     setSubmitProductID(selectedItem.product_id ?? "");
     setSubmitSellingPointIDs([]);
   }, [form, selectedItem?.id, selectedItem?.source_url, selectedItem?.updated_at]);
+
+  useEffect(() => {
+    const root = preprocessWorkbenchRef.current;
+    if (!root || !selectedItem) {
+      return;
+    }
+
+    disableButtonTabStops(root);
+    const observer = new MutationObserver(() => disableButtonTabStops(root));
+    observer.observe(root, {
+      childList: true,
+      subtree: true
+    });
+    return () => observer.disconnect();
+  }, [selectedItem]);
+
+  const preventPreprocessButtonFocus = (event: React.MouseEvent<HTMLElement>) => {
+    if (isButtonElementTarget(event.target)) {
+      event.preventDefault();
+    }
+  };
+
+  const blurPreprocessButtonFocus = (event: React.FocusEvent<HTMLElement>) => {
+    const button = isButtonElementTarget(event.target);
+    if (button instanceof HTMLElement) {
+      button.blur();
+    }
+  };
 
   useEffect(() => {
     if (!submitProductID) {
@@ -1012,7 +1051,13 @@ export function PreprocessPage({ token }: { token: string }) {
         destroyOnClose={false}
       >
         {selectedItem ? (
-          <Form form={form} layout="vertical" className="preprocess-workbench">
+          <div
+            ref={preprocessWorkbenchRef}
+            className="preprocess-workbench-shell"
+            onMouseDownCapture={preventPreprocessButtonFocus}
+            onFocusCapture={blurPreprocessButtonFocus}
+          >
+            <Form form={form} layout="vertical" className="preprocess-workbench">
             <Form.Item name="source_in_ms" hidden>
               <Input type="hidden" />
             </Form.Item>
@@ -1201,7 +1246,8 @@ export function PreprocessPage({ token }: { token: string }) {
                 />
               </Card>
             </div>
-          </Form>
+            </Form>
+          </div>
         ) : null}
       </Modal>
 

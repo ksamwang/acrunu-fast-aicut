@@ -509,6 +509,11 @@ body {
   min-height: 0;
 }
 
+.preprocess-workbench-shell {
+  height: 100%;
+  min-height: 0;
+}
+
 .preprocess-modal-header {
   display: grid;
   grid-template-columns: minmax(180px, 0.9fr) minmax(520px, 1.8fr) auto;

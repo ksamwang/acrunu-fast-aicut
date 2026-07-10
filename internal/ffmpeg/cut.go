@@ -27,14 +27,12 @@ func CutWithOptions(ctx context.Context, inputPath string, outputPath string, st
 	startSeconds := fmt.Sprintf("%.3f", float64(startMs)/1000)
 	durationSeconds := fmt.Sprintf("%.3f", float64(endMs-startMs)/1000)
 
-	args := []string{
-		"-y",
-		"-ss", startSeconds,
-		"-i", inputPath,
-		"-t", durationSeconds,
-	}
 	if options.InterpretFPSEnabled {
-		args = append(args,
+		args := []string{
+			"-y",
+			"-ss", startSeconds,
+			"-t", durationSeconds,
+			"-i", inputPath,
 			"-an",
 			"-sn",
 			"-dn",
@@ -44,18 +42,28 @@ func CutWithOptions(ctx context.Context, inputPath string, outputPath string, st
 			"-preset", "veryfast",
 			"-crf", "18",
 			"-movflags", "+faststart",
-		)
-	} else {
-		args = append(args, "-c", "copy")
+			outputPath,
+		}
+		return runCutCommand(ctx, args)
+	}
+
+	args := []string{
+		"-y",
+		"-ss", startSeconds,
+		"-i", inputPath,
+		"-t", durationSeconds,
+		"-c", "copy",
 	}
 	args = append(args, outputPath)
+	return runCutCommand(ctx, args)
+}
 
+func runCutCommand(ctx context.Context, args []string) error {
 	cmd := exec.CommandContext(ctx, ffmpegPath(), args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg cut failed: %w: %s", err, string(output))
 	}
-
 	return nil
 }
 
