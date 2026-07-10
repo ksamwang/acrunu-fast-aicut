@@ -92,6 +92,7 @@ type Asset = {
   model_labels?: Record<string, unknown>;
   model_result?: Record<string, unknown>;
   review_overrides?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   analysis_error?: string;
   updated_at?: string;
   analyzed_at?: string;
@@ -160,6 +161,13 @@ type AssetReviewPayload = {
   quality_tags: string[];
   usability_status: string;
   reviewer_notes: string;
+};
+
+type AssetBusinessTagPayload = {
+  is_curated: boolean;
+  business_tags: string[];
+  narrative_roles: string[];
+  usage_notes: string;
 };
 
 type Task = {
@@ -907,8 +915,10 @@ function AssetsPage({ token }: { token: string }) {
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
   const [savingSellingPoints, setSavingSellingPoints] = useState(false);
+  const [savingBusinessTags, setSavingBusinessTags] = useState(false);
   const [reviewForm] = Form.useForm<AssetReviewPayload>();
   const [sellingPointForm] = Form.useForm<AssetSellingPointPayload>();
+  const [businessTagForm] = Form.useForm<AssetBusinessTagPayload>();
 
   const assetPath = useMemo(() => {
     const params = new URLSearchParams();
@@ -1049,6 +1059,7 @@ function AssetsPage({ token }: { token: string }) {
     if (!selectedAsset) {
       reviewForm.resetFields();
       sellingPointForm.resetFields();
+      businessTagForm.resetFields();
       setEditingAnalysis(false);
       return;
     }
@@ -1063,7 +1074,17 @@ function AssetsPage({ token }: { token: string }) {
       usability_status: selectedAsset.usability_status || "usable",
       reviewer_notes: selectedAsset.reviewer_notes || ""
     });
-  }, [reviewForm, selectedAsset]);
+    businessTagForm.setFieldsValue({
+      is_curated: Boolean(selectedAsset.metadata?.is_curated),
+      business_tags: Array.isArray(selectedAsset.metadata?.business_tags)
+        ? (selectedAsset.metadata?.business_tags as string[])
+        : [],
+      narrative_roles: Array.isArray(selectedAsset.metadata?.narrative_roles)
+        ? (selectedAsset.metadata?.narrative_roles as string[])
+        : [],
+      usage_notes: typeof selectedAsset.metadata?.usage_notes === "string" ? (selectedAsset.metadata?.usage_notes as string) : ""
+    });
+  }, [businessTagForm, reviewForm, selectedAsset, sellingPointForm]);
 
   useEffect(() => {
     sellingPointForm.setFieldsValue({
@@ -1138,6 +1159,32 @@ function AssetsPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "更新素材卖点失败");
     } finally {
       setSavingSellingPoints(false);
+    }
+  };
+
+  const saveAssetBusinessTags = async () => {
+    if (!selectedAsset) {
+      return;
+    }
+
+    const values = await businessTagForm.validateFields();
+    setSavingBusinessTags(true);
+    try {
+      const updated = await apiRequest<Asset>(
+        `/api/assets/${selectedAsset.id}/business-tags`,
+        {
+          method: "PUT",
+          body: JSON.stringify(values)
+        },
+        token
+      );
+      setSelectedAsset(updated);
+      await assets.reload();
+      message.success("精选业务标签已更新");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "更新精选业务标签失败");
+    } finally {
+      setSavingBusinessTags(false);
     }
   };
 
@@ -1662,6 +1709,61 @@ function AssetsPage({ token }: { token: string }) {
                   )}
                 </Descriptions.Item>
               </Descriptions>
+            </Card>
+
+            <Card
+              title="精选业务标签"
+              extra={
+                <Button type="primary" size="small" loading={savingBusinessTags} onClick={saveAssetBusinessTags}>
+                  保存精选标签
+                </Button>
+              }
+            >
+              <Space direction="vertical" className="wide-space">
+                <Form form={businessTagForm} layout="vertical">
+                  <Form.Item name="is_curated" label="是否精选">
+                    <Select
+                      options={[
+                        { value: true, label: "精选素材" },
+                        { value: false, label: "普通素材" }
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item name="business_tags" label="业务标签">
+                    <Select mode="tags" tokenSeparators={[","]} open={false} />
+                  </Form.Item>
+                  <Form.Item name="narrative_roles" label="叙事角色">
+                    <Select mode="tags" tokenSeparators={[","]} open={false} />
+                  </Form.Item>
+                  <Form.Item name="usage_notes" label="使用建议">
+                    <Input.TextArea rows={3} />
+                  </Form.Item>
+                </Form>
+                <Descriptions bordered column={1} size="small">
+                  <Descriptions.Item label="当前精选状态">
+                    {selectedAsset.metadata?.is_curated ? "精选素材" : "普通素材"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="当前业务标签">
+                    {renderTagList(
+                      Array.isArray(selectedAsset.metadata?.business_tags) ? (selectedAsset.metadata?.business_tags as string[]) : [],
+                      "暂无业务标签"
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="当前叙事角色">
+                    {renderTagList(
+                      Array.isArray(selectedAsset.metadata?.narrative_roles) ? (selectedAsset.metadata?.narrative_roles as string[]) : [],
+                      "暂无叙事角色"
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="当前使用建议">
+                    {typeof selectedAsset.metadata?.usage_notes === "string" && selectedAsset.metadata?.usage_notes ? (
+                      selectedAsset.metadata?.usage_notes as string
+                    ) : (
+                      <Typography.Text type="secondary">暂无使用建议</Typography.Text>
+                    )}
+                  </Descriptions.Item>
+                </Descriptions>
+              </Space>
             </Card>
 
             <Card

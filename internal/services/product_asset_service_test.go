@@ -541,6 +541,45 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	}
 }
 
+func TestUpdateAssetBusinessTagsInMemory(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	updated, err := service.UpdateAssetBusinessTags(asset.ID, AssetBusinessTagUpdate{
+		IsCurated:       true,
+		BusinessTags:    []string{"首镜优先", "核心卖点", "首镜优先"},
+		NarrativeRoles:  []string{"开头钩子", "卖点展示"},
+		UsageNotes:      "优先用于高点击开场",
+		UpdatedByUserID: "editor-1",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAssetBusinessTags() error = %v", err)
+	}
+
+	if curated, ok := updated.Metadata["is_curated"].(bool); !ok || !curated {
+		t.Fatalf("expected is_curated=true, got %#v", updated.Metadata)
+	}
+	if tags := stringSliceValueFromMap(updated.Metadata, "business_tags"); len(tags) != 2 {
+		t.Fatalf("expected deduplicated business tags, got %#v", updated.Metadata)
+	}
+	if note := stringValueFromMap(updated.Metadata, "usage_notes"); note != "优先用于高点击开场" {
+		t.Fatalf("expected usage note persisted, got %#v", updated.Metadata)
+	}
+}
+
 func TestUpdateAssetSellingPointsRejectsWrongProductSellingPoint(t *testing.T) {
 	service := NewProductAssetService()
 	product1 := service.CreateProduct(CreateProductInput{Name: "P1"})

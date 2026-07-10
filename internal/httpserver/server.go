@@ -131,6 +131,7 @@ func (s *Server) routes() {
 	protected.GET("/assets/:assetID/semantic-preview", s.handleGetAssetSemanticPreview)
 	protected.PUT("/assets/:assetID/review", s.handleUpdateAssetReview)
 	protected.PUT("/assets/:assetID/selling-points", s.handleUpdateAssetSellingPoints)
+	protected.PUT("/assets/:assetID/business-tags", s.handleUpdateAssetBusinessTags)
 	protected.POST("/assets/:assetID/archive", s.handleArchiveAsset)
 	protected.POST("/assets/:assetID/restore", s.handleRestoreAsset)
 	protected.POST("/tasks/test", s.handleCreateTestTask)

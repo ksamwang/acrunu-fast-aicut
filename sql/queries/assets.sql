@@ -145,6 +145,13 @@ SET embedding = $2,
     updated_at = now()
 WHERE id = $1;
 
+-- name: UpdateAssetMetadata :exec
+UPDATE assets
+SET metadata = $2,
+    updated_by_user_id = $3,
+    updated_at = now()
+WHERE id = $1;
+
 -- name: ArchiveAsset :exec
 UPDATE assets
 SET status = 'archived',

@@ -42,6 +42,7 @@ type Querier interface {
 	RestoreAsset(ctx context.Context, arg RestoreAssetParams) error
 	UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalysisParams) error
 	UpdateAssetEmbedding(ctx context.Context, arg UpdateAssetEmbeddingParams) error
+	UpdateAssetMetadata(ctx context.Context, arg UpdateAssetMetadataParams) error
 	UpdateAssetMediaInfo(ctx context.Context, arg UpdateAssetMediaInfoParams) error
 	UpdateAssetReview(ctx context.Context, arg UpdateAssetReviewParams) error
 	UpdateAssetStatus(ctx context.Context, arg UpdateAssetStatusParams) error

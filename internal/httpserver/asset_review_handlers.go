@@ -23,6 +23,13 @@ type updateAssetSellingPointsRequest struct {
 	SellingPointIDs []string `json:"selling_point_ids"`
 }
 
+type updateAssetBusinessTagsRequest struct {
+	IsCurated      bool     `json:"is_curated"`
+	BusinessTags   []string `json:"business_tags"`
+	NarrativeRoles []string `json:"narrative_roles"`
+	UsageNotes     string   `json:"usage_notes"`
+}
+
 func (s *Server) handleUpdateAssetReview(c *gin.Context) {
 	var req updateAssetReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -141,4 +148,32 @@ func (s *Server) handleUpdateAssetSellingPoints(c *gin.Context) {
 	}
 
 	OK(c, items)
+}
+
+func (s *Server) handleUpdateAssetBusinessTags(c *gin.Context) {
+	var req updateAssetBusinessTagsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "bad_request", "invalid asset business tags payload")
+		return
+	}
+
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+
+	asset, err := s.productAssetService.UpdateAssetBusinessTags(c.Param("assetID"), services.AssetBusinessTagUpdate{
+		IsCurated:       req.IsCurated,
+		BusinessTags:    req.BusinessTags,
+		NarrativeRoles:  req.NarrativeRoles,
+		UsageNotes:      req.UsageNotes,
+		UpdatedByUserID: user.ID,
+	})
+	if err != nil {
+		handleProductError(c, err)
+		return
+	}
+
+	OK(c, asset)
 }

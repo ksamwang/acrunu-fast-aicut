@@ -85,6 +85,7 @@ type Asset struct {
 	ModelLabels        map[string]any `json:"model_labels,omitempty"`
 	ModelResult        map[string]any `json:"model_result,omitempty"`
 	ReviewOverrides    map[string]any `json:"review_overrides,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 	ReviewerNotes      string         `json:"reviewer_notes,omitempty"`
 	AnalysisError      string         `json:"analysis_error,omitempty"`
 	CreatedByUserID    string         `json:"created_by_user_id"`
@@ -194,6 +195,7 @@ type CreateAssetInput struct {
 	QualityTags        []string
 	ModelLabels        map[string]any
 	ModelResult        map[string]any
+	Metadata           map[string]any
 	ReviewerNotes      string
 	AnalysisError      string
 	SellingPointIDs    []string
@@ -308,6 +310,14 @@ type AssetArchiveUpdate struct {
 	UpdatedByUserID string
 }
 
+type AssetBusinessTagUpdate struct {
+	IsCurated       bool
+	BusinessTags    []string
+	NarrativeRoles  []string
+	UsageNotes      string
+	UpdatedByUserID string
+}
+
 func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error) {
 	if s.queries != nil {
 		return s.createAssetInPostgres(input)
@@ -384,6 +394,7 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 		ModelLabels:        cloneObjectMap(input.ModelLabels),
 		ModelResult:        cloneObjectMap(input.ModelResult),
 		ReviewOverrides:    map[string]any{},
+		Metadata:           cloneObjectMap(input.Metadata),
 		ReviewerNotes:      input.ReviewerNotes,
 		AnalysisError:      input.AnalysisError,
 		CreatedByUserID:    input.CreatedByUserID,
@@ -588,6 +599,7 @@ func (s *ProductAssetService) BuildAssetSemanticPreview(assetID string) (AssetSe
 				"subjects":          append([]string(nil), asset.Subjects...),
 				"scene_tags":        append([]string(nil), asset.SceneTags...),
 				"quality_tags":      append([]string(nil), asset.QualityTags...),
+				"asset_metadata":    cloneObjectMap(asset.Metadata),
 			},
 		},
 	}
@@ -721,6 +733,26 @@ func (s *ProductAssetService) UpdateAssetSellingPoints(assetID string, update As
 		return items[i].Priority < items[j].Priority
 	})
 	return items, nil
+}
+
+func (s *ProductAssetService) UpdateAssetBusinessTags(assetID string, update AssetBusinessTagUpdate) (Asset, error) {
+	if s.queries != nil {
+		return s.updateAssetBusinessTagsInPostgres(assetID, update)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	asset, ok := s.assets[assetID]
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+
+	asset.Metadata = buildBusinessTagMetadata(asset.Metadata, update)
+	asset.UpdatedByUserID = update.UpdatedByUserID
+	asset.UpdatedAt = time.Now()
+	s.assets[assetID] = asset
+	return asset, nil
 }
 
 func (s *ProductAssetService) UpdateAssetAnalysis(assetID string, update AssetAnalysisUpdate) error {
@@ -1241,7 +1273,7 @@ func (s *ProductAssetService) createAssetInPostgres(input CreateAssetInput) (Ass
 		ReviewerNotes:      assetTextParam(input.ReviewerNotes),
 		AnalysisError:      assetTextParam(input.AnalysisError),
 		AnalyzedAt:         pgtype.Timestamptz{},
-		Metadata:           []byte(`{}`),
+		Metadata:           mustJSON(input.Metadata, map[string]any{}),
 		CreatedByUserID:    assetNullableUUIDParam(input.CreatedByUserID),
 		UpdatedByUserID:    assetNullableUUIDParam(input.CreatedByUserID),
 	})
@@ -1395,6 +1427,28 @@ func (s *ProductAssetService) updateAssetReviewInPostgres(assetID string, update
 		ReviewerNotes:   assetTextParam(update.ReviewerNotes),
 		ReviewOverrides: mustJSON(reviewOverrides, map[string]any{}),
 		UsabilityStatus: firstNonEmpty(stringValueFromMap(effective, "usability_status"), current.UsabilityStatus),
+		UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
+	}); err != nil {
+		return Asset{}, err
+	}
+
+	updated, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+	return updated, nil
+}
+
+func (s *ProductAssetService) updateAssetBusinessTagsInPostgres(assetID string, update AssetBusinessTagUpdate) (Asset, error) {
+	current, ok := s.getAssetFromPostgres(assetID)
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+
+	nextMetadata := buildBusinessTagMetadata(current.Metadata, update)
+	if err := s.queries.UpdateAssetMetadata(context.Background(), db.UpdateAssetMetadataParams{
+		ID:              assetNullableUUIDParam(assetID),
+		Metadata:        mustJSON(nextMetadata, map[string]any{}),
 		UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
 	}); err != nil {
 		return Asset{}, err
@@ -1642,6 +1696,7 @@ func assetFromDBRecord(row repository.AssetRecord) Asset {
 		ModelLabels:        jsonObject(row.ModelLabels),
 		ModelResult:        jsonObject(row.ModelResult),
 		ReviewOverrides:    jsonObject(row.ReviewOverrides),
+		Metadata:           jsonObject(row.Metadata),
 		ReviewerNotes:      row.ReviewerNotes,
 		AnalysisError:      row.AnalysisError,
 		CreatedByUserID:    row.CreatedByUserID,
@@ -1709,6 +1764,7 @@ func assetFromDBRow(row db.Asset) Asset {
 		ModelLabels:        jsonObject(row.ModelLabels),
 		ModelResult:        jsonObject(row.ModelResult),
 		ReviewOverrides:    jsonObject(row.ReviewOverrides),
+		Metadata:           jsonObject(row.Metadata),
 		ReviewerNotes:      assetTextString(row.ReviewerNotes),
 		AnalysisError:      assetTextString(row.AnalysisError),
 		CreatedByUserID:    assetUUIDString(row.CreatedByUserID),
@@ -1978,6 +2034,18 @@ func buildOpenSemanticDescription(asset Asset) string {
 		parts = append(parts, "质量标签："+strings.Join(asset.QualityTags, "、"))
 	}
 	parts = append(parts, "是否有人声："+boolDisplay(asset.LikelyHasSpeech))
+	if curated, ok := asset.Metadata["is_curated"].(bool); ok && curated {
+		parts = append(parts, "精选素材：是")
+	}
+	if businessTags := stringSliceValueFromMap(asset.Metadata, "business_tags"); len(businessTags) > 0 {
+		parts = append(parts, "业务标签："+strings.Join(businessTags, "、"))
+	}
+	if roles := stringSliceValueFromMap(asset.Metadata, "narrative_roles"); len(roles) > 0 {
+		parts = append(parts, "叙事角色："+strings.Join(roles, "、"))
+	}
+	if usageNotes := stringValueFromMap(asset.Metadata, "usage_notes"); usageNotes != "" {
+		parts = append(parts, "使用建议："+usageNotes)
+	}
 	if asset.ReviewerNotes != "" {
 		parts = append(parts, "复核备注："+asset.ReviewerNotes)
 	}
@@ -1986,6 +2054,35 @@ func buildOpenSemanticDescription(asset Asset) string {
 
 func buildSpeechSegmentSemanticText(segment SpeechSegment) string {
 	return "口播句段：" + segment.Transcript
+}
+
+func buildBusinessTagMetadata(current map[string]any, update AssetBusinessTagUpdate) map[string]any {
+	next := cloneObjectMap(current)
+	next["is_curated"] = update.IsCurated
+	next["business_tags"] = normalizeStringList(update.BusinessTags)
+	next["narrative_roles"] = normalizeStringList(update.NarrativeRoles)
+	next["usage_notes"] = strings.TrimSpace(update.UsageNotes)
+	return next
+}
+
+func normalizeStringList(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
 }
 
 func sourceTypeDisplay(value string) string {

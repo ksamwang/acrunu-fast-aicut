@@ -414,3 +414,64 @@ func TestHandleGetAssetSemanticPreview(t *testing.T) {
 		t.Fatalf("expected shot + speech segment targets, got %#v", resp.Data.EmbeddingTargets)
 	}
 }
+
+func TestHandleUpdateAssetBusinessTags(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	asset, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+
+	body, err := json.Marshal(map[string]any{
+		"is_curated":      true,
+		"business_tags":   []string{"首镜优先", "核心卖点"},
+		"narrative_roles": []string{"开头钩子"},
+		"usage_notes":     "优先用于点击率测试",
+	})
+	if err != nil {
+		t.Fatalf("marshal body failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/assets/"+asset.ID+"/business-tags", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	}))
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	updated, ok := productAssetService.GetAsset(asset.ID)
+	if !ok {
+		t.Fatalf("expected asset to exist")
+	}
+	if curated, ok := updated.Metadata["is_curated"].(bool); !ok || !curated {
+		t.Fatalf("expected curated metadata, got %#v", updated.Metadata)
+	}
+	if note := updated.Metadata["usage_notes"]; note != "优先用于点击率测试" {
+		t.Fatalf("expected usage note persisted, got %#v", updated.Metadata)
+	}
+}

@@ -513,6 +513,25 @@ func (q *Queries) UpdateAssetEmbedding(ctx context.Context, arg UpdateAssetEmbed
 	return err
 }
 
+const updateAssetMetadata = `-- name: UpdateAssetMetadata :exec
+UPDATE assets
+SET metadata = $2,
+    updated_by_user_id = $3,
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdateAssetMetadataParams struct {
+	ID              pgtype.UUID `json:"id"`
+	Metadata        []byte      `json:"metadata"`
+	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
+}
+
+func (q *Queries) UpdateAssetMetadata(ctx context.Context, arg UpdateAssetMetadataParams) error {
+	_, err := q.db.Exec(ctx, updateAssetMetadata, arg.ID, arg.Metadata, arg.UpdatedByUserID)
+	return err
+}
+
 const updateAssetMediaInfo = `-- name: UpdateAssetMediaInfo :exec
 UPDATE assets
 SET duration_ms = $2,
