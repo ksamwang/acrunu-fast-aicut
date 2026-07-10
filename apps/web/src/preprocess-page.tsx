@@ -566,6 +566,7 @@ export function PreprocessPage({ token }: { token: string }) {
                   rules={[{ required: true, message: "请选择素材类型" }]}
                 >
                   <Select
+                    popupClassName="preprocess-select-dropdown"
                     placeholder="素材类型"
                     options={[
                       { value: "visual_only", label: "纯画面" },
@@ -577,12 +578,14 @@ export function PreprocessPage({ token }: { token: string }) {
                 <div className="preprocess-header-submit">
                   <Typography.Text type="secondary">正式提交</Typography.Text>
                   <Select
+                    popupClassName="preprocess-select-dropdown"
                     placeholder="产品"
                     value={submitProductID || undefined}
                     onChange={(value) => setSubmitProductID(value)}
                     options={products.map((product) => ({ value: product.id, label: product.name }))}
                   />
                   <Select
+                    popupClassName="preprocess-select-dropdown"
                     mode="multiple"
                     allowClear
                     placeholder="卖点"

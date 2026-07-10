@@ -275,21 +275,106 @@ body {
 }
 
 .preprocess-modal .ant-btn,
+.preprocess-modal .ant-btn-default,
+.preprocess-modal .ant-btn-primary,
 .preprocess-modal .ant-input,
 .preprocess-modal .ant-input-number,
+.preprocess-modal .ant-input-number-input,
+.preprocess-modal .ant-input-affix-wrapper,
+.preprocess-modal .ant-picker,
+.preprocess-modal .ant-select,
 .preprocess-modal .ant-select-selector,
-.preprocess-modal .ant-tag {
+.preprocess-modal .ant-select-selection-overflow,
+.preprocess-modal .ant-select-selection-item,
+.preprocess-modal .ant-select-selection-placeholder,
+.preprocess-modal .ant-tag,
+.preprocess-modal textarea.ant-input {
   border-radius: 0 !important;
 }
 
 .preprocess-modal .ant-input,
-.preprocess-modal .ant-select-selector {
+.preprocess-modal .ant-input-affix-wrapper,
+.preprocess-modal .ant-select-selector,
+.preprocess-modal textarea.ant-input {
   border-color: #475569 !important;
   background: #f8fafc !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+}
+
+.preprocess-modal .ant-input::placeholder,
+.preprocess-modal textarea.ant-input::placeholder,
+.preprocess-modal .ant-select-selection-placeholder {
+  color: #64748b !important;
+}
+
+.preprocess-modal .ant-input:hover,
+.preprocess-modal .ant-input:focus,
+.preprocess-modal .ant-input-focused,
+.preprocess-modal .ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+.preprocess-modal .ant-select-focused .ant-select-selector,
+.preprocess-modal textarea.ant-input:hover,
+.preprocess-modal textarea.ant-input:focus {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 1px #60a5fa !important;
+}
+
+.preprocess-modal .ant-select-arrow,
+.preprocess-modal .ant-select-clear {
+  color: #334155 !important;
+}
+
+.preprocess-modal .ant-select-multiple .ant-select-selection-item {
+  border: 1px solid #94a3b8 !important;
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+  line-height: 20px !important;
+}
+
+.preprocess-modal .ant-select-multiple .ant-select-selection-item-remove {
+  color: #475569 !important;
 }
 
 .preprocess-modal .ant-btn {
-  box-shadow: none;
+  height: 32px;
+  border-color: #64748b;
+  border-radius: 0 !important;
+  background: #273244;
+  color: #e5e7eb;
+  box-shadow: none !important;
+}
+
+.preprocess-modal .ant-btn:hover,
+.preprocess-modal .ant-btn:focus-visible {
+  border-color: #93c5fd !important;
+  background: #334155 !important;
+  color: #ffffff !important;
+}
+
+.preprocess-modal .ant-btn:active {
+  border-color: #60a5fa !important;
+  background: #1e293b !important;
+}
+
+.preprocess-modal .ant-btn-primary {
+  border-color: #3b82f6 !important;
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+.preprocess-modal .ant-btn-primary:hover,
+.preprocess-modal .ant-btn-primary:focus-visible {
+  border-color: #93c5fd !important;
+  background: #2563eb !important;
+}
+
+.preprocess-modal .ant-btn[disabled],
+.preprocess-modal .ant-btn-disabled,
+.preprocess-modal .ant-select-disabled .ant-select-selector {
+  border-color: #334155 !important;
+  background: #1f2937 !important;
+  color: #64748b !important;
+  opacity: 1;
 }
 
 .preprocess-modal .ant-tag {
@@ -467,11 +552,32 @@ body {
   white-space: nowrap;
 }
 
-.preprocess-modal .ant-input-affix-wrapper,
-.preprocess-modal .ant-select-dropdown,
-.preprocess-modal .ant-picker,
-.preprocess-modal textarea {
+.preprocess-modal input[type="range"] {
+  height: 18px;
+  accent-color: #3b82f6;
+}
+
+.preprocess-select-dropdown,
+.preprocess-select-dropdown .ant-select-item,
+.preprocess-select-dropdown .ant-select-item-option-content {
   border-radius: 0 !important;
+}
+
+.preprocess-select-dropdown {
+  padding: 4px;
+  border: 1px solid #475569;
+  background: #111827;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
+}
+
+.preprocess-select-dropdown .ant-select-item {
+  color: #e5e7eb;
+}
+
+.preprocess-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled),
+.preprocess-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: #1d4ed8;
+  color: #ffffff;
 }
 
 .preprocess-video-meta {
