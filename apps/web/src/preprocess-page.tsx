@@ -99,6 +99,71 @@ type ImportPreview = {
   durationMs?: number;
 };
 
+function SvgIcon({
+  children,
+  viewBox = "0 0 24 24"
+}: {
+  children: React.ReactNode;
+  viewBox?: string;
+}) {
+  return (
+    <svg className="ui-icon" viewBox={viewBox} aria-hidden="true" focusable="false">
+      {children}
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <SvgIcon>
+      <path d="M20 6v5h-5" />
+      <path d="M4 18v-5h5" />
+      <path d="M6.1 9a7 7 0 0 1 11.5-2.6L20 8.7" />
+      <path d="M17.9 15a7 7 0 0 1-11.5 2.6L4 15.3" />
+    </SvgIcon>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <SvgIcon>
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M7 6l1 14h8l1-14" />
+      <path d="M10 10v6" />
+      <path d="M14 10v6" />
+    </SvgIcon>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <SvgIcon>
+      <path d="M12 16V4" />
+      <path d="M7 9l5-5 5 5" />
+      <path d="M5 16v4h14v-4" />
+    </SvgIcon>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <SvgIcon>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </SvgIcon>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <SvgIcon>
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </SvgIcon>
+  );
+}
+
 const workspaceStatusLabels: Record<WorkspaceItem["status"], string> = {
   pending: "待处理",
   saved: "本地已保存",
@@ -586,10 +651,10 @@ export function PreprocessPage({ token }: { token: string }) {
           </Typography.Text>
         </div>
         <Space wrap>
-          <Button onClick={() => void loadItems()} loading={loading}>
+          <Button icon={<RefreshIcon />} onClick={() => void loadItems()} loading={loading}>
             刷新
           </Button>
-          <Button danger loading={clearing} onClick={() => void clearWorkspace()}>
+          <Button danger icon={<TrashIcon />} loading={clearing} onClick={() => void clearWorkspace()}>
             清空工作区
           </Button>
         </Space>
@@ -643,8 +708,8 @@ export function PreprocessPage({ token }: { token: string }) {
           className="preprocess-import-fab"
           onClick={() => setImportModalOpen(true)}
           aria-label="导入原始视频"
+          icon={<PlusIcon />}
         >
-          +
         </Button>
       </section>
 
@@ -665,6 +730,7 @@ export function PreprocessPage({ token }: { token: string }) {
               multiple
               onChange={(event) => selectImportFiles(Array.from(event.target.files ?? []))}
             />
+            <UploadIcon />
             <span>选择视频文件</span>
             <Typography.Text type="secondary">支持一次选择多个原始视频，确认后导入本地预处理工作区。</Typography.Text>
           </label>
@@ -686,7 +752,7 @@ export function PreprocessPage({ token }: { token: string }) {
                       {formatFileSize(preview.file.size)} · {formatDuration(preview.durationMs)}
                     </Typography.Text>
                   </div>
-                  <Button size="small" onClick={() => removeImportPreview(preview.id)}>
+                  <Button size="small" icon={<CloseIcon />} onClick={() => removeImportPreview(preview.id)}>
                     移除
                   </Button>
                 </div>
@@ -700,7 +766,7 @@ export function PreprocessPage({ token }: { token: string }) {
             <Button onClick={closeImportModal} disabled={importing}>
               取消
             </Button>
-            <Button type="primary" loading={importing} disabled={importPreviews.length === 0} onClick={() => void importFiles()}>
+            <Button type="primary" icon={<UploadIcon />} loading={importing} disabled={importPreviews.length === 0} onClick={() => void importFiles()}>
               确认导入工作区
             </Button>
           </div>
