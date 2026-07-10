@@ -157,6 +157,25 @@ func (w *Workspace) ImportFiles(ctx context.Context, headers []*multipart.FileHe
 	return items, nil
 }
 
+func (w *Workspace) DuplicateItem(itemID string) (WorkspaceItem, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	item, ok := w.items[itemID]
+	if !ok {
+		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
+	}
+
+	duplicate, err := w.duplicateItemLocked(item)
+	if err != nil {
+		return WorkspaceItem{}, err
+	}
+	if err := w.persistLocked(); err != nil {
+		return WorkspaceItem{}, err
+	}
+	return duplicate, nil
+}
+
 func (w *Workspace) SaveItem(itemID string, input WorkspaceSaveInput) (WorkspaceItem, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -383,6 +402,50 @@ func (w *Workspace) importFileLocked(ctx context.Context, header *multipart.File
 	w.items[itemID] = item
 	w.order = append(w.order, itemID)
 	return item, nil
+}
+
+func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, error) {
+	itemID := uuid.NewString()
+	itemDir := filepath.Join(w.root, "items", itemID)
+	if err := os.MkdirAll(itemDir, 0755); err != nil {
+		return WorkspaceItem{}, err
+	}
+
+	sourceExt := filepath.Ext(source.SourceFileName)
+	if sourceExt == "" {
+		sourceExt = filepath.Ext(source.SourcePath)
+	}
+	sourcePath := filepath.Join(itemDir, "source"+sourceExt)
+	if err := copyFile(source.SourcePath, sourcePath); err != nil {
+		return WorkspaceItem{}, err
+	}
+
+	now := time.Now()
+	duplicate := WorkspaceItem{
+		ID:               itemID,
+		Status:           workspaceStatusSaved,
+		AssetName:        source.AssetName,
+		SourceType:       source.SourceType,
+		OriginalFileName: source.OriginalFileName,
+		SourceFileName:   source.SourceFileName,
+		SourceFileSize:   source.SourceFileSize,
+		SourcePath:       sourcePath,
+		SourceInMs:       source.SourceInMs,
+		SourceOutMs:      source.SourceOutMs,
+		Transcript:       source.Transcript,
+		ReviewerNotes:    source.ReviewerNotes,
+		Probe:            source.Probe,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+
+	if duplicate.SourceType == "" || duplicate.SourceOutMs <= duplicate.SourceInMs {
+		duplicate.Status = workspaceStatusPending
+	}
+
+	w.items[itemID] = duplicate
+	w.order = append(w.order, itemID)
+	return duplicate, nil
 }
 
 func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (WorkspaceItem, error) {
@@ -652,6 +715,25 @@ func fileChecksum(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func copyFile(sourcePath string, targetPath string) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	target, err := os.Create(targetPath)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(target, source); err != nil {
+		target.Close()
+		return err
+	}
+	return target.Close()
 }
 
 func sortSnapshots(frames []WorkspaceFrameSnapshot) {

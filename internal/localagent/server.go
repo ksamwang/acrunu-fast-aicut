@@ -138,6 +138,12 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 	}
 
 	switch parts[1] {
+	case "duplicate":
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemDuplicate(w, r, itemID)
 	case "prepare":
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
@@ -203,6 +209,15 @@ func (s *Server) handleWorkspaceItemSave(w http.ResponseWriter, r *http.Request,
 
 func (s *Server) handleWorkspaceItemPrepare(w http.ResponseWriter, r *http.Request, itemID string) {
 	item, err := s.workspace.PrepareItem(context.Background(), itemID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
+
+func (s *Server) handleWorkspaceItemDuplicate(w http.ResponseWriter, r *http.Request, itemID string) {
+	item, err := s.workspace.DuplicateItem(itemID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return

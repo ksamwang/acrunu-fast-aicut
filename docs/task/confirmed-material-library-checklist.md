@@ -30,7 +30,7 @@
 - [x] 预处理窗口内支持上一条 / 下一条切换
 - [x] 支持设置 clean shot 裁切起点
 - [x] 支持设置 clean shot 裁切终点
-- [ ] 支持从单个原始视频导出一个或多个 clean shot
+- [x] 支持从单个原始视频导出一个或多个 clean shot
 - [x] 支持在预处理阶段标注素材类型：`visual_only` / `talking_head`
 - [x] 支持 `talking_head` 素材录入或导入带时间轴的转写文本
 - [x] 支持将未提交的预处理结果保留在客户端本地工作区

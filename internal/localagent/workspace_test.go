@@ -214,6 +214,79 @@ func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDuplicateItemSupportsMultipleCleanShotsFromSingleSource(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	original := imported[0]
+
+	original, err = workspace.SaveItem(original.ID, WorkspaceSaveInput{
+		AssetName:   "shot-1",
+		SourceType:  "visual_only",
+		SourceInMs:  0,
+		SourceOutMs: 2500,
+	})
+	if err != nil {
+		t.Fatalf("SaveItem() error = %v", err)
+	}
+
+	duplicate, err := workspace.DuplicateItem(original.ID)
+	if err != nil {
+		t.Fatalf("DuplicateItem() error = %v", err)
+	}
+	if duplicate.ID == original.ID {
+		t.Fatalf("expected duplicate to have a new id")
+	}
+	if duplicate.OriginalFileName != original.OriginalFileName {
+		t.Fatalf("expected duplicate to keep original file name, got %+v", duplicate)
+	}
+	if duplicate.SourcePath == original.SourcePath {
+		t.Fatalf("expected duplicate to have its own source copy")
+	}
+	if duplicate.Status != workspaceStatusSaved {
+		t.Fatalf("expected duplicate status saved, got %s", duplicate.Status)
+	}
+
+	duplicate, err = workspace.SaveItem(duplicate.ID, WorkspaceSaveInput{
+		AssetName:   "shot-2",
+		SourceType:  "visual_only",
+		SourceInMs:  2500,
+		SourceOutMs: 5000,
+	})
+	if err != nil {
+		t.Fatalf("SaveItem() duplicate error = %v", err)
+	}
+
+	preparedOriginal, err := workspace.PrepareItem(context.Background(), original.ID)
+	if err != nil {
+		t.Fatalf("PrepareItem(original) error = %v", err)
+	}
+	preparedDuplicate, err := workspace.PrepareItem(context.Background(), duplicate.ID)
+	if err != nil {
+		t.Fatalf("PrepareItem(duplicate) error = %v", err)
+	}
+
+	if preparedOriginal.CleanShotPath == "" || preparedDuplicate.CleanShotPath == "" {
+		t.Fatalf("expected both clean shots to be generated")
+	}
+	if preparedOriginal.CleanShotPath == preparedDuplicate.CleanShotPath {
+		t.Fatalf("expected each item to have its own clean shot output path")
+	}
+	if len(workspace.ListItems()) != 2 {
+		t.Fatalf("expected 2 workspace items, got %d", len(workspace.ListItems()))
+	}
+}
+
 func TestWorkspaceDoesNotCreateServerAssetUntilSubmit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

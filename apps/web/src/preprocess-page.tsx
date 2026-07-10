@@ -179,6 +179,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [importing, setImporting] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -326,6 +327,31 @@ export function PreprocessPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "执行预处理失败");
     } finally {
       setPreparing(false);
+    }
+  };
+
+  const duplicateItem = async () => {
+    if (!selectedItem) {
+      return;
+    }
+    const values = await form.validateFields();
+    setDuplicating(true);
+    try {
+      await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values)
+      });
+      const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/duplicate`, {
+        method: "POST"
+      });
+      setItems((current) => [...current, response.item]);
+      setSelectedItemID(response.item.id);
+      message.success("已从当前原始视频派生一个新的 clean shot 条目");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "派生新片段失败");
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -503,6 +529,9 @@ export function PreprocessPage({ token }: { token: string }) {
               </Button>
               <Button loading={saving} onClick={() => void saveDraft()}>
                 仅保存
+              </Button>
+              <Button loading={duplicating} onClick={() => void duplicateItem()}>
+                新建片段
               </Button>
               <Button type="primary" loading={preparing} onClick={() => void prepareItem()}>
                 完成处理
