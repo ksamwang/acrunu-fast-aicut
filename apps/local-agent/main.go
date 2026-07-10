@@ -20,6 +20,9 @@ func main() {
 		Processor: localagent.NewDefaultProcessor(
 			cfg.VLMProvider,
 			cfg.VLMModel,
+			cfg.VLMBaseURL,
+			cfg.VLMAPIKey,
+			cfg.VLMMaxTokens,
 			cfg.ModelGatewayTimeout,
 			cfg.VLMMaxRetries,
 		),

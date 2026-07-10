@@ -52,10 +52,13 @@ func New(opts Options) *Server {
 	}
 }
 
-func NewDefaultProcessor(provider string, model string, timeout time.Duration, maxRetries int) Processor {
+func NewDefaultProcessor(provider string, model string, baseURL string, apiKey string, maxTokens int, timeout time.Duration, maxRetries int) Processor {
 	return NewProcessor(modelgateway.NewAnalyzer(modelgateway.Config{
 		Provider:   provider,
 		Model:      model,
+		BaseURL:    baseURL,
+		APIKey:     apiKey,
+		MaxTokens:  maxTokens,
 		Timeout:    timeout,
 		MaxRetries: maxRetries,
 	}, nil))
@@ -165,6 +168,12 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 			return
 		}
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+	case "vlm-label":
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemVLMLabel(w, r, itemID)
 	case "submit":
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
@@ -243,6 +252,20 @@ func (s *Server) handleWorkspaceItemPreviewFrames(w http.ResponseWriter, r *http
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
+
+func (s *Server) handleWorkspaceItemVLMLabel(w http.ResponseWriter, r *http.Request, itemID string) {
+	var input WorkspaceVLMLabelInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
+		return
+	}
+	item, err := s.workspace.StartVLMLabel(itemID, input)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"item": s.enrichItem(r, item)})
 }
 
 func (s *Server) handleWorkspaceItemDuplicate(w http.ResponseWriter, r *http.Request, itemID string) {
@@ -343,6 +366,10 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"preview_in_ms":      item.PreviewInMs,
 		"preview_out_ms":     item.PreviewOutMs,
 		"analysis":           item.Analysis,
+		"vlm_status":         firstNonEmpty(item.VLMStatus, vlmStatusIdle),
+		"vlm_error":          item.VLMError,
+		"vlm_started_at":     item.VLMStartedAt,
+		"vlm_finished_at":    item.VLMFinishedAt,
 		"last_error":         item.LastError,
 		"created_at":         item.CreatedAt,
 		"updated_at":         item.UpdatedAt,

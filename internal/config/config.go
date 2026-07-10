@@ -19,6 +19,9 @@ type Config struct {
 	StorageRoot         string
 	VLMProvider         string
 	VLMModel            string
+	VLMBaseURL          string
+	VLMAPIKey           string
+	VLMMaxTokens        int
 	ModelGatewayTimeout time.Duration
 	VLMMaxRetries       int
 }
@@ -37,6 +40,9 @@ func Load() Config {
 		StorageRoot:         env("STORAGE_LOCAL_ROOT", "./storage"),
 		VLMProvider:         env("VLM_PROVIDER", "mock"),
 		VLMModel:            env("VLM_MODEL", ""),
+		VLMBaseURL:          env("VLM_BASE_URL", env("OPENAI_COMPATIBLE_BASE_URL", "")),
+		VLMAPIKey:           env("VLM_API_KEY", env("OPENAI_COMPATIBLE_API_KEY", "")),
+		VLMMaxTokens:        envInt("VLM_MAX_TOKENS", 8192),
 		ModelGatewayTimeout: time.Duration(envInt("MODEL_GATEWAY_TIMEOUT_SECONDS", 120)) * time.Second,
 		VLMMaxRetries:       envInt("VLM_MAX_RETRIES", 2),
 	}

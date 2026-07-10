@@ -20,14 +20,22 @@ type AnalyzeAssetInput struct {
 }
 
 type AnalyzeAssetResult struct {
-	UsabilityStatus  string         `json:"usability_status"`
-	SceneDescription string         `json:"scene_description"`
-	ShotSize         string         `json:"shot_size"`
-	CameraMovement   string         `json:"camera_movement"`
-	Subjects         []string       `json:"subjects"`
-	SceneTags        []string       `json:"scene_tags"`
-	QualityTags      []string       `json:"quality_tags"`
-	ModelResult      map[string]any `json:"model_result"`
+	SceneDescription  string         `json:"scene_description"`
+	ShotSize          string         `json:"shot_size"`
+	CameraMovement    string         `json:"camera_movement"`
+	VisualTags        []string       `json:"visual_tags"`
+	QualityTags       []string       `json:"quality_tags"`
+	VisibleProduct    bool           `json:"visible_product"`
+	ProductPosition   string         `json:"product_position"`
+	SceneContext      string         `json:"scene_context"`
+	ActionDescription string         `json:"action_description"`
+	PeoplePresence    bool           `json:"people_presence"`
+	FaceVisible       bool           `json:"face_visible"`
+	LightingCondition string         `json:"lighting_condition"`
+	UsabilityStatus   string         `json:"-"`
+	Subjects          []string       `json:"-"`
+	SceneTags         []string       `json:"-"`
+	ModelResult       map[string]any `json:"model_result"`
 }
 
 type AssetAnalyzer interface {
@@ -45,17 +53,25 @@ func (a *MockAssetAnalyzer) AnalyzeAsset(_ context.Context, input AnalyzeAssetIn
 	sceneDescription := "product close-up with stable framing"
 	shotSize := "close_up"
 	cameraMovement := "static"
-	subjects := []string{"product"}
-	sceneTags := []string{"indoor", "demo"}
+	visualTags := []string{"product", "indoor", "demo"}
 	qualityTags := []string{}
-	usabilityStatus := "usable"
+	visibleProduct := true
+	productPosition := "center"
+	sceneContext := "indoor demo"
+	actionDescription := "product is shown to camera"
+	peoplePresence := false
+	faceVisible := false
+	lightingCondition := "normal indoor lighting"
 
 	if input.SourceType == "talking_head" {
 		sceneDescription = "presenter delivers product message to camera"
 		shotSize = "medium_close_up"
 		cameraMovement = "static"
-		subjects = []string{"person", "product"}
-		sceneTags = []string{"talking_head", "indoor"}
+		visualTags = []string{"person", "product", "talking_head", "indoor"}
+		sceneContext = "talking head indoor"
+		actionDescription = "presenter talks while showing the product"
+		peoplePresence = true
+		faceVisible = true
 	}
 
 	if input.DurationMs >= 8000 {
@@ -66,20 +82,27 @@ func (a *MockAssetAnalyzer) AnalyzeAsset(_ context.Context, input AnalyzeAssetIn
 	}
 	if !input.HasAudio && input.SourceType == "talking_head" {
 		qualityTags = append(qualityTags, "missing_expected_audio")
-		usabilityStatus = "needs_review"
 	}
 	if input.Width == 0 || input.Height == 0 {
 		qualityTags = append(qualityTags, "missing_resolution_metadata")
 	}
 
 	return AnalyzeAssetResult{
-		UsabilityStatus:  usabilityStatus,
-		SceneDescription: sceneDescription,
-		ShotSize:         shotSize,
-		CameraMovement:   cameraMovement,
-		Subjects:         subjects,
-		SceneTags:        sceneTags,
-		QualityTags:      qualityTags,
+		SceneDescription:  sceneDescription,
+		ShotSize:          shotSize,
+		CameraMovement:    cameraMovement,
+		VisualTags:        visualTags,
+		QualityTags:       qualityTags,
+		VisibleProduct:    visibleProduct,
+		ProductPosition:   productPosition,
+		SceneContext:      sceneContext,
+		ActionDescription: actionDescription,
+		PeoplePresence:    peoplePresence,
+		FaceVisible:       faceVisible,
+		LightingCondition: lightingCondition,
+		UsabilityStatus:   "usable",
+		Subjects:          append([]string(nil), visualTags...),
+		SceneTags:         append([]string(nil), visualTags...),
 		ModelResult: map[string]any{
 			"provider":        "mock",
 			"prompt_version":  promptBundle.Version,

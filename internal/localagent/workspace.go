@@ -27,6 +27,12 @@ const (
 	workspaceStatusSaved         = "saved"
 	workspaceStatusReadyToSubmit = "ready_to_submit"
 	workspaceStatusSubmitted     = "submitted"
+
+	vlmStatusIdle    = "idle"
+	vlmStatusQueued  = "queued"
+	vlmStatusRunning = "running"
+	vlmStatusReady   = "ready"
+	vlmStatusFailed  = "failed"
 )
 
 type WorkspaceItem struct {
@@ -53,6 +59,10 @@ type WorkspaceItem struct {
 	PreviewFrames    []WorkspaceFrameSnapshot `json:"preview_frame_snapshots,omitempty"`
 	FrameSnapshots   []WorkspaceFrameSnapshot `json:"frame_snapshots,omitempty"`
 	Analysis         *WorkspaceAnalysis       `json:"analysis,omitempty"`
+	VLMStatus        string                   `json:"vlm_status,omitempty"`
+	VLMError         string                   `json:"vlm_error,omitempty"`
+	VLMStartedAt     *time.Time               `json:"vlm_started_at,omitempty"`
+	VLMFinishedAt    *time.Time               `json:"vlm_finished_at,omitempty"`
 	LastError        string                   `json:"last_error,omitempty"`
 	CreatedAt        time.Time                `json:"created_at"`
 	UpdatedAt        time.Time                `json:"updated_at"`
@@ -66,14 +76,19 @@ type WorkspaceFrameSnapshot struct {
 }
 
 type WorkspaceAnalysis struct {
-	SceneDescription string         `json:"scene_description"`
-	ShotSize         string         `json:"shot_size"`
-	CameraMovement   string         `json:"camera_movement"`
-	Subjects         []string       `json:"subjects,omitempty"`
-	SceneTags        []string       `json:"scene_tags,omitempty"`
-	QualityTags      []string       `json:"quality_tags,omitempty"`
-	UsabilityStatus  string         `json:"usability_status"`
-	ModelResult      map[string]any `json:"model_result,omitempty"`
+	SceneDescription  string         `json:"scene_description"`
+	ShotSize          string         `json:"shot_size"`
+	CameraMovement    string         `json:"camera_movement"`
+	VisualTags        []string       `json:"visual_tags,omitempty"`
+	QualityTags       []string       `json:"quality_tags,omitempty"`
+	VisibleProduct    bool           `json:"visible_product"`
+	ProductPosition   string         `json:"product_position,omitempty"`
+	SceneContext      string         `json:"scene_context,omitempty"`
+	ActionDescription string         `json:"action_description,omitempty"`
+	PeoplePresence    bool           `json:"people_presence"`
+	FaceVisible       bool           `json:"face_visible"`
+	LightingCondition string         `json:"lighting_condition,omitempty"`
+	ModelResult       map[string]any `json:"model_result,omitempty"`
 }
 
 type WorkspaceSaveInput struct {
@@ -88,6 +103,12 @@ type WorkspaceSaveInput struct {
 type WorkspacePreviewFramesInput struct {
 	SourceInMs  int `json:"source_in_ms"`
 	SourceOutMs int `json:"source_out_ms"`
+}
+
+type WorkspaceVLMLabelInput struct {
+	SourceType  string `json:"source_type"`
+	SourceInMs  int    `json:"source_in_ms"`
+	SourceOutMs int    `json:"source_out_ms"`
 }
 
 type WorkspaceSubmitInput struct {
@@ -302,6 +323,103 @@ func (w *Workspace) PreviewFrames(ctx context.Context, itemID string, input Work
 		return WorkspaceItem{}, err
 	}
 	return current, nil
+}
+
+func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (WorkspaceItem, error) {
+	w.mu.Lock()
+	item, ok := w.items[itemID]
+	if !ok {
+		w.mu.Unlock()
+		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
+	}
+	sourceOutMs := input.SourceOutMs
+	if sourceOutMs <= 0 {
+		sourceOutMs = item.Probe.DurationMs
+	}
+	if err := validateSourceRange(input.SourceInMs, sourceOutMs, item.Probe.DurationMs); err != nil {
+		w.mu.Unlock()
+		return WorkspaceItem{}, err
+	}
+	sourceType := input.SourceType
+	if sourceType == "" {
+		sourceType = item.SourceType
+	}
+	if sourceType == "" {
+		sourceType = "visual_only"
+	}
+	if sourceType != "visual_only" && sourceType != "talking_head" {
+		w.mu.Unlock()
+		return WorkspaceItem{}, fmt.Errorf("invalid source type")
+	}
+
+	item.SourceType = sourceType
+	item.SourceInMs = input.SourceInMs
+	item.SourceOutMs = sourceOutMs
+	item.VLMStatus = vlmStatusQueued
+	item.VLMError = ""
+	item.VLMStartedAt = nil
+	item.VLMFinishedAt = nil
+	item.UpdatedAt = time.Now()
+	w.items[itemID] = item
+	if err := w.persistLocked(); err != nil {
+		w.mu.Unlock()
+		return WorkspaceItem{}, err
+	}
+	w.mu.Unlock()
+
+	go w.runVLMLabel(context.Background(), itemID, WorkspaceVLMLabelInput{
+		SourceType:  sourceType,
+		SourceInMs:  input.SourceInMs,
+		SourceOutMs: sourceOutMs,
+	})
+
+	return item, nil
+}
+
+func (w *Workspace) runVLMLabel(ctx context.Context, itemID string, input WorkspaceVLMLabelInput) {
+	startedAt := time.Now()
+	w.mu.Lock()
+	item, ok := w.items[itemID]
+	if !ok {
+		w.mu.Unlock()
+		return
+	}
+	item.VLMStatus = vlmStatusRunning
+	item.VLMStartedAt = &startedAt
+	item.VLMError = ""
+	item.UpdatedAt = startedAt
+	w.items[itemID] = item
+	_ = w.persistLocked()
+	w.mu.Unlock()
+
+	result, previewFrames, err := w.labelItem(ctx, item, input)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	current, ok := w.items[itemID]
+	if !ok {
+		return
+	}
+	finishedAt := time.Now()
+	current.VLMFinishedAt = &finishedAt
+	current.UpdatedAt = finishedAt
+	if err != nil {
+		current.VLMStatus = vlmStatusFailed
+		current.VLMError = err.Error()
+		current.LastError = err.Error()
+		w.items[itemID] = current
+		_ = w.persistLocked()
+		return
+	}
+	current.PreviewInMs = input.SourceInMs
+	current.PreviewOutMs = input.SourceOutMs
+	current.PreviewFrames = previewFrames
+	current.Analysis = workspaceAnalysisFromResult(result)
+	current.VLMStatus = vlmStatusReady
+	current.VLMError = ""
+	current.LastError = ""
+	w.items[itemID] = current
+	_ = w.persistLocked()
 }
 
 func (w *Workspace) Clear() error {
@@ -529,6 +647,37 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 	}
 
 	frameSnapshots := make([]WorkspaceFrameSnapshot, 0, len(frames))
+	for _, frame := range frames {
+		frameSnapshots = append(frameSnapshots, WorkspaceFrameSnapshot{
+			FrameIndex:  frame.FrameIndex,
+			TimestampMs: frame.TimestampMs,
+			ImagePath:   frame.OutputPath,
+		})
+	}
+
+	checksum, err := fileChecksum(cleanShotPath)
+	if err != nil {
+		return WorkspaceItem{}, err
+	}
+
+	item.CleanShotPath = cleanShotPath
+	item.CleanShotName = filepath.Base(cleanShotPath)
+	item.Checksum = checksum
+	item.Probe = probe
+	item.FrameSnapshots = frameSnapshots
+
+	return item, nil
+}
+
+func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input WorkspaceVLMLabelInput) (modelgateway.AnalyzeAssetResult, []WorkspaceFrameSnapshot, error) {
+	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs)
+	frameDir := filepath.Join(w.root, "items", item.ID, "vlm-frames")
+	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
+	if err != nil {
+		return modelgateway.AnalyzeAssetResult{}, nil, err
+	}
+
+	frameSnapshots := make([]WorkspaceFrameSnapshot, 0, len(frames))
 	frameRefs := make([]modelgateway.FrameReference, 0, len(frames))
 	for _, frame := range frames {
 		frameSnapshots = append(frameSnapshots, WorkspaceFrameSnapshot{
@@ -543,42 +692,20 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 		})
 	}
 
-	analysisResult, err := w.processor.Analyze(ctx, modelgateway.AnalyzeAssetInput{
+	result, err := w.processor.Analyze(ctx, modelgateway.AnalyzeAssetInput{
 		AssetID:        item.ID,
-		SourceType:     item.SourceType,
-		DurationMs:     probe.DurationMs,
-		Width:          probe.Width,
-		Height:         probe.Height,
-		HasAudio:       probe.HasAudio,
-		AudioCodec:     probe.AudioCodec,
+		SourceType:     input.SourceType,
+		DurationMs:     input.SourceOutMs - input.SourceInMs,
+		Width:          item.Probe.Width,
+		Height:         item.Probe.Height,
+		HasAudio:       item.Probe.HasAudio,
+		AudioCodec:     item.Probe.AudioCodec,
 		FrameSnapshots: frameRefs,
 	})
 	if err != nil {
-		return WorkspaceItem{}, err
+		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
-
-	checksum, err := fileChecksum(cleanShotPath)
-	if err != nil {
-		return WorkspaceItem{}, err
-	}
-
-	item.CleanShotPath = cleanShotPath
-	item.CleanShotName = filepath.Base(cleanShotPath)
-	item.Checksum = checksum
-	item.Probe = probe
-	item.FrameSnapshots = frameSnapshots
-	item.Analysis = &WorkspaceAnalysis{
-		SceneDescription: analysisResult.SceneDescription,
-		ShotSize:         analysisResult.ShotSize,
-		CameraMovement:   analysisResult.CameraMovement,
-		Subjects:         append([]string(nil), analysisResult.Subjects...),
-		SceneTags:        append([]string(nil), analysisResult.SceneTags...),
-		QualityTags:      append([]string(nil), analysisResult.QualityTags...),
-		UsabilityStatus:  analysisResult.UsabilityStatus,
-		ModelResult:      analysisResult.ModelResult,
-	}
-
-	return item, nil
+	return result, frameSnapshots, nil
 }
 
 func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, input WorkspaceSubmitInput) (string, error) {
@@ -630,10 +757,10 @@ func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, 
 		}
 	}
 	if item.Analysis != nil {
-		if err := writer.WriteField("subjects_json", mustJSONString(item.Analysis.Subjects)); err != nil {
+		if err := writer.WriteField("subjects_json", mustJSONString([]string{})); err != nil {
 			return "", err
 		}
-		if err := writer.WriteField("scene_tags_json", mustJSONString(item.Analysis.SceneTags)); err != nil {
+		if err := writer.WriteField("scene_tags_json", mustJSONString(item.Analysis.VisualTags)); err != nil {
 			return "", err
 		}
 		if err := writer.WriteField("quality_tags_json", mustJSONString(item.Analysis.QualityTags)); err != nil {
@@ -833,10 +960,7 @@ func sortSnapshots(frames []WorkspaceFrameSnapshot) {
 }
 
 func itemAnalysisUsability(item WorkspaceItem) string {
-	if item.Analysis == nil {
-		return ""
-	}
-	return item.Analysis.UsabilityStatus
+	return "usable"
 }
 
 func itemAnalysisSceneDescription(item WorkspaceItem) string {
@@ -858,6 +982,24 @@ func itemAnalysisCameraMovement(item WorkspaceItem) string {
 		return ""
 	}
 	return item.Analysis.CameraMovement
+}
+
+func workspaceAnalysisFromResult(result modelgateway.AnalyzeAssetResult) *WorkspaceAnalysis {
+	return &WorkspaceAnalysis{
+		SceneDescription:  result.SceneDescription,
+		ShotSize:          result.ShotSize,
+		CameraMovement:    result.CameraMovement,
+		VisualTags:        append([]string(nil), result.VisualTags...),
+		QualityTags:       append([]string(nil), result.QualityTags...),
+		VisibleProduct:    result.VisibleProduct,
+		ProductPosition:   result.ProductPosition,
+		SceneContext:      result.SceneContext,
+		ActionDescription: result.ActionDescription,
+		PeoplePresence:    result.PeoplePresence,
+		FaceVisible:       result.FaceVisible,
+		LightingCondition: result.LightingCondition,
+		ModelResult:       result.ModelResult,
+	}
 }
 
 func mustJSONString(value any) string {

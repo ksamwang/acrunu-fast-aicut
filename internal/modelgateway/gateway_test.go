@@ -35,8 +35,8 @@ func TestBuildPromptBundleIncludesPromptSections(t *testing.T) {
 	if bundle.Version != PromptVersion {
 		t.Fatalf("expected prompt version %s, got %s", PromptVersion, bundle.Version)
 	}
-	if len(bundle.Prompts) != 4 {
-		t.Fatalf("expected four prompt sections, got %d", len(bundle.Prompts))
+	if len(bundle.Prompts) != 1 {
+		t.Fatalf("expected one prompt section, got %d", len(bundle.Prompts))
 	}
 	if !strings.Contains(bundle.Prompts[0].User, "asset_id=asset-1") {
 		t.Fatalf("expected prompt context to include asset id, got %s", bundle.Prompts[0].User)
@@ -45,7 +45,6 @@ func TestBuildPromptBundleIncludesPromptSections(t *testing.T) {
 
 func TestValidateAnalyzeAssetResultRejectsInvalidValues(t *testing.T) {
 	err := ValidateAnalyzeAssetResult(AnalyzeAssetResult{
-		UsabilityStatus:  "bad-status",
 		SceneDescription: "",
 		ShotSize:         "close_up",
 		CameraMovement:   "static",
@@ -70,14 +69,17 @@ func TestNewAnalyzerAppliesRetryAndValidation(t *testing.T) {
 			return AnalyzeAssetResult{}, errors.New("temporary upstream failure")
 		}
 		return AnalyzeAssetResult{
-			UsabilityStatus:  "usable",
-			SceneDescription: "product close-up",
-			ShotSize:         "close_up",
-			CameraMovement:   "static",
-			Subjects:         []string{"product"},
-			SceneTags:        []string{"demo"},
-			QualityTags:      []string{},
-			ModelResult:      map[string]any{"provider": "mock"},
+			SceneDescription:  "product close-up",
+			ShotSize:          "close_up",
+			CameraMovement:    "static",
+			VisualTags:        []string{"product", "demo"},
+			QualityTags:       []string{},
+			VisibleProduct:    true,
+			ProductPosition:   "center",
+			SceneContext:      "demo",
+			ActionDescription: "product shown",
+			LightingCondition: "normal",
+			ModelResult:       map[string]any{"provider": "mock"},
 		}, nil
 	}))
 
@@ -113,7 +115,7 @@ func TestNewAnalyzerNormalizesTimeoutError(t *testing.T) {
 }
 
 func TestNewAnalyzerRejectsUnsupportedProvider(t *testing.T) {
-	analyzer := NewAnalyzer(Config{Provider: "openai_compatible"}, nil)
+	analyzer := NewAnalyzer(Config{Provider: "unknown"}, nil)
 
 	_, err := analyzer.AnalyzeAsset(context.Background(), AnalyzeAssetInput{AssetID: "asset-1"})
 	if err == nil {

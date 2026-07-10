@@ -27,14 +27,11 @@ func TestMockAssetAnalyzerAnalyzeAsset(t *testing.T) {
 	if result.SceneDescription == "" {
 		t.Fatalf("expected scene description")
 	}
-	if result.UsabilityStatus != "needs_review" {
-		t.Fatalf("expected needs_review, got %s", result.UsabilityStatus)
-	}
 	if result.CameraMovement != "slow_push_in" {
 		t.Fatalf("expected slow_push_in, got %s", result.CameraMovement)
 	}
-	if len(result.Subjects) == 0 {
-		t.Fatalf("expected subjects")
+	if len(result.VisualTags) == 0 {
+		t.Fatalf("expected visual tags")
 	}
 	if provider, ok := result.ModelResult["provider"].(string); !ok || provider != "mock" {
 		t.Fatalf("expected mock provider, got %+v", result.ModelResult)

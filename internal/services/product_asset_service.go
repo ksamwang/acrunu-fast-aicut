@@ -1598,12 +1598,12 @@ func (s *ProductAssetService) updateAssetSellingPointsInPostgres(assetID string,
 func AssetAnalysisUpdateFromResult(result modelgateway.AnalyzeAssetResult, analysisStatus string, analyzedAt time.Time) AssetAnalysisUpdate {
 	return AssetAnalysisUpdate{
 		AnalysisStatus:   analysisStatus,
-		UsabilityStatus:  result.UsabilityStatus,
+		UsabilityStatus:  firstNonEmpty(result.UsabilityStatus, "usable"),
 		SceneDescription: result.SceneDescription,
 		ShotSize:         result.ShotSize,
 		CameraMovement:   result.CameraMovement,
 		Subjects:         append([]string(nil), result.Subjects...),
-		SceneTags:        append([]string(nil), result.SceneTags...),
+		SceneTags:        append([]string(nil), firstNonEmptySlice(result.VisualTags, result.SceneTags)...),
 		QualityTags:      append([]string(nil), result.QualityTags...),
 		ModelLabels:      modelLabelsFromResult(result),
 		ModelResult:      result.ModelResult,
@@ -1897,13 +1897,21 @@ func cloneObjectMap(value map[string]any) map[string]any {
 
 func modelLabelsFromResult(result modelgateway.AnalyzeAssetResult) map[string]any {
 	return map[string]any{
-		"scene_description": result.SceneDescription,
-		"shot_size":         result.ShotSize,
-		"camera_movement":   result.CameraMovement,
-		"subjects":          append([]string(nil), result.Subjects...),
-		"scene_tags":        append([]string(nil), result.SceneTags...),
-		"quality_tags":      append([]string(nil), result.QualityTags...),
-		"usability_status":  result.UsabilityStatus,
+		"scene_description":  result.SceneDescription,
+		"shot_size":          result.ShotSize,
+		"camera_movement":    result.CameraMovement,
+		"visual_tags":        append([]string(nil), result.VisualTags...),
+		"subjects":           append([]string(nil), result.Subjects...),
+		"scene_tags":         append([]string(nil), firstNonEmptySlice(result.VisualTags, result.SceneTags)...),
+		"quality_tags":       append([]string(nil), result.QualityTags...),
+		"usability_status":   firstNonEmpty(result.UsabilityStatus, "usable"),
+		"visible_product":    result.VisibleProduct,
+		"product_position":   result.ProductPosition,
+		"scene_context":      result.SceneContext,
+		"action_description": result.ActionDescription,
+		"people_presence":    result.PeoplePresence,
+		"face_visible":       result.FaceVisible,
+		"lighting_condition": result.LightingCondition,
 	}
 }
 
@@ -2135,6 +2143,13 @@ func boolDisplay(value bool) string {
 
 func firstNonEmpty(value string, fallback string) string {
 	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func firstNonEmptySlice(value []string, fallback []string) []string {
+	if len(value) > 0 {
 		return value
 	}
 	return fallback

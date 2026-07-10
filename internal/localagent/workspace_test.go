@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
@@ -65,12 +66,18 @@ func (stubProcessor) ExtractFrames(_ context.Context, _ string, outputDir string
 
 func (stubProcessor) Analyze(_ context.Context, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
 	return modelgateway.AnalyzeAssetResult{
-		UsabilityStatus:  "usable",
-		SceneDescription: "demo scene",
-		ShotSize:         "medium_close_up",
-		CameraMovement:   "static",
-		Subjects:         []string{"person"},
-		SceneTags:        []string{"indoor"},
+		SceneDescription:  "demo scene",
+		ShotSize:          "medium_close_up",
+		CameraMovement:    "static",
+		VisualTags:        []string{"person", "indoor"},
+		QualityTags:       []string{"clear"},
+		VisibleProduct:    true,
+		ProductPosition:   "center",
+		SceneContext:      "indoor",
+		ActionDescription: "person shows product",
+		PeoplePresence:    true,
+		FaceVisible:       true,
+		LightingCondition: "normal",
 		ModelResult: map[string]any{
 			"frame_count": len(input.FrameSnapshots),
 		},
@@ -129,8 +136,8 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 			t.Fatalf("expected frame %d timestamp %d, got %d", index, expectedTimestamps[index], snapshot.TimestampMs)
 		}
 	}
-	if prepared.Analysis == nil || prepared.Analysis.SceneDescription == "" {
-		t.Fatalf("expected analysis result to be populated")
+	if prepared.Analysis != nil {
+		t.Fatalf("expected prepare not to run vlm analysis")
 	}
 
 	if err := workspace.Clear(); err != nil {
@@ -178,6 +185,58 @@ func TestWorkspacePreviewFramesUsesCurrentSourceRange(t *testing.T) {
 	}
 	if len(previewed.FrameSnapshots) != 0 {
 		t.Fatalf("expected preview frames not to populate clean shot frame snapshots")
+	}
+}
+
+func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	item := imported[0]
+
+	queued, err := workspace.StartVLMLabel(item.ID, WorkspaceVLMLabelInput{
+		SourceType:  "visual_only",
+		SourceInMs:  1000,
+		SourceOutMs: 5000,
+	})
+	if err != nil {
+		t.Fatalf("StartVLMLabel() error = %v", err)
+	}
+	if queued.VLMStatus != vlmStatusQueued {
+		t.Fatalf("expected queued status, got %s", queued.VLMStatus)
+	}
+
+	var labeled WorkspaceItem
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var ok bool
+		labeled, ok = workspace.GetItem(item.ID)
+		if !ok {
+			t.Fatalf("workspace item disappeared")
+		}
+		if labeled.VLMStatus == vlmStatusReady {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if labeled.VLMStatus != vlmStatusReady {
+		t.Fatalf("expected ready status, got %s error=%s", labeled.VLMStatus, labeled.VLMError)
+	}
+	if labeled.Analysis == nil || labeled.Analysis.SceneDescription == "" {
+		t.Fatalf("expected analysis populated")
+	}
+	if len(labeled.PreviewFrames) != 3 {
+		t.Fatalf("expected preview frames from vlm label, got %d", len(labeled.PreviewFrames))
 	}
 }
 

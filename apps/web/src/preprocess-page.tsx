@@ -55,10 +55,15 @@ type WorkspaceAnalysis = {
   scene_description?: string;
   shot_size?: string;
   camera_movement?: string;
-  subjects?: string[];
-  scene_tags?: string[];
+  visual_tags?: string[];
   quality_tags?: string[];
-  usability_status?: string;
+  visible_product?: boolean;
+  product_position?: string;
+  scene_context?: string;
+  action_description?: string;
+  people_presence?: boolean;
+  face_visible?: boolean;
+  lighting_condition?: string;
 };
 
 type WorkspaceItem = {
@@ -78,6 +83,8 @@ type WorkspaceItem = {
   preview_out_ms?: number;
   preview_frame_snapshots: WorkspaceFrameSnapshot[];
   analysis?: WorkspaceAnalysis;
+  vlm_status?: "idle" | "queued" | "running" | "ready" | "failed";
+  vlm_error?: string;
   frame_snapshots: WorkspaceFrameSnapshot[];
   source_url: string;
   clean_shot_url?: string;
@@ -330,6 +337,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [clearing, setClearing] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [previewingFrames, setPreviewingFrames] = useState(false);
+  const [startingVLMLabel, setStartingVLMLabel] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -400,6 +408,17 @@ export function PreprocessPage({ token }: { token: string }) {
     }),
     [items]
   );
+  const hasRunningVLMLabel = items.some((item) => item.vlm_status === "queued" || item.vlm_status === "running");
+
+  useEffect(() => {
+    if (!hasRunningVLMLabel) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void loadItems();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [hasRunningVLMLabel]);
 
   useEffect(() => {
     if (!selectedItem) {
@@ -584,6 +603,38 @@ export function PreprocessPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "三帧抽样失败");
     } finally {
       setPreviewingFrames(false);
+    }
+  };
+
+  const startVLMLabel = async () => {
+    if (!selectedItem) {
+      return;
+    }
+    const values = form.getFieldsValue(["source_type", "source_in_ms", "source_out_ms"]);
+    const sourceInMs = Number(values.source_in_ms ?? selectedItem.source_in_ms ?? 0);
+    const sourceOutMs = Number(values.source_out_ms ?? selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0);
+    const sourceType = values.source_type ?? selectedItem.source_type ?? "visual_only";
+    if (!Number.isFinite(sourceInMs) || !Number.isFinite(sourceOutMs) || sourceOutMs <= sourceInMs) {
+      message.warning("请先设置有效的裁切入点和出点");
+      return;
+    }
+    setStartingVLMLabel(true);
+    try {
+      const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/vlm-label`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_type: sourceType,
+          source_in_ms: Math.round(sourceInMs),
+          source_out_ms: Math.round(sourceOutMs)
+        })
+      });
+      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      message.success("VLM 标注已开始，可继续处理其他视频");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "VLM 标注启动失败");
+    } finally {
+      setStartingVLMLabel(false);
     }
   };
 
@@ -969,6 +1020,9 @@ export function PreprocessPage({ token }: { token: string }) {
                       <Button size="small" onClick={openNotesModal}>
                         备注
                       </Button>
+                      <Button size="small" loading={startingVLMLabel} onClick={() => void startVLMLabel()}>
+                        VLM标注
+                      </Button>
                     </>
                   }
                   analysisOverlay={
@@ -979,6 +1033,7 @@ export function PreprocessPage({ token }: { token: string }) {
                         <Descriptions.Item label="时长">{formatProbeDuration(selectedItem.probe.duration_ms)}</Descriptions.Item>
                         <Descriptions.Item label="分辨率">{formatResolution(selectedItem.probe.width, selectedItem.probe.height)}</Descriptions.Item>
                         <Descriptions.Item label="帧率">{formatProbeFPS(selectedItem.probe.fps)}</Descriptions.Item>
+                        <Descriptions.Item label="VLM状态">{selectedItem.vlm_status || "idle"}</Descriptions.Item>
                         <Descriptions.Item label="画面描述">{selectedItem.analysis?.scene_description || "-"}</Descriptions.Item>
                         <Descriptions.Item label="景别">
                           {selectedItem.analysis?.shot_size
@@ -991,7 +1046,16 @@ export function PreprocessPage({ token }: { token: string }) {
                               selectedItem.analysis.camera_movement
                             : "-"}
                         </Descriptions.Item>
-                        <Descriptions.Item label="可用状态">{selectedItem.analysis?.usability_status || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="标签">{selectedItem.analysis?.visual_tags?.join("、") || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="质量">{selectedItem.analysis?.quality_tags?.join("、") || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="产品">{selectedItem.analysis?.visible_product ? "可见" : "-"}</Descriptions.Item>
+                        <Descriptions.Item label="位置">{selectedItem.analysis?.product_position || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="场景">{selectedItem.analysis?.scene_context || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="动作">{selectedItem.analysis?.action_description || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="人物">{selectedItem.analysis?.people_presence ? "有人" : "无人"}</Descriptions.Item>
+                        <Descriptions.Item label="露脸">{selectedItem.analysis?.face_visible ? "是" : "否"}</Descriptions.Item>
+                        <Descriptions.Item label="光线">{selectedItem.analysis?.lighting_condition || "-"}</Descriptions.Item>
+                        {selectedItem.vlm_error ? <Descriptions.Item label="VLM错误">{selectedItem.vlm_error}</Descriptions.Item> : null}
                       </Descriptions>
                     </div>
                   }

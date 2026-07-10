@@ -9,6 +9,9 @@ import (
 type Config struct {
 	Provider   string
 	Model      string
+	BaseURL    string
+	APIKey     string
+	MaxTokens  int
 	Timeout    time.Duration
 	MaxRetries int
 }
@@ -29,6 +32,8 @@ func NewAnalyzer(cfg Config, base AssetAnalyzer) AssetAnalyzer {
 		switch provider {
 		case "mock":
 			base = NewMockAssetAnalyzer()
+		case "openai_compatible":
+			base = NewOpenAICompatibleAnalyzer(cfg)
 		default:
 			base = analyzerFunc(func(context.Context, AnalyzeAssetInput) (AnalyzeAssetResult, error) {
 				return AnalyzeAssetResult{}, NewError(

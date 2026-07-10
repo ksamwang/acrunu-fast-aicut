@@ -144,8 +144,8 @@ func TestPhase2VLMMockAnalysisIntegration(t *testing.T) {
 	if asset.CameraMovement != "static" {
 		t.Fatalf("expected static camera movement, got %s", asset.CameraMovement)
 	}
-	if asset.UsabilityStatus != "needs_review" {
-		t.Fatalf("expected needs_review usability, got %s", asset.UsabilityStatus)
+	if asset.UsabilityStatus != "usable" {
+		t.Fatalf("expected default usable status, got %s", asset.UsabilityStatus)
 	}
 	if len(asset.QualityTags) != 1 || asset.QualityTags[0] != "missing_expected_audio" {
 		t.Fatalf("expected missing_expected_audio quality tag, got %#v", asset.QualityTags)
