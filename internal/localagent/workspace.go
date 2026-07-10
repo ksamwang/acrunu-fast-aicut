@@ -52,6 +52,9 @@ type WorkspaceItem struct {
 	Checksum         string                   `json:"checksum,omitempty"`
 	SourceInMs       int                      `json:"source_in_ms"`
 	SourceOutMs      int                      `json:"source_out_ms"`
+	InterpretFPS     bool                     `json:"interpret_fps_enabled"`
+	PlaybackFPS      float64                  `json:"playback_fps,omitempty"`
+	SpeedRatio       float64                  `json:"speed_ratio,omitempty"`
 	Transcript       string                   `json:"transcript,omitempty"`
 	ReviewerNotes    string                   `json:"reviewer_notes,omitempty"`
 	Probe            ffmpeg.ProbeResult       `json:"probe"`
@@ -93,12 +96,14 @@ type WorkspaceAnalysis struct {
 }
 
 type WorkspaceSaveInput struct {
-	AssetName     string `json:"asset_name"`
-	SourceType    string `json:"source_type"`
-	SourceInMs    int    `json:"source_in_ms"`
-	SourceOutMs   int    `json:"source_out_ms"`
-	Transcript    string `json:"transcript"`
-	ReviewerNotes string `json:"reviewer_notes"`
+	AssetName     string  `json:"asset_name"`
+	SourceType    string  `json:"source_type"`
+	SourceInMs    int     `json:"source_in_ms"`
+	SourceOutMs   int     `json:"source_out_ms"`
+	InterpretFPS  bool    `json:"interpret_fps_enabled"`
+	PlaybackFPS   float64 `json:"playback_fps"`
+	Transcript    string  `json:"transcript"`
+	ReviewerNotes string  `json:"reviewer_notes"`
 }
 
 type WorkspacePreviewFramesInput struct {
@@ -217,7 +222,7 @@ func (w *Workspace) SaveItem(itemID string, input WorkspaceSaveInput) (Workspace
 	if !ok {
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
-	if err := validateSaveInput(input); err != nil {
+	if err := validateSaveInput(input, item.Probe.FPS); err != nil {
 		return WorkspaceItem{}, err
 	}
 
@@ -225,6 +230,9 @@ func (w *Workspace) SaveItem(itemID string, input WorkspaceSaveInput) (Workspace
 	item.SourceType = input.SourceType
 	item.SourceInMs = input.SourceInMs
 	item.SourceOutMs = input.SourceOutMs
+	item.InterpretFPS = input.InterpretFPS
+	item.PlaybackFPS = input.PlaybackFPS
+	item.SpeedRatio = resolveSpeedRatio(item.Probe.FPS, input.InterpretFPS, input.PlaybackFPS)
 	item.Transcript = strings.TrimSpace(input.Transcript)
 	item.ReviewerNotes = strings.TrimSpace(input.ReviewerNotes)
 	if item.Status != workspaceStatusReadyToSubmit && item.Status != workspaceStatusSubmitted {
@@ -641,7 +649,11 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 	itemDir := filepath.Join(w.root, "items", item.ID)
 	cleanShotPath := filepath.Join(itemDir, "clean-shot"+filepath.Ext(item.SourceFileName))
 
-	if err := w.processor.Cut(ctx, item.SourcePath, cleanShotPath, item.SourceInMs, item.SourceOutMs); err != nil {
+	if err := w.processor.Cut(ctx, item.SourcePath, cleanShotPath, item.SourceInMs, item.SourceOutMs, ffmpeg.CutOptions{
+		InterpretFPSEnabled: item.InterpretFPS,
+		SourceFPS:           item.Probe.FPS,
+		PlaybackFPS:         item.PlaybackFPS,
+	}); err != nil {
 		return WorkspaceItem{}, err
 	}
 
@@ -941,11 +953,14 @@ func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, 
 	return payload.Data.Asset.ID, nil
 }
 
-func validateSaveInput(input WorkspaceSaveInput) error {
+func validateSaveInput(input WorkspaceSaveInput, sourceFPS float64) error {
 	if input.SourceType != "visual_only" && input.SourceType != "talking_head" {
 		return fmt.Errorf("invalid source type")
 	}
 	if err := validateSourceRange(input.SourceInMs, input.SourceOutMs, 0); err != nil {
+		return err
+	}
+	if err := validateInterpretFPS(input.SourceType, sourceFPS, input.InterpretFPS, input.PlaybackFPS); err != nil {
 		return err
 	}
 	return nil
@@ -961,7 +976,36 @@ func validateItemForPrepare(item WorkspaceItem) error {
 	if item.SourceType == "talking_head" && strings.TrimSpace(item.Transcript) == "" {
 		return fmt.Errorf("transcript is required for talking head")
 	}
+	if err := validateInterpretFPS(item.SourceType, item.Probe.FPS, item.InterpretFPS, item.PlaybackFPS); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateInterpretFPS(sourceType string, sourceFPS float64, enabled bool, playbackFPS float64) error {
+	if !enabled {
+		return nil
+	}
+	if sourceType != "visual_only" {
+		return fmt.Errorf("interpret fps is only supported for visual-only material")
+	}
+	if sourceFPS < 25 {
+		return fmt.Errorf("source fps must be at least 25")
+	}
+	if playbackFPS < 25 {
+		return fmt.Errorf("playback fps must be at least 25")
+	}
+	if playbackFPS >= sourceFPS {
+		return fmt.Errorf("playback fps must be lower than source fps")
+	}
+	return nil
+}
+
+func resolveSpeedRatio(sourceFPS float64, enabled bool, playbackFPS float64) float64 {
+	if !enabled || sourceFPS <= 0 || playbackFPS <= 0 {
+		return 1
+	}
+	return playbackFPS / sourceFPS
 }
 
 func validateSubmitInput(input WorkspaceSubmitInput) error {

@@ -26,7 +26,7 @@ import (
 
 type stubProcessor struct{}
 
-func (stubProcessor) Cut(_ context.Context, sourcePath string, outputPath string, _ int, _ int) error {
+func (stubProcessor) Cut(_ context.Context, sourcePath string, outputPath string, _ int, _ int, _ ffmpeg.CutOptions) error {
 	data, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return err
@@ -186,6 +186,104 @@ func TestWorkspacePreviewFramesUsesCurrentSourceRange(t *testing.T) {
 	}
 	if len(previewed.FrameSnapshots) != 0 {
 		t.Fatalf("expected preview frames not to populate clean shot frame snapshots")
+	}
+}
+
+func TestWorkspaceSaveInterpretFPS(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	item := imported[0]
+
+	saved, err := workspace.SaveItem(item.ID, WorkspaceSaveInput{
+		AssetName:    "slow shot",
+		SourceType:   "visual_only",
+		SourceInMs:   0,
+		SourceOutMs:  5000,
+		InterpretFPS: true,
+		PlaybackFPS:  25,
+	})
+	if err != nil {
+		t.Fatalf("SaveItem() error = %v", err)
+	}
+	if !saved.InterpretFPS {
+		t.Fatalf("expected interpret fps enabled")
+	}
+	if saved.PlaybackFPS != 25 {
+		t.Fatalf("expected playback fps 25, got %v", saved.PlaybackFPS)
+	}
+	if saved.SpeedRatio != 25.0/30.0 {
+		t.Fatalf("expected speed ratio %v, got %v", 25.0/30.0, saved.SpeedRatio)
+	}
+}
+
+func TestWorkspaceRejectsInvalidInterpretFPS(t *testing.T) {
+	tests := []struct {
+		name  string
+		input WorkspaceSaveInput
+	}{
+		{
+			name: "talking head is not supported",
+			input: WorkspaceSaveInput{
+				SourceType:   "talking_head",
+				SourceInMs:   0,
+				SourceOutMs:  5000,
+				InterpretFPS: true,
+				PlaybackFPS:  25,
+				Transcript:   "[00:00:00:00]-[00:00:02:00] hello",
+			},
+		},
+		{
+			name: "playback fps below 25 is not supported",
+			input: WorkspaceSaveInput{
+				SourceType:   "visual_only",
+				SourceInMs:   0,
+				SourceOutMs:  5000,
+				InterpretFPS: true,
+				PlaybackFPS:  24,
+			},
+		},
+		{
+			name: "playback fps must be lower than source fps",
+			input: WorkspaceSaveInput{
+				SourceType:   "visual_only",
+				SourceInMs:   0,
+				SourceOutMs:  5000,
+				InterpretFPS: true,
+				PlaybackFPS:  30,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			workspace, err := NewWorkspace(root, stubProcessor{})
+			if err != nil {
+				t.Fatalf("NewWorkspace() error = %v", err)
+			}
+
+			header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+			defer cleanup()
+
+			imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+			if err != nil {
+				t.Fatalf("ImportFiles() error = %v", err)
+			}
+			if _, err := workspace.SaveItem(imported[0].ID, tt.input); err == nil {
+				t.Fatalf("expected SaveItem() error")
+			}
+		})
 	}
 }
 

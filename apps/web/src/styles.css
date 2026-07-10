@@ -741,6 +741,28 @@ body {
   font-family: "Cascadia Code", "Microsoft YaHei UI", sans-serif;
 }
 
+.preprocess-interpret-panel {
+  width: 100%;
+}
+
+.preprocess-interpret-row,
+.preprocess-interpret-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ec;
+  background: #f8fafc;
+}
+
+.preprocess-interpret-result {
+  align-items: flex-start;
+  flex-direction: column;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
 .preprocess-main-stage {
   display: grid;
   grid-template-columns: minmax(0, 2.2fr) minmax(300px, 0.9fr);

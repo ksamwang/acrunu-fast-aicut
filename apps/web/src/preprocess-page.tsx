@@ -8,9 +8,11 @@ import {
   Form,
   Image,
   Input,
+  InputNumber,
   Modal,
   Select,
   Space,
+  Switch,
   Tag,
   Typography,
   message
@@ -76,6 +78,9 @@ type WorkspaceItem = {
   original_file_name: string;
   source_in_ms: number;
   source_out_ms: number;
+  interpret_fps_enabled?: boolean;
+  playback_fps?: number;
+  speed_ratio?: number;
   transcript?: string;
   reviewer_notes?: string;
   probe: WorkspaceProbe;
@@ -349,6 +354,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
   const [transcriptModalOpen, setTranscriptModalOpen] = useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
+  const [interpretFPSModalOpen, setInterpretFPSModalOpen] = useState(false);
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
@@ -357,6 +363,17 @@ export function PreprocessPage({ token }: { token: string }) {
   const watchedSourceType = Form.useWatch("source_type", form);
   const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
   const watchedSourceOutMs = Form.useWatch("source_out_ms", form) ?? 0;
+  const watchedInterpretFPS = Boolean(Form.useWatch("interpret_fps_enabled", form));
+  const watchedPlaybackFPS = Number(Form.useWatch("playback_fps", form) ?? 25);
+
+  useEffect(() => {
+    if (watchedSourceType === "talking_head" && watchedInterpretFPS) {
+      form.setFieldsValue({
+        interpret_fps_enabled: false,
+        playback_fps: 25
+      });
+    }
+  }, [form, watchedInterpretFPS, watchedSourceType]);
 
   const loadItems = async () => {
     setLoading(true);
@@ -439,6 +456,8 @@ export function PreprocessPage({ token }: { token: string }) {
       source_type: selectedItem.source_type ?? "visual_only",
       source_in_ms: selectedItem.source_in_ms ?? 0,
       source_out_ms: sourceOutMs,
+      interpret_fps_enabled: Boolean(selectedItem.interpret_fps_enabled),
+      playback_fps: selectedItem.playback_fps || 25,
       transcript: selectedItem.transcript ?? "",
       reviewer_notes: selectedItem.reviewer_notes ?? ""
     });
@@ -780,6 +799,32 @@ export function PreprocessPage({ token }: { token: string }) {
     setNotesModalOpen(false);
   };
 
+  const openInterpretFPSModal = () => {
+    if (watchedSourceType !== "visual_only") {
+      message.warning("升格只支持无口播的纯画面素材");
+      return;
+    }
+    if (sourceFPS <= 25) {
+      message.warning("源素材帧率需要高于 25fps 才能升格");
+      return;
+    }
+    setInterpretFPSModalOpen(true);
+  };
+
+  const sourceFPS = selectedItem?.probe.fps ?? 0;
+  const selectedDurationMs = Math.max(0, Number(watchedSourceOutMs) - Number(watchedSourceInMs));
+  const interpretFPSAvailable = watchedSourceType === "visual_only" && sourceFPS > 25;
+  const interpretSpeedRatio = watchedInterpretFPS && sourceFPS > 0 ? watchedPlaybackFPS / sourceFPS : 1;
+  const interpretedDurationMs =
+    watchedInterpretFPS && interpretSpeedRatio > 0 ? Math.round(selectedDurationMs / interpretSpeedRatio) : selectedDurationMs;
+
+  const updateInterpretFPS = (enabled: boolean, playbackFPS = watchedPlaybackFPS) => {
+    form.setFieldsValue({
+      interpret_fps_enabled: enabled,
+      playback_fps: playbackFPS
+    });
+  };
+
   return (
     <Space direction="vertical" size="middle" className="page-stack preprocess-page-stack">
       <div className="preprocess-workspace-toolbar">
@@ -927,6 +972,12 @@ export function PreprocessPage({ token }: { token: string }) {
             <Form.Item name="source_out_ms" hidden>
               <Input type="hidden" />
             </Form.Item>
+            <Form.Item name="interpret_fps_enabled" hidden valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="playback_fps" hidden>
+              <Input type="hidden" />
+            </Form.Item>
             <Form.Item
               name="transcript"
               hidden
@@ -1037,6 +1088,14 @@ export function PreprocessPage({ token }: { token: string }) {
                       <Button size="small" loading={previewingFrames} onClick={() => void previewFrames()}>
                         三帧
                       </Button>
+                      <Button
+                        size="small"
+                        disabled={!interpretFPSAvailable}
+                        type={watchedInterpretFPS ? "primary" : "default"}
+                        onClick={openInterpretFPSModal}
+                      >
+                        升格
+                      </Button>
                       <Button size="small" disabled={watchedSourceType !== "talking_head"} onClick={openTranscriptModal}>
                         转写
                       </Button>
@@ -1056,6 +1115,12 @@ export function PreprocessPage({ token }: { token: string }) {
                         <Descriptions.Item label="时长">{formatProbeDuration(selectedItem.probe.duration_ms)}</Descriptions.Item>
                         <Descriptions.Item label="分辨率">{formatResolution(selectedItem.probe.width, selectedItem.probe.height)}</Descriptions.Item>
                         <Descriptions.Item label="帧率">{formatProbeFPS(selectedItem.probe.fps)}</Descriptions.Item>
+                        {watchedInterpretFPS ? (
+                          <Descriptions.Item label="升格">
+                            {formatProbeFPS(sourceFPS)} → {formatProbeFPS(watchedPlaybackFPS)} / 慢放{" "}
+                            {(sourceFPS / watchedPlaybackFPS).toFixed(2)}x
+                          </Descriptions.Item>
+                        ) : null}
                         <Descriptions.Item label="VLM状态">{selectedItem.vlm_status || "idle"}</Descriptions.Item>
                         <Descriptions.Item label="画面描述">{selectedItem.analysis?.scene_description || "-"}</Descriptions.Item>
                         <Descriptions.Item label="景别">
@@ -1113,6 +1178,75 @@ export function PreprocessPage({ token }: { token: string }) {
         ) : (
           <Empty description="当前还没有三帧抽样结果" />
         )}
+      </Modal>
+
+      <Modal
+        open={interpretFPSModalOpen}
+        onCancel={() => setInterpretFPSModalOpen(false)}
+        onOk={() => {
+          if (watchedInterpretFPS) {
+            if (!interpretFPSAvailable) {
+              message.warning("升格只支持高于 25fps 的纯画面素材");
+              return;
+            }
+            if (watchedPlaybackFPS < 25 || watchedPlaybackFPS >= sourceFPS) {
+              message.warning("播放帧率需要大于等于 25fps，且低于源素材帧率");
+              return;
+            }
+          }
+          setInterpretFPSModalOpen(false);
+        }}
+        width={620}
+        title="升格 / 解释帧率"
+        okText="应用"
+        cancelText="取消"
+        destroyOnClose={false}
+        className="preprocess-text-modal preprocess-interpret-fps-modal"
+      >
+        <Space direction="vertical" size="middle" className="preprocess-interpret-panel">
+          <Alert
+            type="info"
+            showIcon
+            message="升格只改变播放帧率，不做补帧、不做光流、不做快动作。"
+            description="适合 50fps、100fps 等高帧率纯画面素材。口播素材不开启，避免音画不同步。"
+          />
+          <Descriptions size="small" column={1}>
+            <Descriptions.Item label="素材类型">
+              {sourceTypeLabels[watchedSourceType || selectedItem?.source_type || "visual_only"] ?? "-"}
+            </Descriptions.Item>
+            <Descriptions.Item label="源帧率">{formatProbeFPS(sourceFPS)}</Descriptions.Item>
+            <Descriptions.Item label="当前选区">{formatDuration(selectedDurationMs)}</Descriptions.Item>
+          </Descriptions>
+          <div className="preprocess-interpret-row">
+            <Typography.Text>启用升格</Typography.Text>
+            <Switch
+              checked={watchedInterpretFPS}
+              disabled={!interpretFPSAvailable}
+              onChange={(checked) => updateInterpretFPS(checked, checked ? Math.min(watchedPlaybackFPS || 25, sourceFPS - 1) : 25)}
+            />
+          </div>
+          <div className="preprocess-interpret-row">
+            <Typography.Text>播放帧率</Typography.Text>
+            <InputNumber
+              min={25}
+              max={Math.max(25, Math.floor(sourceFPS - 1))}
+              step={1}
+              precision={0}
+              disabled={!watchedInterpretFPS}
+              value={watchedPlaybackFPS}
+              addonAfter="fps"
+              onChange={(value) => updateInterpretFPS(watchedInterpretFPS, Number(value ?? 25))}
+            />
+          </div>
+          <div className="preprocess-interpret-result">
+            <Typography.Text>
+              慢放倍率：{watchedInterpretFPS ? (sourceFPS / watchedPlaybackFPS).toFixed(2) : "1.00"}x
+            </Typography.Text>
+            <Typography.Text>
+              预计时长：{formatDuration(selectedDurationMs)} → {formatDuration(interpretedDurationMs)}
+            </Typography.Text>
+          </div>
+        </Space>
       </Modal>
 
       <Modal
