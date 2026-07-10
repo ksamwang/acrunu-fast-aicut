@@ -144,13 +144,30 @@ async function apiRequest<T>(path: string, token: string, options: RequestInit =
 }
 
 function formatDuration(durationMs?: number) {
-  if (!durationMs) {
+  if (durationMs === undefined || durationMs === null) {
     return "-";
   }
   const totalSeconds = Math.floor(durationMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function formatProbeDuration(durationMs?: number) {
+  if (durationMs === undefined || durationMs === null) {
+    return "待读取";
+  }
+  const totalSeconds = durationMs / 1000;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds - minutes * 60;
+  return `${minutes}:${seconds.toFixed(3).padStart(6, "0")} / ${totalSeconds.toFixed(3)} 秒`;
+}
+
+function formatResolution(width?: number, height?: number) {
+  if (!width || !height) {
+    return "待读取";
+  }
+  return `${width} x ${height}`;
 }
 
 function formatTimestamp(durationMs: number) {
@@ -557,7 +574,7 @@ export function PreprocessPage({ token }: { token: string }) {
 
               <div className="preprocess-header-fields">
                 <Form.Item name="asset_name" className="preprocess-header-field">
-                  <Input placeholder="素材名称" />
+                  <Input className="preprocess-asset-name-input" placeholder="素材名称" />
                 </Form.Item>
 
                 <Form.Item
@@ -642,12 +659,8 @@ export function PreprocessPage({ token }: { token: string }) {
                       <Typography.Text className="preprocess-overlay-title">本地分析结果</Typography.Text>
                       <Descriptions size="small" column={1}>
                         <Descriptions.Item label="状态">{workspaceStatusLabels[selectedItem.status]}</Descriptions.Item>
-                        <Descriptions.Item label="时长">{formatDuration(selectedItem.probe.duration_ms)}</Descriptions.Item>
-                        <Descriptions.Item label="分辨率">
-                          {selectedItem.probe.width && selectedItem.probe.height
-                            ? `${selectedItem.probe.width} x ${selectedItem.probe.height}`
-                            : "-"}
-                        </Descriptions.Item>
+                        <Descriptions.Item label="时长">{formatProbeDuration(selectedItem.probe.duration_ms)}</Descriptions.Item>
+                        <Descriptions.Item label="分辨率">{formatResolution(selectedItem.probe.width, selectedItem.probe.height)}</Descriptions.Item>
                         <Descriptions.Item label="画面描述">{selectedItem.analysis?.scene_description || "-"}</Descriptions.Item>
                         <Descriptions.Item label="景别">
                           {selectedItem.analysis?.shot_size
@@ -685,7 +698,7 @@ export function PreprocessPage({ token }: { token: string }) {
               )}
 
               <Form.Item name="reviewer_notes" label="备注" className="preprocess-footer-field">
-                <Input.TextArea rows={2} placeholder="记录本地预处理备注" />
+                <Input.TextArea className="preprocess-reviewer-notes-input" rows={2} placeholder="记录本地预处理备注" />
               </Form.Item>
 
               <div className="preprocess-footer-actions">

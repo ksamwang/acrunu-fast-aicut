@@ -21,6 +21,7 @@ type VideoTrimEditorProps = {
 };
 
 const MIN_TRIM_FRAMES = 1;
+const RULER_INTERVALS_SECONDS = [0.5, 1, 2, 3, 5, 10, 15, 30, 60, 120, 300];
 
 function normalizeFps(fps?: number) {
   return fps && Number.isFinite(fps) && fps > 0 ? fps : 30;
@@ -48,6 +49,45 @@ function formatSeconds(seconds: number) {
     return `${rest.toFixed(3)}s`;
   }
   return `${minutes}:${rest.toFixed(3).padStart(6, "0")}`;
+}
+
+function chooseRulerInterval(durationSeconds: number) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return 1;
+  }
+  const idealInterval = durationSeconds / 6;
+  return RULER_INTERVALS_SECONDS.find((interval) => interval >= idealInterval) ?? RULER_INTERVALS_SECONDS[RULER_INTERVALS_SECONDS.length - 1];
+}
+
+function buildRulerTicks(durationSeconds: number) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return [{ seconds: 0, percent: 0, label: formatSeconds(0) }];
+  }
+
+  const interval = chooseRulerInterval(durationSeconds);
+  const ticks = [];
+  for (let seconds = 0; seconds < durationSeconds; seconds += interval) {
+    ticks.push({
+      seconds,
+      percent: clamp((seconds / durationSeconds) * 100, 0, 100),
+      label: formatSeconds(seconds)
+    });
+  }
+
+  const lastTick = ticks[ticks.length - 1];
+  if (!lastTick || Math.abs(lastTick.seconds - durationSeconds) > 0.001) {
+    const endTick = {
+      seconds: durationSeconds,
+      percent: 100,
+      label: formatSeconds(durationSeconds)
+    };
+    if (lastTick && durationSeconds - lastTick.seconds < interval * 0.35) {
+      ticks[ticks.length - 1] = endTick;
+    } else {
+      ticks.push(endTick);
+    }
+  }
+  return ticks;
 }
 
 export function VideoTrimEditor({
@@ -271,6 +311,7 @@ export function VideoTrimEditor({
   const outPercent = (outFrame / totalFrames) * 100;
   const playheadPercent = (safeCurrentFrame / totalFrames) * 100;
   const selectedFrameCount = Math.max(0, outFrame - inFrame);
+  const rulerTicks = useMemo(() => buildRulerTicks(totalFrames / frameRate), [frameRate, totalFrames]);
 
   return (
     <div className="video-trim-editor">
@@ -322,6 +363,14 @@ export function VideoTrimEditor({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
+          <div className="video-trim-ruler" aria-hidden="true">
+            {rulerTicks.map((tick) => (
+              <div key={`${tick.seconds}-${tick.percent}`} className="video-trim-ruler-tick" style={{ left: `${tick.percent}%` }}>
+                <span className="video-trim-ruler-line" />
+                <span className="video-trim-ruler-label">{tick.label}</span>
+              </div>
+            ))}
+          </div>
           <div className="video-trim-track" />
           <div className="video-trim-selection" style={{ left: `${inPercent}%`, width: `${Math.max(outPercent - inPercent, 0)}%` }} />
           <button
