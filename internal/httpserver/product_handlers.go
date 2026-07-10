@@ -90,6 +90,14 @@ func (s *Server) handleArchiveProduct(c *gin.Context) {
 	OK(c, gin.H{"archived": true})
 }
 
+func (s *Server) handleDeleteProduct(c *gin.Context) {
+	if err := s.productAssetService.DeleteProduct(c.Param("productID")); err != nil {
+		handleProductError(c, err)
+		return
+	}
+	OK(c, gin.H{"deleted": true})
+}
+
 func (s *Server) handleCreateSellingPoint(c *gin.Context) {
 	var req createSellingPointRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -141,6 +149,14 @@ func (s *Server) handleArchiveSellingPoint(c *gin.Context) {
 	OK(c, gin.H{"archived": true})
 }
 
+func (s *Server) handleDeleteSellingPoint(c *gin.Context) {
+	if err := s.productAssetService.DeleteSellingPoint(c.Param("sellingPointID")); err != nil {
+		handleProductError(c, err)
+		return
+	}
+	OK(c, gin.H{"deleted": true})
+}
+
 func handleProductError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrProductNotFound):
@@ -149,6 +165,8 @@ func handleProductError(c *gin.Context, err error) {
 		Fail(c, http.StatusNotFound, "not_found", "selling point not found")
 	case errors.Is(err, services.ErrAssetNotFound):
 		Fail(c, http.StatusNotFound, "not_found", "asset not found")
+	case errors.Is(err, services.ErrDeleteBlockedByAssets):
+		Fail(c, http.StatusConflict, "associated_assets_exist", "associated assets exist")
 	default:
 		Fail(c, http.StatusInternalServerError, "internal_error", "product service error")
 	}

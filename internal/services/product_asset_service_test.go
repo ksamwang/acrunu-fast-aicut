@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -49,6 +50,67 @@ func TestListAssetsAppliesFiltersInMemory(t *testing.T) {
 	}
 	if filtered[0].FileName != "b.mp4" {
 		t.Fatalf("expected filtered asset b.mp4, got %s", filtered[0].FileName)
+	}
+}
+
+func TestDeleteProductRequiresNoAssociatedAssets(t *testing.T) {
+	service := NewProductAssetService()
+	emptyProduct := service.CreateProduct(CreateProductInput{Name: "Empty"})
+	if err := service.DeleteProduct(emptyProduct.ID); err != nil {
+		t.Fatalf("delete empty product failed: %v", err)
+	}
+	if _, err := service.GetProduct(emptyProduct.ID); !errors.Is(err, ErrProductNotFound) {
+		t.Fatalf("expected product hard deleted, got %v", err)
+	}
+
+	product := service.CreateProduct(CreateProductInput{Name: "With assets"})
+	if _, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	}); err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	if err := service.DeleteProduct(product.ID); !errors.Is(err, ErrDeleteBlockedByAssets) {
+		t.Fatalf("expected delete blocked by assets, got %v", err)
+	}
+}
+
+func TestDeleteSellingPointRequiresNoAssociatedAssets(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	emptySellingPoint, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{Title: "Empty"})
+	if err != nil {
+		t.Fatalf("create empty selling point failed: %v", err)
+	}
+	if err := service.DeleteSellingPoint(emptySellingPoint.ID); err != nil {
+		t.Fatalf("delete empty selling point failed: %v", err)
+	}
+
+	linkedSellingPoint, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{Title: "Linked"})
+	if err != nil {
+		t.Fatalf("create linked selling point failed: %v", err)
+	}
+	if _, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		SellingPointIDs:   []string{linkedSellingPoint.ID},
+	}); err != nil {
+		t.Fatalf("create linked asset failed: %v", err)
+	}
+	if err := service.DeleteSellingPoint(linkedSellingPoint.ID); !errors.Is(err, ErrDeleteBlockedByAssets) {
+		t.Fatalf("expected delete blocked by assets, got %v", err)
 	}
 }
 

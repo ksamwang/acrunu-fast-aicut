@@ -29,6 +29,19 @@ func (q *Queries) ArchiveSellingPoint(ctx context.Context, arg ArchiveSellingPoi
 	return err
 }
 
+const countAssetSellingPointLinks = `-- name: CountAssetSellingPointLinks :one
+SELECT COUNT(*)::int
+FROM asset_selling_points
+WHERE selling_point_id = $1
+`
+
+func (q *Queries) CountAssetSellingPointLinks(ctx context.Context, sellingPointID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countAssetSellingPointLinks, sellingPointID)
+	var count int32
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createSellingPoint = `-- name: CreateSellingPoint :one
 INSERT INTO product_selling_points (
     product_id,
@@ -76,6 +89,16 @@ func (q *Queries) CreateSellingPoint(ctx context.Context, arg CreateSellingPoint
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const deleteSellingPoint = `-- name: DeleteSellingPoint :exec
+DELETE FROM product_selling_points
+WHERE id = $1
+`
+
+func (q *Queries) DeleteSellingPoint(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSellingPoint, id)
+	return err
 }
 
 const getSellingPointByID = `-- name: GetSellingPointByID :one

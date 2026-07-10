@@ -38,3 +38,12 @@ SET status = 'archived',
     updated_by_user_id = $2,
     updated_at = now()
 WHERE id = $1;
+
+-- name: CountAssetSellingPointLinks :one
+SELECT COUNT(*)::int
+FROM asset_selling_points
+WHERE selling_point_id = $1;
+
+-- name: DeleteSellingPoint :exec
+DELETE FROM product_selling_points
+WHERE id = $1;

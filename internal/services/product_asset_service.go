@@ -19,9 +19,10 @@ import (
 )
 
 var (
-	ErrProductNotFound      = errors.New("product not found")
-	ErrSellingPointNotFound = errors.New("selling point not found")
-	ErrAssetNotFound        = errors.New("asset not found")
+	ErrProductNotFound       = errors.New("product not found")
+	ErrSellingPointNotFound  = errors.New("selling point not found")
+	ErrAssetNotFound         = errors.New("asset not found")
+	ErrDeleteBlockedByAssets = errors.New("cannot delete while associated assets exist")
 )
 
 type Product struct {
@@ -967,6 +968,31 @@ func (s *ProductAssetService) ArchiveProduct(id string) error {
 	return nil
 }
 
+func (s *ProductAssetService) DeleteProduct(id string) error {
+	if s.queries != nil {
+		return s.deleteProductInPostgres(id)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.products[id]; !ok {
+		return ErrProductNotFound
+	}
+	for _, asset := range s.assets {
+		if asset.ProductID == id {
+			return ErrDeleteBlockedByAssets
+		}
+	}
+	for sellingPointID, sellingPoint := range s.sellingPoints {
+		if sellingPoint.ProductID == id {
+			delete(s.sellingPoints, sellingPointID)
+		}
+	}
+	delete(s.products, id)
+	return nil
+}
+
 func (s *ProductAssetService) CreateSellingPoint(productID string, input CreateSellingPointInput) (SellingPoint, error) {
 	if s.queries != nil {
 		return s.createSellingPointInPostgres(productID, input)
@@ -1086,6 +1112,26 @@ func (s *ProductAssetService) ArchiveSellingPoint(id string) error {
 	return nil
 }
 
+func (s *ProductAssetService) DeleteSellingPoint(id string) error {
+	if s.queries != nil {
+		return s.deleteSellingPointInPostgres(id)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sellingPoints[id]; !ok {
+		return ErrSellingPointNotFound
+	}
+	for _, sellingPointIDs := range s.assetSellingPoints {
+		if containsSliceValue(sellingPointIDs, id) {
+			return ErrDeleteBlockedByAssets
+		}
+	}
+	delete(s.sellingPoints, id)
+	return nil
+}
+
 func (s *ProductAssetService) createProductInPostgres(input CreateProductInput) Product {
 	row, err := s.queries.CreateProduct(context.Background(), db.CreateProductParams{
 		Name:            input.Name,
@@ -1153,6 +1199,19 @@ func (s *ProductAssetService) archiveProductInPostgres(id string) error {
 		}
 	}
 	return err
+}
+
+func (s *ProductAssetService) deleteProductInPostgres(id string) error {
+	if _, err := s.getProductFromPostgres(id); err != nil {
+		return err
+	}
+	if len(s.ListAssets(AssetFilters{ProductID: id})) > 0 {
+		return ErrDeleteBlockedByAssets
+	}
+	if err := s.queries.DeleteProduct(context.Background(), assetNullableUUIDParam(id)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *ProductAssetService) createSellingPointInPostgres(productID string, input CreateSellingPointInput) (SellingPoint, error) {
@@ -1224,6 +1283,23 @@ func (s *ProductAssetService) archiveSellingPointInPostgres(id string) error {
 		}
 	}
 	return err
+}
+
+func (s *ProductAssetService) deleteSellingPointInPostgres(id string) error {
+	if _, err := s.getSellingPointByIDFromPostgres(id); err != nil {
+		return err
+	}
+	count, err := s.queries.CountAssetSellingPointLinks(context.Background(), assetNullableUUIDParam(id))
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrDeleteBlockedByAssets
+	}
+	if err := s.queries.DeleteSellingPoint(context.Background(), assetNullableUUIDParam(id)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *ProductAssetService) createAssetInPostgres(input CreateAssetInput) (Asset, error) {

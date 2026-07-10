@@ -15,6 +15,7 @@ type Querier interface {
 	ArchiveAsset(ctx context.Context, arg ArchiveAssetParams) error
 	ArchiveProduct(ctx context.Context, arg ArchiveProductParams) error
 	ArchiveSellingPoint(ctx context.Context, arg ArchiveSellingPointParams) error
+	CountAssetSellingPointLinks(ctx context.Context, sellingPointID pgtype.UUID) (int32, error)
 	CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset, error)
 	CreateGenerationTask(ctx context.Context, arg CreateGenerationTaskParams) (GenerationTask, error)
 	CreateProduct(ctx context.Context, arg CreateProductParams) (Product, error)
@@ -22,6 +23,8 @@ type Querier interface {
 	CreateSpeechSegment(ctx context.Context, arg CreateSpeechSegmentParams) (SpeechSegment, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteAssetFrameSnapshotsByAsset(ctx context.Context, assetID pgtype.UUID) error
+	DeleteProduct(ctx context.Context, id pgtype.UUID) error
+	DeleteSellingPoint(ctx context.Context, id pgtype.UUID) error
 	GetAssetByID(ctx context.Context, id pgtype.UUID) (Asset, error)
 	GetGenerationTaskByID(ctx context.Context, id pgtype.UUID) (GenerationTask, error)
 	GetProductByID(ctx context.Context, id pgtype.UUID) (Product, error)

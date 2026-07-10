@@ -78,6 +78,16 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 	return i, err
 }
 
+const deleteProduct = `-- name: DeleteProduct :exec
+DELETE FROM products
+WHERE id = $1
+`
+
+func (q *Queries) DeleteProduct(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteProduct, id)
+	return err
+}
+
 const getProductByID = `-- name: GetProductByID :one
 SELECT id, name, description, category, status, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at FROM products
 WHERE id = $1

@@ -38,3 +38,7 @@ SET status = 'archived',
     updated_by_user_id = $2,
     updated_at = now()
 WHERE id = $1;
+
+-- name: DeleteProduct :exec
+DELETE FROM products
+WHERE id = $1;

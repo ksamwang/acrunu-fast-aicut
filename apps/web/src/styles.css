@@ -138,6 +138,41 @@ body {
   gap: 16px;
 }
 
+.product-linked-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.product-linked-asset-card {
+  overflow: hidden;
+}
+
+.product-linked-asset-video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  object-fit: cover;
+  background: #111827;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.product-linked-asset-title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-linked-asset-desc {
+  margin-top: 8px;
+  margin-bottom: 0 !important;
+  color: #64748b;
+}
+
 .ui-icon {
   width: 1em;
   height: 1em;
