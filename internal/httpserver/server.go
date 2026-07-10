@@ -72,6 +72,10 @@ func (s *Server) Run() error {
 	return s.engine.Run(s.cfg.APIAddr)
 }
 
+func (s *Server) Engine() *gin.Engine {
+	return s.engine
+}
+
 func (s *Server) routes() {
 	s.engine.Use(s.requestIDMiddleware())
 	s.engine.Use(s.loggingMiddleware())

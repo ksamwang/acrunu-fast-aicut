@@ -3,6 +3,7 @@ package localagent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -12,8 +13,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/ffmpeg"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/httpserver"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
 
 type stubProcessor struct{}
@@ -117,6 +123,12 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 	if len(prepared.FrameSnapshots) != 3 {
 		t.Fatalf("expected 3 frame snapshots, got %d", len(prepared.FrameSnapshots))
 	}
+	expectedTimestamps := []int{600, 3000, 5400}
+	for index, snapshot := range prepared.FrameSnapshots {
+		if snapshot.TimestampMs != expectedTimestamps[index] {
+			t.Fatalf("expected frame %d timestamp %d, got %d", index, expectedTimestamps[index], snapshot.TimestampMs)
+		}
+	}
 	if prepared.Analysis == nil || prepared.Analysis.SceneDescription == "" {
 		t.Fatalf("expected analysis result to be populated")
 	}
@@ -200,6 +212,123 @@ func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 	if len(workspace.ListItems()) != 0 {
 		t.Fatalf("expected submitted local records to be removed by clear")
 	}
+}
+
+func TestWorkspaceDoesNotCreateServerAssetUntilSubmit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	apiServer := httpserver.New(httpserver.Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+	httpSrv := httptest.NewServer(apiServer.Engine())
+	defer httpSrv.Close()
+
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	item := imported[0]
+
+	if len(productAssetService.ListAssets(services.AssetFilters{})) != 0 {
+		t.Fatalf("expected no server assets after import")
+	}
+
+	if _, err := workspace.SaveItem(item.ID, WorkspaceSaveInput{
+		AssetName:   "test asset",
+		SourceType:  "talking_head",
+		SourceInMs:  0,
+		SourceOutMs: 5000,
+		Transcript:  "[00:00:00:00]-[00:00:02:00] hello",
+	}); err != nil {
+		t.Fatalf("SaveItem() error = %v", err)
+	}
+	if _, err := workspace.PrepareItem(context.Background(), item.ID); err != nil {
+		t.Fatalf("PrepareItem() error = %v", err)
+	}
+
+	if len(productAssetService.ListAssets(services.AssetFilters{})) != 0 {
+		t.Fatalf("expected no server assets before explicit submit")
+	}
+
+	authHeader := "Bearer " + makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	})
+
+	tokenBody, err := json.Marshal(map[string]any{"product_id": product.ID})
+	if err != nil {
+		t.Fatalf("Marshal() token request error = %v", err)
+	}
+	tokenReq := httptest.NewRequest(http.MethodPost, "/api/uploads/tokens", bytes.NewReader(tokenBody))
+	tokenReq.Header.Set("Content-Type", "application/json")
+	tokenReq.Header.Set("Authorization", authHeader)
+	tokenResp := httptest.NewRecorder()
+	apiServer.Engine().ServeHTTP(tokenResp, tokenReq)
+	if tokenResp.Code != http.StatusCreated {
+		t.Fatalf("expected upload token status 201, got %d, body=%s", tokenResp.Code, tokenResp.Body.String())
+	}
+
+	var tokenPayload struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(tokenResp.Body.Bytes(), &tokenPayload); err != nil {
+		t.Fatalf("unmarshal upload token response failed: %v", err)
+	}
+	if tokenPayload.Data.Token == "" {
+		t.Fatalf("expected upload token")
+	}
+
+	submitted, err := workspace.SubmitItem(context.Background(), item.ID, WorkspaceSubmitInput{
+		ProductID:   product.ID,
+		UploadURL:   httpSrv.URL + "/api/uploads/clean-shot",
+		UploadToken: tokenPayload.Data.Token,
+	})
+	if err != nil {
+		t.Fatalf("SubmitItem() error = %v", err)
+	}
+	if submitted.Status != workspaceStatusSubmitted {
+		t.Fatalf("expected submitted status, got %s", submitted.Status)
+	}
+
+	assets := productAssetService.ListAssets(services.AssetFilters{})
+	if len(assets) != 1 {
+		t.Fatalf("expected 1 server asset after submit, got %d", len(assets))
+	}
+	if assets[0].ID != submitted.SubmittedAssetID {
+		t.Fatalf("expected submitted asset id %s, got %s", submitted.SubmittedAssetID, assets[0].ID)
+	}
+
+	if err := workspace.Clear(); err != nil {
+		t.Fatalf("Clear() error = %v", err)
+	}
+	if len(workspace.ListItems()) != 0 {
+		t.Fatalf("expected workspace empty after clear")
+	}
+	assets = productAssetService.ListAssets(services.AssetFilters{})
+	if len(assets) != 1 {
+		t.Fatalf("expected server asset to remain after local clear, got %d", len(assets))
+	}
+}
+
+func makeDevToken(user auth.User) string {
+	payload, _ := json.Marshal(user)
+	return base64.RawURLEncoding.EncodeToString(payload)
 }
 
 func newMultipartHeader(t *testing.T, fileName string, contents []byte) (*multipart.FileHeader, func()) {
