@@ -236,6 +236,12 @@ func TestWorkspaceSaveInterpretFPS(t *testing.T) {
 	if saved.OriginalSourcePath == "" || saved.SourcePath == saved.OriginalSourcePath {
 		t.Fatalf("expected interpret fps to switch to a working source, got source=%q original=%q", saved.SourcePath, saved.OriginalSourcePath)
 	}
+	if saved.Probe.DurationMs != 7200 || saved.SourceOutMs != 7200 {
+		t.Fatalf("expected interpreted working source duration 7200ms, got probe=%d out=%d", saved.Probe.DurationMs, saved.SourceOutMs)
+	}
+	if saved.Probe.FPS != 25 {
+		t.Fatalf("expected working source fps 25, got %v", saved.Probe.FPS)
+	}
 
 	prepared, err := workspace.PrepareItem(context.Background(), item.ID)
 	if err != nil {

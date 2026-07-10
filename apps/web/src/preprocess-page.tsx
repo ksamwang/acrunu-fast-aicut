@@ -445,10 +445,11 @@ export function PreprocessPage({ token }: { token: string }) {
       initializedEditorItemIDRef.current = null;
       return;
     }
-    if (initializedEditorItemIDRef.current === selectedItem.id) {
+    const editorSyncKey = `${selectedItem.id}:${selectedItem.source_url}:${selectedItem.updated_at}`;
+    if (initializedEditorItemIDRef.current === editorSyncKey) {
       return;
     }
-    initializedEditorItemIDRef.current = selectedItem.id;
+    initializedEditorItemIDRef.current = editorSyncKey;
     const sourceOutMs =
       selectedItem.source_out_ms > 0
         ? selectedItem.source_out_ms
@@ -465,7 +466,7 @@ export function PreprocessPage({ token }: { token: string }) {
     });
     setSubmitProductID(selectedItem.product_id ?? "");
     setSubmitSellingPointIDs([]);
-  }, [form, selectedItem?.id]);
+  }, [form, selectedItem?.id, selectedItem?.source_url, selectedItem?.updated_at]);
 
   useEffect(() => {
     if (!submitProductID) {
@@ -1123,7 +1124,11 @@ export function PreprocessPage({ token }: { token: string }) {
               <Card className="preprocess-video-stage" bordered={false}>
                 <VideoTrimEditor
                   src={selectedItem.source_url}
-                  durationMs={selectedItem.probe.duration_ms ?? Math.max(watchedSourceOutMs, selectedItem.source_out_ms, 0)}
+                  durationMs={
+                    selectedItem.probe.duration_ms && selectedItem.probe.duration_ms > 0
+                      ? selectedItem.probe.duration_ms
+                      : Math.max(watchedSourceOutMs, selectedItem.source_out_ms, 0)
+                  }
                   fps={selectedItem.probe.fps}
                   trimInMs={watchedSourceInMs}
                   trimOutMs={watchedSourceOutMs}

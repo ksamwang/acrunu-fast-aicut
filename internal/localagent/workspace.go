@@ -690,15 +690,16 @@ func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, er
 func (w *Workspace) applyWorkingSourceLocked(ctx context.Context, item *WorkspaceItem, input WorkspaceSaveInput) error {
 	originalProbe := effectiveOriginalProbe(*item)
 	if input.InterpretFPS {
+		resolvedProbe, err := w.resolveOriginalProbeForInterpretFPS(ctx, *item, input)
+		if err != nil {
+			return err
+		}
+		originalProbe = resolvedProbe
+		item.OriginalProbe = resolvedProbe
+		expectedDurationMs := interpretedDurationMs(originalProbe.DurationMs, originalProbe.FPS, input.PlaybackFPS)
 		workingPath := filepath.Join(w.root, "items", item.ID, "working-source.mp4")
-		needsRebuild := !item.InterpretFPS || item.SourcePath != workingPath || item.PlaybackFPS != input.PlaybackFPS
+		needsRebuild := !item.InterpretFPS || item.SourcePath != workingPath || item.PlaybackFPS != input.PlaybackFPS || item.Probe.DurationMs != expectedDurationMs
 		if needsRebuild {
-			resolvedProbe, err := w.resolveOriginalProbeForInterpretFPS(ctx, *item, input)
-			if err != nil {
-				return err
-			}
-			originalProbe = resolvedProbe
-			item.OriginalProbe = resolvedProbe
 			if err := w.processor.InterpretFPS(ctx, item.OriginalSourcePath, workingPath, originalProbe.FPS, input.PlaybackFPS, originalProbe.DurationMs); err != nil {
 				return err
 			}
@@ -706,6 +707,8 @@ func (w *Workspace) applyWorkingSourceLocked(ctx context.Context, item *Workspac
 			if err != nil {
 				return err
 			}
+			probe.DurationMs = expectedDurationMs
+			probe.FPS = input.PlaybackFPS
 			item.SourcePath = workingPath
 			item.Probe = probe
 			item.SourceInMs = 0
@@ -803,6 +806,13 @@ func firstPositiveInt(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func interpretedDurationMs(sourceDurationMs int, sourceFPS float64, playbackFPS float64) int {
+	if sourceDurationMs <= 0 || sourceFPS <= 0 || playbackFPS <= 0 {
+		return sourceDurationMs
+	}
+	return int(math.Round(float64(sourceDurationMs) * sourceFPS / playbackFPS))
 }
 
 func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (WorkspaceItem, error) {

@@ -175,6 +175,16 @@ export function VideoTrimEditor({
   const outFrame = clamp(msToFrame(trimOutMs || effectiveDurationMs, frameRate, totalFrames), inFrame + MIN_TRIM_FRAMES, totalFrames);
   const safeCurrentFrame = clamp(currentFrame, 0, totalFrames);
 
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentFrame(0);
+    setMediaDurationMs(0);
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.load();
+    }
+  }, [src]);
+
   const emitTrim = (nextInFrame: number, nextOutFrame: number) => {
     const normalizedInFrame = clamp(nextInFrame, 0, totalFrames - MIN_TRIM_FRAMES);
     const normalizedOutFrame = clamp(nextOutFrame, normalizedInFrame + MIN_TRIM_FRAMES, totalFrames);
