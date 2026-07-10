@@ -52,6 +52,7 @@ func (s *Server) handlePreprocessVLMLabel(c *gin.Context) {
 	result, err := analyzer.AnalyzeAsset(c.Request.Context(), modelgateway.AnalyzeAssetInput{
 		AssetID:        c.PostForm("asset_id"),
 		SourceType:     c.PostForm("source_type"),
+		ProductName:    c.PostForm("product_name"),
 		DurationMs:     formInt(c, "duration_ms"),
 		Width:          formInt(c, "width"),
 		Height:         formInt(c, "height"),

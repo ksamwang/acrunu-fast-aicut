@@ -215,6 +215,9 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 		if err := r.ParseMultipartForm(16 << 20); err != nil {
 			t.Fatalf("parse multipart: %v", err)
 		}
+		if r.FormValue("product_name") != "车载氛围灯" {
+			t.Fatalf("expected product_name to be forwarded, got %q", r.FormValue("product_name"))
+		}
 		for index := 0; index < 3; index++ {
 			if _, _, err := r.FormFile(fmt.Sprintf("frame_%d", index)); err != nil {
 				t.Fatalf("expected frame_%d upload: %v", index, err)
@@ -244,6 +247,7 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 
 	queued, err := workspace.StartVLMLabel(item.ID, WorkspaceVLMLabelInput{
 		SourceType:    "visual_only",
+		ProductName:   "车载氛围灯",
 		SourceInMs:    1000,
 		SourceOutMs:   5000,
 		ServerBaseURL: vlmServer.URL,

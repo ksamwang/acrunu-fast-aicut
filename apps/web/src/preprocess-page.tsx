@@ -630,6 +630,10 @@ export function PreprocessPage({ token }: { token: string }) {
     const sourceInMs = Number(values.source_in_ms ?? selectedItem.source_in_ms ?? 0);
     const sourceOutMs = Number(values.source_out_ms ?? selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0);
     const sourceType = values.source_type ?? selectedItem.source_type ?? "visual_only";
+    const productName =
+      sourceType === "visual_only"
+        ? products.find((product) => product.id === submitProductID)?.name ?? ""
+        : "";
     if (!Number.isFinite(sourceInMs) || !Number.isFinite(sourceOutMs) || sourceOutMs <= sourceInMs) {
       message.warning("请先设置有效的裁切入点和出点");
       return;
@@ -641,6 +645,7 @@ export function PreprocessPage({ token }: { token: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           source_type: sourceType,
+          product_name: productName,
           source_in_ms: Math.round(sourceInMs),
           source_out_ms: Math.round(sourceOutMs),
           server_base_url: window.location.origin,

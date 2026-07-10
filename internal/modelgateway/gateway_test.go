@@ -43,6 +43,29 @@ func TestBuildPromptBundleIncludesPromptSections(t *testing.T) {
 	}
 }
 
+func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
+	visualBundle := BuildPromptBundle(AnalyzeAssetInput{
+		AssetID:     "asset-1",
+		SourceType:  "visual_only",
+		ProductName: "车载氛围灯",
+	})
+	if !strings.Contains(visualBundle.Prompts[0].User, "product_name") {
+		t.Fatalf("expected visual_only prompt to include product context, got %s", visualBundle.Prompts[0].User)
+	}
+	if !strings.Contains(visualBundle.Prompts[0].User, "visible_product must be based only on visual evidence") {
+		t.Fatalf("expected weak product context warning, got %s", visualBundle.Prompts[0].User)
+	}
+
+	talkingHeadBundle := BuildPromptBundle(AnalyzeAssetInput{
+		AssetID:     "asset-2",
+		SourceType:  "talking_head",
+		ProductName: "车载氛围灯",
+	})
+	if strings.Contains(talkingHeadBundle.Prompts[0].User, "product_name") {
+		t.Fatalf("expected talking_head prompt not to include product context, got %s", talkingHeadBundle.Prompts[0].User)
+	}
+}
+
 func TestValidateAnalyzeAssetResultRejectsInvalidValues(t *testing.T) {
 	err := ValidateAnalyzeAssetResult(AnalyzeAssetResult{
 		SceneDescription: "",

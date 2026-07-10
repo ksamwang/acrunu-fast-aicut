@@ -108,6 +108,7 @@ type WorkspacePreviewFramesInput struct {
 
 type WorkspaceVLMLabelInput struct {
 	SourceType    string `json:"source_type"`
+	ProductName   string `json:"product_name"`
 	SourceInMs    int    `json:"source_in_ms"`
 	SourceOutMs   int    `json:"source_out_ms"`
 	ServerBaseURL string `json:"server_base_url"`
@@ -376,6 +377,7 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 
 	go w.runVLMLabel(context.Background(), itemID, WorkspaceVLMLabelInput{
 		SourceType:    sourceType,
+		ProductName:   input.ProductName,
 		SourceInMs:    input.SourceInMs,
 		SourceOutMs:   sourceOutMs,
 		ServerBaseURL: input.ServerBaseURL,
@@ -721,6 +723,7 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 	result, err := analyzeFramesOnServer(ctx, input.ServerBaseURL, input.AuthToken, modelgateway.AnalyzeAssetInput{
 		AssetID:        item.ID,
 		SourceType:     input.SourceType,
+		ProductName:    input.ProductName,
 		DurationMs:     input.SourceOutMs - input.SourceInMs,
 		Width:          item.Probe.Width,
 		Height:         item.Probe.Height,
@@ -739,13 +742,14 @@ func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken 
 	writer := multipart.NewWriter(&body)
 
 	fields := map[string]string{
-		"asset_id":    input.AssetID,
-		"source_type": input.SourceType,
-		"duration_ms": fmt.Sprintf("%d", input.DurationMs),
-		"width":       fmt.Sprintf("%d", input.Width),
-		"height":      fmt.Sprintf("%d", input.Height),
-		"has_audio":   fmt.Sprintf("%t", input.HasAudio),
-		"audio_codec": input.AudioCodec,
+		"asset_id":     input.AssetID,
+		"source_type":  input.SourceType,
+		"product_name": input.ProductName,
+		"duration_ms":  fmt.Sprintf("%d", input.DurationMs),
+		"width":        fmt.Sprintf("%d", input.Width),
+		"height":       fmt.Sprintf("%d", input.Height),
+		"has_audio":    fmt.Sprintf("%t", input.HasAudio),
+		"audio_codec":  input.AudioCodec,
 	}
 	for key, value := range fields {
 		if err := writer.WriteField(key, value); err != nil {

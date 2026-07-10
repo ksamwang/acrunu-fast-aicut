@@ -11,6 +11,7 @@ type FrameReference struct {
 type AnalyzeAssetInput struct {
 	AssetID        string           `json:"asset_id"`
 	SourceType     string           `json:"source_type"`
+	ProductName    string           `json:"product_name,omitempty"`
 	DurationMs     int              `json:"duration_ms"`
 	Width          int              `json:"width"`
 	Height         int              `json:"height"`

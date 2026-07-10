@@ -27,6 +27,13 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 		input.HasAudio,
 		len(input.FrameSnapshots),
 	)
+	productContext := ""
+	if input.SourceType == "visual_only" && input.ProductName != "" {
+		productContext = fmt.Sprintf(
+			" product_name=%q is weak visual context only. Do not assume the product is visible because of product_name; visible_product must be based only on visual evidence.",
+			input.ProductName,
+		)
+	}
 
 	return PromptBundle{
 		Version: PromptVersion,
@@ -38,7 +45,7 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 				User: "Analyze the provided frames for the current trim range. " +
 					"Return JSON with exactly these keys: scene_description, shot_size, camera_movement, visual_tags, quality_tags, visible_product, product_position, scene_context, action_description, people_presence, face_visible, lighting_condition. " +
 					"shot_size enum: close_up, medium_close_up, medium_shot, wide_shot. camera_movement enum: static, slow_push_in, pan, handheld. " +
-					"Use concise Chinese values for descriptions/tags where possible. " + contextLine,
+					"Use concise Chinese values for descriptions/tags where possible. " + contextLine + productContext,
 			},
 		},
 	}
