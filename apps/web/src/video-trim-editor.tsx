@@ -18,6 +18,7 @@ type VideoTrimEditorProps = {
   trimOutMs: number;
   hotkeysEnabled?: boolean;
   analysisOverlay?: React.ReactNode;
+  extraControls?: React.ReactNode;
   onTrimChange: (range: TrimRange) => void;
 };
 
@@ -153,6 +154,7 @@ export function VideoTrimEditor({
   trimOutMs,
   hotkeysEnabled = false,
   analysisOverlay,
+  extraControls,
   onTrimChange
 }: VideoTrimEditorProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -467,6 +469,7 @@ export function VideoTrimEditor({
                 onClick={() => seekToFrame(outFrame)}
               />
             </Tooltip>
+            {extraControls}
           </Space>
           <Typography.Text className="video-trim-timecode">
             {formatSeconds(safeCurrentFrame / frameRate)} / {formatSeconds(totalFrames / frameRate)}

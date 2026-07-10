@@ -685,8 +685,7 @@ body {
   color: #64748b !important;
 }
 
-.preprocess-asset-name-input,
-.preprocess-reviewer-notes-input {
+.preprocess-asset-name-input {
   font-family: "Cascadia Code", "Microsoft YaHei UI", sans-serif;
 }
 
@@ -695,6 +694,16 @@ body {
   border-color: #475569;
   background: #111827;
   color: #e5e7eb;
+}
+
+.preprocess-text-modal .ant-modal-content,
+.preprocess-text-modal .ant-modal-header {
+  border-radius: 0;
+}
+
+.preprocess-text-modal textarea.ant-input {
+  border-radius: 0;
+  font-family: "Cascadia Code", "Microsoft YaHei UI", sans-serif;
 }
 
 .preprocess-main-stage {
@@ -1055,79 +1064,10 @@ body {
   font-size: 12px;
 }
 
-.preprocess-footer-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.1fr) 260px;
-  gap: 8px;
-  align-items: start;
-  min-height: 0;
-}
-
-.preprocess-footer-field {
-  margin-bottom: 0 !important;
-  padding: 8px 10px;
-  border: 1px solid #334155;
-  border-radius: 0;
-  background: #1f2937;
-  box-shadow: none;
-}
-
-.preprocess-footer-note {
-  display: flex;
-  align-items: center;
-  min-height: 100%;
-  padding: 8px 10px;
-  border: 1px solid #334155;
-  border-radius: 0;
-  background: #1f2937;
-  box-shadow: none;
-}
-
-.preprocess-footer-note .ant-typography,
-.preprocess-footer-field .ant-form-item-label > label,
-.preprocess-footer-actions .ant-typography {
-  color: #cbd5e1 !important;
-}
-
-.preprocess-transcript-field .ant-input,
-.preprocess-transcript-field .ant-input-textarea,
-.preprocess-footer-field .ant-input,
-.preprocess-footer-field .ant-input-textarea {
-  border-radius: 0;
-}
-
-.preprocess-footer-field .ant-form-item-label {
-  padding-bottom: 2px;
-}
-
-.preprocess-footer-field .ant-form-item-label > label {
-  height: 18px;
-  font-size: 12px;
-}
-
-.preprocess-footer-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  height: 100%;
-  padding: 8px 10px;
-  border: 1px solid #334155;
-  border-radius: 0;
-  background: #1f2937;
-  box-shadow: none;
-}
-
-.preprocess-clean-preview-inline {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 @media (max-width: 1200px) {
   .preprocess-modal-header,
   .preprocess-header-fields,
   .preprocess-main-stage,
-  .preprocess-footer-strip,
   .preprocess-timeline-inputs {
     grid-template-columns: 1fr;
   }

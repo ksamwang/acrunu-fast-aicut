@@ -339,6 +339,10 @@ export function PreprocessPage({ token }: { token: string }) {
   const [submitProductID, setSubmitProductID] = useState<string>("");
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
   const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
+  const [transcriptModalOpen, setTranscriptModalOpen] = useState(false);
+  const [notesModalOpen, setNotesModalOpen] = useState(false);
+  const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
@@ -682,6 +686,26 @@ export function PreprocessPage({ token }: { token: string }) {
     });
   };
 
+  const openTranscriptModal = () => {
+    setTranscriptDraft(form.getFieldValue("transcript") ?? "");
+    setTranscriptModalOpen(true);
+  };
+
+  const saveTranscriptDraft = () => {
+    form.setFieldValue("transcript", transcriptDraft);
+    setTranscriptModalOpen(false);
+  };
+
+  const openNotesModal = () => {
+    setNotesDraft(form.getFieldValue("reviewer_notes") ?? "");
+    setNotesModalOpen(true);
+  };
+
+  const saveNotesDraft = () => {
+    form.setFieldValue("reviewer_notes", notesDraft);
+    setNotesModalOpen(false);
+  };
+
   return (
     <Space direction="vertical" size="middle" className="page-stack preprocess-page-stack">
       <div className="preprocess-workspace-toolbar">
@@ -829,6 +853,16 @@ export function PreprocessPage({ token }: { token: string }) {
             <Form.Item name="source_out_ms" hidden>
               <Input type="hidden" />
             </Form.Item>
+            <Form.Item
+              name="transcript"
+              hidden
+              rules={watchedSourceType === "talking_head" ? [{ required: true, message: "口播素材必须填写转写内容" }] : undefined}
+            >
+              <Input type="hidden" />
+            </Form.Item>
+            <Form.Item name="reviewer_notes" hidden>
+              <Input type="hidden" />
+            </Form.Item>
 
             <div className="preprocess-modal-header">
               <div className="preprocess-header-title">
@@ -924,6 +958,19 @@ export function PreprocessPage({ token }: { token: string }) {
                   trimOutMs={watchedSourceOutMs}
                   hotkeysEnabled={!!selectedItem && !framesPreviewOpen}
                   onTrimChange={(range) => updateTrimRange(range.inMs, range.outMs)}
+                  extraControls={
+                    <>
+                      <Button size="small" loading={previewingFrames} onClick={() => void previewFrames()}>
+                        三帧
+                      </Button>
+                      <Button size="small" disabled={watchedSourceType !== "talking_head"} onClick={openTranscriptModal}>
+                        转写
+                      </Button>
+                      <Button size="small" onClick={openNotesModal}>
+                        备注
+                      </Button>
+                    </>
+                  }
                   analysisOverlay={
                     <div className="preprocess-analysis-overlay">
                       <Typography.Text className="preprocess-overlay-title">本地分析结果</Typography.Text>
@@ -950,34 +997,6 @@ export function PreprocessPage({ token }: { token: string }) {
                   }
                 />
               </Card>
-            </div>
-
-            <div className="preprocess-footer-strip">
-              {watchedSourceType === "talking_head" ? (
-                <Form.Item
-                  name="transcript"
-                  label="口播转写"
-                  className="preprocess-footer-field preprocess-transcript-field"
-                  rules={[{ required: true, message: "口播素材必须填写转写内容" }]}
-                >
-                  <Input.TextArea rows={2} placeholder="[00:00:03:00]-[00:00:05:00] 大家好。" />
-                </Form.Item>
-              ) : (
-                <div className="preprocess-footer-note">
-                  <Typography.Text type="secondary">当前为纯画面素材，无需填写口播转写。</Typography.Text>
-                </div>
-              )}
-
-              <Form.Item name="reviewer_notes" label="备注" className="preprocess-footer-field">
-                <Input.TextArea className="preprocess-reviewer-notes-input" rows={2} placeholder="记录本地预处理备注" />
-              </Form.Item>
-
-              <div className="preprocess-footer-actions">
-                <Button loading={previewingFrames} onClick={() => void previewFrames()}>
-                  查看当前区间三帧
-                </Button>
-                <Typography.Text type="secondary">主播放器按当前入点/出点预览片段。</Typography.Text>
-              </div>
             </div>
           </Form>
         ) : null}
@@ -1007,6 +1026,44 @@ export function PreprocessPage({ token }: { token: string }) {
         ) : (
           <Empty description="当前还没有三帧抽样结果" />
         )}
+      </Modal>
+
+      <Modal
+        open={transcriptModalOpen}
+        onCancel={() => setTranscriptModalOpen(false)}
+        onOk={saveTranscriptDraft}
+        width={720}
+        title="口播转写"
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose={false}
+        className="preprocess-text-modal"
+      >
+        <Input.TextArea
+          value={transcriptDraft}
+          onChange={(event) => setTranscriptDraft(event.target.value)}
+          rows={8}
+          placeholder="[00:00:03:00]-[00:00:05:00] 大家好。"
+        />
+      </Modal>
+
+      <Modal
+        open={notesModalOpen}
+        onCancel={() => setNotesModalOpen(false)}
+        onOk={saveNotesDraft}
+        width={720}
+        title="本地预处理备注"
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose={false}
+        className="preprocess-text-modal"
+      >
+        <Input.TextArea
+          value={notesDraft}
+          onChange={(event) => setNotesDraft(event.target.value)}
+          rows={8}
+          placeholder="记录本地预处理备注"
+        />
       </Modal>
 
     </Space>
