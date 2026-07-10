@@ -48,6 +48,9 @@ type WorkspaceItem struct {
 	Transcript       string                   `json:"transcript,omitempty"`
 	ReviewerNotes    string                   `json:"reviewer_notes,omitempty"`
 	Probe            ffmpeg.ProbeResult       `json:"probe"`
+	PreviewInMs      int                      `json:"preview_in_ms,omitempty"`
+	PreviewOutMs     int                      `json:"preview_out_ms,omitempty"`
+	PreviewFrames    []WorkspaceFrameSnapshot `json:"preview_frame_snapshots,omitempty"`
 	FrameSnapshots   []WorkspaceFrameSnapshot `json:"frame_snapshots,omitempty"`
 	Analysis         *WorkspaceAnalysis       `json:"analysis,omitempty"`
 	LastError        string                   `json:"last_error,omitempty"`
@@ -80,6 +83,11 @@ type WorkspaceSaveInput struct {
 	SourceOutMs   int    `json:"source_out_ms"`
 	Transcript    string `json:"transcript"`
 	ReviewerNotes string `json:"reviewer_notes"`
+}
+
+type WorkspacePreviewFramesInput struct {
+	SourceInMs  int `json:"source_in_ms"`
+	SourceOutMs int `json:"source_out_ms"`
 }
 
 type WorkspaceSubmitInput struct {
@@ -242,6 +250,58 @@ func (w *Workspace) PrepareItem(ctx context.Context, itemID string) (WorkspaceIt
 		return WorkspaceItem{}, err
 	}
 	return prepared, nil
+}
+
+func (w *Workspace) PreviewFrames(ctx context.Context, itemID string, input WorkspacePreviewFramesInput) (WorkspaceItem, error) {
+	w.mu.Lock()
+	item, ok := w.items[itemID]
+	if !ok {
+		w.mu.Unlock()
+		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
+	}
+	w.mu.Unlock()
+
+	sourceOutMs := input.SourceOutMs
+	if sourceOutMs <= 0 {
+		sourceOutMs = item.Probe.DurationMs
+	}
+	if err := validateSourceRange(input.SourceInMs, sourceOutMs, item.Probe.DurationMs); err != nil {
+		return WorkspaceItem{}, err
+	}
+
+	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, sourceOutMs)
+	frameDir := filepath.Join(w.root, "items", item.ID, "preview-frames")
+	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
+	if err != nil {
+		return WorkspaceItem{}, err
+	}
+
+	frameSnapshots := make([]WorkspaceFrameSnapshot, 0, len(frames))
+	for _, frame := range frames {
+		frameSnapshots = append(frameSnapshots, WorkspaceFrameSnapshot{
+			FrameIndex:  frame.FrameIndex,
+			TimestampMs: frame.TimestampMs,
+			ImagePath:   frame.OutputPath,
+		})
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	current, ok := w.items[itemID]
+	if !ok {
+		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
+	}
+	current.PreviewInMs = input.SourceInMs
+	current.PreviewOutMs = sourceOutMs
+	current.PreviewFrames = frameSnapshots
+	current.LastError = ""
+	current.UpdatedAt = time.Now()
+	w.items[itemID] = current
+	if err := w.persistLocked(); err != nil {
+		return WorkspaceItem{}, err
+	}
+	return current, nil
 }
 
 func (w *Workspace) Clear() error {
@@ -642,8 +702,8 @@ func validateSaveInput(input WorkspaceSaveInput) error {
 	if input.SourceType != "visual_only" && input.SourceType != "talking_head" {
 		return fmt.Errorf("invalid source type")
 	}
-	if input.SourceOutMs <= input.SourceInMs {
-		return fmt.Errorf("invalid source range")
+	if err := validateSourceRange(input.SourceInMs, input.SourceOutMs, 0); err != nil {
+		return err
 	}
 	return nil
 }
@@ -652,8 +712,8 @@ func validateItemForPrepare(item WorkspaceItem) error {
 	if item.SourceType != "visual_only" && item.SourceType != "talking_head" {
 		return fmt.Errorf("source type is required")
 	}
-	if item.SourceOutMs <= item.SourceInMs {
-		return fmt.Errorf("invalid source range")
+	if err := validateSourceRange(item.SourceInMs, item.SourceOutMs, item.Probe.DurationMs); err != nil {
+		return err
 	}
 	if item.SourceType == "talking_head" && strings.TrimSpace(item.Transcript) == "" {
 		return fmt.Errorf("transcript is required for talking head")
@@ -674,6 +734,16 @@ func validateSubmitInput(input WorkspaceSubmitInput) error {
 	return nil
 }
 
+func validateSourceRange(sourceInMs int, sourceOutMs int, durationMs int) error {
+	if sourceInMs < 0 || sourceOutMs <= sourceInMs {
+		return fmt.Errorf("invalid source range")
+	}
+	if durationMs > 0 && sourceOutMs > durationMs {
+		return fmt.Errorf("source range exceeds source duration")
+	}
+	return nil
+}
+
 func resolveThreeFrameTimestamps(durationMs int) []int {
 	if durationMs <= 0 {
 		return []int{0, 0, 0}
@@ -689,6 +759,26 @@ func resolveThreeFrameTimestamps(durationMs int) []int {
 			ts = 0
 		}
 		timestamps = append(timestamps, ts)
+	}
+	return timestamps
+}
+
+func resolveThreeFrameTimestampsInRange(sourceInMs int, sourceOutMs int) []int {
+	durationMs := sourceOutMs - sourceInMs
+	if durationMs <= 0 {
+		return []int{sourceInMs, sourceInMs, sourceInMs}
+	}
+	relative := resolveThreeFrameTimestamps(durationMs)
+	timestamps := make([]int, 0, len(relative))
+	for _, timestamp := range relative {
+		absolute := sourceInMs + timestamp
+		if absolute >= sourceOutMs {
+			absolute = sourceOutMs - 1
+		}
+		if absolute < sourceInMs {
+			absolute = sourceInMs
+		}
+		timestamps = append(timestamps, absolute)
 	}
 	return timestamps
 }

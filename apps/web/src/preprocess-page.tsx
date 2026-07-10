@@ -74,6 +74,9 @@ type WorkspaceItem = {
   transcript?: string;
   reviewer_notes?: string;
   probe: WorkspaceProbe;
+  preview_in_ms?: number;
+  preview_out_ms?: number;
+  preview_frame_snapshots: WorkspaceFrameSnapshot[];
   analysis?: WorkspaceAnalysis;
   frame_snapshots: WorkspaceFrameSnapshot[];
   source_url: string;
@@ -326,6 +329,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [importing, setImporting] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [previewingFrames, setPreviewingFrames] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -546,6 +550,37 @@ export function PreprocessPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "执行预处理失败");
     } finally {
       setPreparing(false);
+    }
+  };
+
+  const previewFrames = async () => {
+    if (!selectedItem) {
+      return;
+    }
+    const values = form.getFieldsValue(["source_in_ms", "source_out_ms"]);
+    const sourceInMs = Number(values.source_in_ms ?? selectedItem.source_in_ms ?? 0);
+    const sourceOutMs = Number(values.source_out_ms ?? selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0);
+    if (!Number.isFinite(sourceInMs) || !Number.isFinite(sourceOutMs) || sourceOutMs <= sourceInMs) {
+      message.warning("请先设置有效的裁切入点和出点");
+      return;
+    }
+
+    setPreviewingFrames(true);
+    try {
+      const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/preview-frames`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_in_ms: Math.round(sourceInMs),
+          source_out_ms: Math.round(sourceOutMs)
+        })
+      });
+      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      setFramesPreviewOpen(true);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "三帧抽样失败");
+    } finally {
+      setPreviewingFrames(false);
     }
   };
 
@@ -939,8 +974,8 @@ export function PreprocessPage({ token }: { token: string }) {
               </Form.Item>
 
               <div className="preprocess-footer-actions">
-                <Button onClick={() => setFramesPreviewOpen(true)} disabled={selectedItem.frame_snapshots.length === 0}>
-                  查看三帧抽样
+                <Button loading={previewingFrames} onClick={() => void previewFrames()}>
+                  查看当前区间三帧
                 </Button>
                 {selectedItem.clean_shot_url ? (
                   <Button onClick={() => setCleanShotPreviewOpen(true)}>查看 clean shot</Button>
@@ -958,13 +993,13 @@ export function PreprocessPage({ token }: { token: string }) {
         onCancel={() => setFramesPreviewOpen(false)}
         footer={null}
         width={920}
-        title="三帧抽样"
+        title="当前区间三帧抽样"
         destroyOnClose={false}
       >
-        {selectedItem?.frame_snapshots.length ? (
+        {selectedItem?.preview_frame_snapshots.length ? (
           <Image.PreviewGroup>
             <div className="frame-grid">
-              {selectedItem.frame_snapshots.map((frame) => (
+              {selectedItem.preview_frame_snapshots.map((frame) => (
                 <div key={frame.frame_index} className="frame-card">
                   <Image className="frame-image" src={frame.image_url} alt={`frame-${frame.frame_index}`} />
                   <Typography.Text type="secondary">

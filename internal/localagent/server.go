@@ -150,6 +150,21 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 			return
 		}
 		s.handleWorkspaceItemPrepare(w, r, itemID)
+	case "preview-frames":
+		if r.Method == http.MethodPost && len(parts) == 2 {
+			s.handleWorkspaceItemPreviewFrames(w, r, itemID)
+			return
+		}
+		if r.Method == http.MethodGet && len(parts) == 3 {
+			index, err := strconv.Atoi(parts[2])
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid frame index"})
+				return
+			}
+			s.handleWorkspaceItemFile(w, r, itemID, "preview-frame", index)
+			return
+		}
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 	case "submit":
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
@@ -216,6 +231,20 @@ func (s *Server) handleWorkspaceItemPrepare(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
 }
 
+func (s *Server) handleWorkspaceItemPreviewFrames(w http.ResponseWriter, r *http.Request, itemID string) {
+	var input WorkspacePreviewFramesInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
+		return
+	}
+	item, err := s.workspace.PreviewFrames(r.Context(), itemID, input)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
+
 func (s *Server) handleWorkspaceItemDuplicate(w http.ResponseWriter, r *http.Request, itemID string) {
 	item, err := s.workspace.DuplicateItem(itemID)
 	if err != nil {
@@ -252,6 +281,13 @@ func (s *Server) handleWorkspaceItemFile(w http.ResponseWriter, r *http.Request,
 		path = item.SourcePath
 	case "clean-shot":
 		path = item.CleanShotPath
+	case "preview-frame":
+		for _, frame := range item.PreviewFrames {
+			if frame.FrameIndex == frameIndex {
+				path = frame.ImagePath
+				break
+			}
+		}
 	case "frame":
 		for _, frame := range item.FrameSnapshots {
 			if frame.FrameIndex == frameIndex {
@@ -304,6 +340,8 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"transcript":         item.Transcript,
 		"reviewer_notes":     item.ReviewerNotes,
 		"probe":              item.Probe,
+		"preview_in_ms":      item.PreviewInMs,
+		"preview_out_ms":     item.PreviewOutMs,
 		"analysis":           item.Analysis,
 		"last_error":         item.LastError,
 		"created_at":         item.CreatedAt,
@@ -323,6 +361,16 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		})
 	}
 	data["frame_snapshots"] = frames
+
+	previewFrames := make([]map[string]any, 0, len(item.PreviewFrames))
+	for _, frame := range item.PreviewFrames {
+		previewFrames = append(previewFrames, map[string]any{
+			"frame_index":  frame.FrameIndex,
+			"timestamp_ms": frame.TimestampMs,
+			"image_url":    s.fileURL(r, item.ID, "preview-frame", frame.FrameIndex),
+		})
+	}
+	data["preview_frame_snapshots"] = previewFrames
 	return data
 }
 
@@ -333,6 +381,8 @@ func (s *Server) fileURL(r *http.Request, itemID string, kind string, frameIndex
 		return base + "/workspace/items/" + itemID + "/source"
 	case "clean-shot":
 		return base + "/workspace/items/" + itemID + "/clean-shot"
+	case "preview-frame":
+		return fmt.Sprintf("%s/workspace/items/%s/preview-frames/%d", base, itemID, frameIndex)
 	case "frame":
 		return fmt.Sprintf("%s/workspace/items/%s/frames/%d", base, itemID, frameIndex)
 	default:

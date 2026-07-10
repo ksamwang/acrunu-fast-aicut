@@ -141,6 +141,46 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 	}
 }
 
+func TestWorkspacePreviewFramesUsesCurrentSourceRange(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	item := imported[0]
+
+	previewed, err := workspace.PreviewFrames(context.Background(), item.ID, WorkspacePreviewFramesInput{
+		SourceInMs:  1000,
+		SourceOutMs: 5000,
+	})
+	if err != nil {
+		t.Fatalf("PreviewFrames() error = %v", err)
+	}
+	if len(previewed.PreviewFrames) != 3 {
+		t.Fatalf("expected 3 preview frames, got %d", len(previewed.PreviewFrames))
+	}
+	expectedTimestamps := []int{1400, 3000, 4600}
+	for index, snapshot := range previewed.PreviewFrames {
+		if snapshot.TimestampMs != expectedTimestamps[index] {
+			t.Fatalf("expected preview frame %d timestamp %d, got %d", index, expectedTimestamps[index], snapshot.TimestampMs)
+		}
+		if snapshot.ImagePath == "" {
+			t.Fatalf("expected preview frame %d image path", index)
+		}
+	}
+	if len(previewed.FrameSnapshots) != 0 {
+		t.Fatalf("expected preview frames not to populate clean shot frame snapshots")
+	}
+}
+
 func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 	root := t.TempDir()
 	workspace, err := NewWorkspace(root, stubProcessor{})
