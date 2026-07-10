@@ -352,6 +352,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
+  const initializedEditorItemIDRef = useRef<string | null>(null);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
   const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
@@ -422,8 +423,13 @@ export function PreprocessPage({ token }: { token: string }) {
 
   useEffect(() => {
     if (!selectedItem) {
+      initializedEditorItemIDRef.current = null;
       return;
     }
+    if (initializedEditorItemIDRef.current === selectedItem.id) {
+      return;
+    }
+    initializedEditorItemIDRef.current = selectedItem.id;
     const sourceOutMs =
       selectedItem.source_out_ms > 0
         ? selectedItem.source_out_ms
@@ -438,7 +444,7 @@ export function PreprocessPage({ token }: { token: string }) {
     });
     setSubmitProductID(selectedItem.product_id ?? "");
     setSubmitSellingPointIDs([]);
-  }, [form, selectedItem]);
+  }, [form, selectedItem?.id]);
 
   useEffect(() => {
     if (!submitProductID) {
@@ -597,7 +603,17 @@ export function PreprocessPage({ token }: { token: string }) {
           source_out_ms: Math.round(sourceOutMs)
         })
       });
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      setItems((current) =>
+        current.map((item) =>
+          item.id === response.item.id
+            ? {
+                ...response.item,
+                source_in_ms: Math.round(sourceInMs),
+                source_out_ms: Math.round(sourceOutMs)
+              }
+            : item
+        )
+      );
       setFramesPreviewOpen(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "三帧抽样失败");

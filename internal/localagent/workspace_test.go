@@ -130,7 +130,7 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 	if len(prepared.FrameSnapshots) != 3 {
 		t.Fatalf("expected 3 frame snapshots, got %d", len(prepared.FrameSnapshots))
 	}
-	expectedTimestamps := []int{600, 3000, 5400}
+	expectedTimestamps := []int{0, 3000, 6000}
 	for index, snapshot := range prepared.FrameSnapshots {
 		if snapshot.TimestampMs != expectedTimestamps[index] {
 			t.Fatalf("expected frame %d timestamp %d, got %d", index, expectedTimestamps[index], snapshot.TimestampMs)
@@ -174,7 +174,7 @@ func TestWorkspacePreviewFramesUsesCurrentSourceRange(t *testing.T) {
 	if len(previewed.PreviewFrames) != 3 {
 		t.Fatalf("expected 3 preview frames, got %d", len(previewed.PreviewFrames))
 	}
-	expectedTimestamps := []int{1400, 3000, 4600}
+	expectedTimestamps := []int{1000, 3000, 5000}
 	for index, snapshot := range previewed.PreviewFrames {
 		if snapshot.TimestampMs != expectedTimestamps[index] {
 			t.Fatalf("expected preview frame %d timestamp %d, got %d", index, expectedTimestamps[index], snapshot.TimestampMs)

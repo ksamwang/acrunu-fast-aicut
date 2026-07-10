@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -290,7 +291,7 @@ func (w *Workspace) PreviewFrames(ctx context.Context, itemID string, input Work
 		return WorkspaceItem{}, err
 	}
 
-	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, sourceOutMs)
+	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, sourceOutMs, item.Probe.FPS)
 	frameDir := filepath.Join(w.root, "items", item.ID, "preview-frames")
 	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
 	if err != nil {
@@ -639,7 +640,7 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 		return WorkspaceItem{}, err
 	}
 
-	frameTimestamps := resolveThreeFrameTimestamps(probe.DurationMs)
+	frameTimestamps := resolveThreeFrameTimestamps(probe.DurationMs, probe.FPS)
 	frameDir := filepath.Join(itemDir, "frames")
 	frames, err := w.processor.ExtractFrames(ctx, cleanShotPath, frameDir, frameTimestamps)
 	if err != nil {
@@ -670,7 +671,7 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 }
 
 func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input WorkspaceVLMLabelInput) (modelgateway.AnalyzeAssetResult, []WorkspaceFrameSnapshot, error) {
-	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs)
+	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
 	frameDir := filepath.Join(w.root, "items", item.ID, "vlm-frames")
 	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
 	if err != nil {
@@ -871,43 +872,46 @@ func validateSourceRange(sourceInMs int, sourceOutMs int, durationMs int) error 
 	return nil
 }
 
-func resolveThreeFrameTimestamps(durationMs int) []int {
-	if durationMs <= 0 {
+func resolveThreeFrameTimestamps(durationMs int, fps float64) []int {
+	if durationMs <= 0 || fps <= 0 {
 		return []int{0, 0, 0}
 	}
-	points := []int{10, 50, 90}
-	timestamps := make([]int, 0, len(points))
-	for _, point := range points {
-		ts := durationMs * point / 100
-		if ts >= durationMs {
-			ts = durationMs - 1
-		}
-		if ts < 0 {
-			ts = 0
-		}
-		timestamps = append(timestamps, ts)
+	outFrame := msToFrame(durationMs, fps)
+	midFrame := outFrame / 2
+	return []int{
+		frameToMs(0, fps),
+		frameToMs(midFrame, fps),
+		frameToMs(outFrame, fps),
 	}
-	return timestamps
 }
 
-func resolveThreeFrameTimestampsInRange(sourceInMs int, sourceOutMs int) []int {
-	durationMs := sourceOutMs - sourceInMs
-	if durationMs <= 0 {
+func resolveThreeFrameTimestampsInRange(sourceInMs int, sourceOutMs int, fps float64) []int {
+	if sourceOutMs <= sourceInMs {
 		return []int{sourceInMs, sourceInMs, sourceInMs}
 	}
-	relative := resolveThreeFrameTimestamps(durationMs)
-	timestamps := make([]int, 0, len(relative))
-	for _, timestamp := range relative {
-		absolute := sourceInMs + timestamp
-		if absolute >= sourceOutMs {
-			absolute = sourceOutMs - 1
-		}
-		if absolute < sourceInMs {
-			absolute = sourceInMs
-		}
-		timestamps = append(timestamps, absolute)
+	if fps <= 0 {
+		return []int{sourceInMs, sourceInMs + (sourceOutMs-sourceInMs)/2, sourceOutMs}
 	}
-	return timestamps
+
+	inFrame := msToFrame(sourceInMs, fps)
+	outFrame := msToFrame(sourceOutMs, fps)
+	if outFrame < inFrame {
+		outFrame = inFrame
+	}
+	midFrame := inFrame + (outFrame-inFrame)/2
+	return []int{
+		frameToMs(inFrame, fps),
+		frameToMs(midFrame, fps),
+		frameToMs(outFrame, fps),
+	}
+}
+
+func msToFrame(timestampMs int, fps float64) int {
+	return int(math.Round((float64(timestampMs) / 1000) * fps))
+}
+
+func frameToMs(frame int, fps float64) int {
+	return int(math.Round((float64(frame) / fps) * 1000))
 }
 
 func sanitizeFileName(name string) string {
