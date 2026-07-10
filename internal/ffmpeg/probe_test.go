@@ -60,6 +60,31 @@ func TestProbeUsesFFProbeOutput(t *testing.T) {
 	}
 }
 
+func TestProbeFallsBackToVideoStreamDuration(t *testing.T) {
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "probe-output.json")
+	scriptPath := filepath.Join(tempDir, "ffprobe-mock.cmd")
+
+	content := `{"streams":[{"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"avg_frame_rate":"100/1","duration":"14.400000"}],"format":{"duration":"N/A","bit_rate":"0"}}`
+	if err := os.WriteFile(outputPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write probe output failed: %v", err)
+	}
+	script := "@echo off\r\ntype \"" + outputPath + "\"\r\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write ffprobe mock failed: %v", err)
+	}
+
+	t.Setenv("FFPROBE_PATH", scriptPath)
+
+	result, err := Probe(context.Background(), "demo.mp4")
+	if err != nil {
+		t.Fatalf("probe failed: %v", err)
+	}
+	if result.DurationMs != 14400 {
+		t.Fatalf("expected stream duration 14400ms, got %d", result.DurationMs)
+	}
+}
+
 func TestProbeResultJSONUsesSnakeCaseKeys(t *testing.T) {
 	payload, err := json.Marshal(ProbeResult{
 		DurationMs:    2400,

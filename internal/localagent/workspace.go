@@ -693,9 +693,12 @@ func (w *Workspace) applyWorkingSourceLocked(ctx context.Context, item *Workspac
 		workingPath := filepath.Join(w.root, "items", item.ID, "working-source.mp4")
 		needsRebuild := !item.InterpretFPS || item.SourcePath != workingPath || item.PlaybackFPS != input.PlaybackFPS
 		if needsRebuild {
-			if originalProbe.DurationMs <= 0 {
-				return fmt.Errorf("source duration is required for interpret fps")
+			resolvedProbe, err := w.resolveOriginalProbeForInterpretFPS(ctx, *item, input)
+			if err != nil {
+				return err
 			}
+			originalProbe = resolvedProbe
+			item.OriginalProbe = resolvedProbe
 			if err := w.processor.InterpretFPS(ctx, item.OriginalSourcePath, workingPath, originalProbe.FPS, input.PlaybackFPS, originalProbe.DurationMs); err != nil {
 				return err
 			}
@@ -744,6 +747,62 @@ func (w *Workspace) applyWorkingSourceLocked(ctx context.Context, item *Workspac
 	item.PlaybackFPS = 0
 	item.SpeedRatio = 1
 	return nil
+}
+
+func (w *Workspace) resolveOriginalProbeForInterpretFPS(ctx context.Context, item WorkspaceItem, input WorkspaceSaveInput) (ffmpeg.ProbeResult, error) {
+	probe := effectiveOriginalProbe(item)
+	if probe.DurationMs > 0 {
+		return probe, nil
+	}
+	if strings.TrimSpace(item.OriginalSourcePath) != "" {
+		refreshed, err := w.processor.Probe(ctx, item.OriginalSourcePath)
+		if err == nil {
+			probe = mergeProbeForInterpretFPS(probe, refreshed)
+		}
+	}
+	if probe.DurationMs <= 0 {
+		probe.DurationMs = firstPositiveInt(item.SourceOutMs, input.SourceOutMs)
+	}
+	if probe.DurationMs <= 0 {
+		return ffmpeg.ProbeResult{}, fmt.Errorf("source duration is required for interpret fps")
+	}
+	return probe, nil
+}
+
+func mergeProbeForInterpretFPS(current ffmpeg.ProbeResult, refreshed ffmpeg.ProbeResult) ffmpeg.ProbeResult {
+	if refreshed.DurationMs > 0 {
+		current.DurationMs = refreshed.DurationMs
+	}
+	if current.FPS <= 0 && refreshed.FPS > 0 {
+		current.FPS = refreshed.FPS
+	}
+	if current.Width == 0 {
+		current.Width = refreshed.Width
+	}
+	if current.Height == 0 {
+		current.Height = refreshed.Height
+	}
+	if current.Codec == "" {
+		current.Codec = refreshed.Codec
+	}
+	if !current.HasAudio && refreshed.HasAudio {
+		current.HasAudio = refreshed.HasAudio
+		current.AudioCodec = refreshed.AudioCodec
+		current.AudioChannels = refreshed.AudioChannels
+	}
+	if current.BitrateKbps == 0 {
+		current.BitrateKbps = refreshed.BitrateKbps
+	}
+	return current
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (WorkspaceItem, error) {

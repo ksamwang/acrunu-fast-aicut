@@ -28,6 +28,7 @@ type probeOutput struct {
 		Height       int    `json:"height"`
 		Channels     int    `json:"channels"`
 		AvgFrameRate string `json:"avg_frame_rate"`
+		Duration     string `json:"duration"`
 	} `json:"streams"`
 	Format struct {
 		Duration string `json:"duration"`
@@ -71,6 +72,9 @@ func Probe(ctx context.Context, filePath string) (ProbeResult, error) {
 			result.Height = stream.Height
 			result.Codec = stream.CodecName
 			result.FPS = parseFrameRate(stream.AvgFrameRate)
+			if result.DurationMs == 0 {
+				result.DurationMs = secondsStringToMs(stream.Duration)
+			}
 		case "audio":
 			if result.HasAudio {
 				continue
