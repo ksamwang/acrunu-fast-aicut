@@ -339,7 +339,6 @@ export function PreprocessPage({ token }: { token: string }) {
   const [submitProductID, setSubmitProductID] = useState<string>("");
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
   const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
-  const [cleanShotPreviewOpen, setCleanShotPreviewOpen] = useState(false);
   const importPreviewsRef = useRef<ImportPreview[]>([]);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
@@ -923,7 +922,7 @@ export function PreprocessPage({ token }: { token: string }) {
                   fps={selectedItem.probe.fps}
                   trimInMs={watchedSourceInMs}
                   trimOutMs={watchedSourceOutMs}
-                  hotkeysEnabled={!!selectedItem && !framesPreviewOpen && !cleanShotPreviewOpen}
+                  hotkeysEnabled={!!selectedItem && !framesPreviewOpen}
                   onTrimChange={(range) => updateTrimRange(range.inMs, range.outMs)}
                   analysisOverlay={
                     <div className="preprocess-analysis-overlay">
@@ -977,11 +976,7 @@ export function PreprocessPage({ token }: { token: string }) {
                 <Button loading={previewingFrames} onClick={() => void previewFrames()}>
                   查看当前区间三帧
                 </Button>
-                {selectedItem.clean_shot_url ? (
-                  <Button onClick={() => setCleanShotPreviewOpen(true)}>查看 clean shot</Button>
-                ) : (
-                  <Typography.Text type="secondary">完成处理后会生成 clean shot 与三帧抽样。</Typography.Text>
-                )}
+                <Typography.Text type="secondary">主播放器按当前入点/出点预览片段。</Typography.Text>
               </div>
             </div>
           </Form>
@@ -1014,20 +1009,6 @@ export function PreprocessPage({ token }: { token: string }) {
         )}
       </Modal>
 
-      <Modal
-        open={cleanShotPreviewOpen}
-        onCancel={() => setCleanShotPreviewOpen(false)}
-        footer={null}
-        width={920}
-        title="clean shot 预览"
-        destroyOnClose={false}
-      >
-        {selectedItem?.clean_shot_url ? (
-          <video className="preprocess-video preprocess-clean-shot-modal-video" controls src={selectedItem.clean_shot_url} />
-        ) : (
-          <Empty description="当前还没有 clean shot 预览" />
-        )}
-      </Modal>
     </Space>
   );
 }
