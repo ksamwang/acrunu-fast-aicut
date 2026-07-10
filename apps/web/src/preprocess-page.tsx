@@ -4,11 +4,11 @@ import {
   Button,
   Card,
   Descriptions,
-  Drawer,
   Empty,
   Form,
+  Image,
   Input,
-  InputNumber,
+  Modal,
   Select,
   Space,
   Table,
@@ -16,6 +16,7 @@ import {
   Typography,
   message
 } from "antd";
+import { VideoTrimEditor } from "./video-trim-editor";
 
 const LOCAL_AGENT_BASE_URL = "http://127.0.0.1:58721";
 
@@ -186,7 +187,12 @@ export function PreprocessPage({ token }: { token: string }) {
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
   const [submitProductID, setSubmitProductID] = useState<string>("");
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
+  const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
+  const [cleanShotPreviewOpen, setCleanShotPreviewOpen] = useState(false);
   const [form] = Form.useForm();
+  const watchedSourceType = Form.useWatch("source_type", form);
+  const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
+  const watchedSourceOutMs = Form.useWatch("source_out_ms", form) ?? 0;
 
   const loadItems = async () => {
     setLoading(true);
@@ -225,11 +231,15 @@ export function PreprocessPage({ token }: { token: string }) {
     if (!selectedItem) {
       return;
     }
+    const sourceOutMs =
+      selectedItem.source_out_ms > 0
+        ? selectedItem.source_out_ms
+        : selectedItem.probe.duration_ms ?? 0;
     form.setFieldsValue({
       asset_name: selectedItem.asset_name ?? "",
       source_type: selectedItem.source_type ?? "visual_only",
       source_in_ms: selectedItem.source_in_ms ?? 0,
-      source_out_ms: selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0,
+      source_out_ms: sourceOutMs,
       transcript: selectedItem.transcript ?? "",
       reviewer_notes: selectedItem.reviewer_notes ?? ""
     });
@@ -386,14 +396,10 @@ export function PreprocessPage({ token }: { token: string }) {
 
     setSubmitting(true);
     try {
-      const uploadToken = await apiRequest<UploadToken>(
-        "/api/uploads/tokens",
-        token,
-        {
-          method: "POST",
-          body: JSON.stringify({ product_id: submitProductID })
-        }
-      );
+      const uploadToken = await apiRequest<UploadToken>("/api/uploads/tokens", token, {
+        method: "POST",
+        body: JSON.stringify({ product_id: submitProductID })
+      });
 
       const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/submit`, {
         method: "POST",
@@ -424,6 +430,13 @@ export function PreprocessPage({ token }: { token: string }) {
     if (target) {
       setSelectedItemID(target.id);
     }
+  };
+
+  const updateTrimRange = (startMs: number, endMs: number) => {
+    form.setFieldsValue({
+      source_in_ms: startMs,
+      source_out_ms: endMs
+    });
   };
 
   return (
@@ -505,176 +518,228 @@ export function PreprocessPage({ token }: { token: string }) {
             },
             {
               title: "错误",
-              render: (_, item) => (item.last_error ? <Typography.Text type="danger">{item.last_error}</Typography.Text> : "-")
+              render: (_, item) =>
+                item.last_error ? <Typography.Text type="danger">{item.last_error}</Typography.Text> : "-"
             }
           ]}
         />
       </Card>
 
-      <Drawer
-        width={920}
+      <Modal
         open={!!selectedItem}
-        title={selectedItem ? `预处理：${selectedItem.asset_name || selectedItem.original_file_name}` : "预处理"}
-        onClose={() => setSelectedItemID(null)}
+        onCancel={() => setSelectedItemID(null)}
+        footer={null}
+        width="92vw"
+        style={{ top: 20 }}
+        className="preprocess-modal"
+        title={null}
         destroyOnClose={false}
       >
         {selectedItem ? (
-          <Space direction="vertical" size="large" className="wide-space">
-            <Space wrap className="wide-space preprocess-toolbar">
-              <Button onClick={() => openNeighbor(-1)} disabled={selectedIndex <= 0}>
-                上一条
-              </Button>
-              <Button onClick={() => openNeighbor(1)} disabled={selectedIndex < 0 || selectedIndex >= items.length - 1}>
-                下一条
-              </Button>
-              <Button loading={saving} onClick={() => void saveDraft()}>
-                仅保存
-              </Button>
-              <Button loading={duplicating} onClick={() => void duplicateItem()}>
-                新建片段
-              </Button>
-              <Button type="primary" loading={preparing} onClick={() => void prepareItem()}>
-                完成处理
-              </Button>
-            </Space>
+          <Form form={form} layout="vertical" className="preprocess-workbench">
+            <Form.Item name="source_in_ms" hidden>
+              <Input type="hidden" />
+            </Form.Item>
+            <Form.Item name="source_out_ms" hidden>
+              <Input type="hidden" />
+            </Form.Item>
 
-            {selectedItem.last_error ? <Alert type="error" showIcon message={selectedItem.last_error} /> : null}
+            <div className="preprocess-modal-header">
+              <div className="preprocess-header-title">
+                <Typography.Text className="preprocess-title-eyebrow">预处理</Typography.Text>
+                <Typography.Text className="preprocess-file-name" title={selectedItem.asset_name || selectedItem.original_file_name}>
+                  {selectedItem.asset_name || selectedItem.original_file_name}
+                </Typography.Text>
+                <Tag>{workspaceStatusLabels[selectedItem.status]}</Tag>
+                <Tag>{sourceTypeLabels[selectedItem.source_type || "visual_only"] ?? "-"}</Tag>
+                {selectedItem.submitted_asset_id ? <Tag color="success">已入库</Tag> : null}
+              </div>
 
-            {selectedItem.status === "submitted" ? (
-              <Alert
-                type="success"
-                showIcon
-                message="该项已经正式入库"
-                description={`素材 ID：${selectedItem.submitted_asset_id || "-"}，产品 ID：${selectedItem.product_id || "-"}`}
-              />
-            ) : null}
-
-            <div className="preprocess-preview-grid">
-              <Card size="small" title="原始视频">
-                <video className="preprocess-video" controls src={selectedItem.source_url} />
-              </Card>
-              <Card size="small" title="Clean Shot 预览">
-                {selectedItem.clean_shot_url ? (
-                  <video className="preprocess-video" controls src={selectedItem.clean_shot_url} />
-                ) : (
-                  <Empty description="尚未生成 clean shot" />
-                )}
-              </Card>
-            </div>
-
-            <Form form={form} layout="vertical">
-              <div className="preprocess-form-grid">
-                <Form.Item name="asset_name" label="素材名称">
-                  <Input placeholder="可选，提交入库时可作为素材名称" />
+              <div className="preprocess-header-fields">
+                <Form.Item name="asset_name" className="preprocess-header-field">
+                  <Input placeholder="素材名称" />
                 </Form.Item>
-                <Form.Item name="source_type" label="素材类型" rules={[{ required: true, message: "请选择素材类型" }]}>
+
+                <Form.Item
+                  name="source_type"
+                  className="preprocess-header-field"
+                  rules={[{ required: true, message: "请选择素材类型" }]}
+                >
                   <Select
+                    placeholder="素材类型"
                     options={[
                       { value: "visual_only", label: "纯画面" },
                       { value: "talking_head", label: "口播" }
                     ]}
                   />
                 </Form.Item>
-                <Form.Item name="source_in_ms" label="裁切起点（毫秒）" rules={[{ required: true, message: "请输入裁切起点" }]}>
-                  <InputNumber min={0} style={{ width: "100%" }} />
-                </Form.Item>
-                <Form.Item name="source_out_ms" label="裁切终点（毫秒）" rules={[{ required: true, message: "请输入裁切终点" }]}>
-                  <InputNumber min={1} style={{ width: "100%" }} />
-                </Form.Item>
-              </div>
-              <Form.Item noStyle shouldUpdate={(prev, next) => prev.source_type !== next.source_type}>
-                {({ getFieldValue }) =>
-                  getFieldValue("source_type") === "talking_head" ? (
-                    <Form.Item
-                      name="transcript"
-                      label="口播转写"
-                      rules={[{ required: true, message: "口播素材必须填写转写内容" }]}
-                    >
-                      <Input.TextArea rows={5} placeholder="例如：[00:00:03:00]-[00:00:05:00] 大家好。" />
-                    </Form.Item>
-                  ) : null
-                }
-              </Form.Item>
-              <Form.Item name="reviewer_notes" label="备注">
-                <Input.TextArea rows={3} placeholder="记录本地预处理备注" />
-              </Form.Item>
-            </Form>
 
-            <Card size="small" title="正式提交">
-              <Space direction="vertical" className="wide-space">
-                <Select
-                  placeholder="选择产品后再提交入库"
-                  value={submitProductID || undefined}
-                  onChange={(value) => setSubmitProductID(value)}
-                  options={products.map((product) => ({ value: product.id, label: product.name }))}
-                />
-                <Select
-                  mode="multiple"
-                  allowClear
-                  placeholder="可选：关联卖点"
-                  value={submitSellingPointIDs}
-                  disabled={!submitProductID}
-                  onChange={setSubmitSellingPointIDs}
-                  options={sellingPoints.map((item) => ({ value: item.id, label: item.title }))}
-                />
+                <div className="preprocess-header-submit">
+                  <Typography.Text type="secondary">正式提交</Typography.Text>
+                  <Select
+                    placeholder="产品"
+                    value={submitProductID || undefined}
+                    onChange={(value) => setSubmitProductID(value)}
+                    options={products.map((product) => ({ value: product.id, label: product.name }))}
+                  />
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    placeholder="卖点"
+                    value={submitSellingPointIDs}
+                    disabled={!submitProductID}
+                    onChange={setSubmitSellingPointIDs}
+                    options={sellingPoints.map((item) => ({ value: item.id, label: item.title }))}
+                  />
+                </div>
+              </div>
+
+              <div className="preprocess-header-actions">
                 <Space wrap>
+                  <Button onClick={() => openNeighbor(-1)} disabled={selectedIndex <= 0}>
+                    上一条
+                  </Button>
+                  <Button onClick={() => openNeighbor(1)} disabled={selectedIndex < 0 || selectedIndex >= items.length - 1}>
+                    下一条
+                  </Button>
+                  <Button loading={saving} onClick={() => void saveDraft()}>
+                    仅保存
+                  </Button>
+                  <Button loading={duplicating} onClick={() => void duplicateItem()}>
+                    新建片段
+                  </Button>
+                  <Button loading={preparing} onClick={() => void prepareItem()}>
+                    完成处理
+                  </Button>
                   <Button
                     type="primary"
                     loading={submitting}
                     disabled={selectedItem.status !== "ready_to_submit"}
                     onClick={() => void submitItem()}
                   >
-                    提交入库
+                    正式提交
                   </Button>
-                  <Typography.Text type="secondary">
-                    只有“待提交”状态的项才能正式进入服务端素材库
-                  </Typography.Text>
                 </Space>
-              </Space>
-            </Card>
+              </div>
+            </div>
 
-            <Card size="small" title="本地分析结果">
-              <Descriptions bordered size="small" column={2}>
-                <Descriptions.Item label="状态">{workspaceStatusLabels[selectedItem.status]}</Descriptions.Item>
-                <Descriptions.Item label="时长">{formatDuration(selectedItem.probe.duration_ms)}</Descriptions.Item>
-                <Descriptions.Item label="分辨率">
-                  {selectedItem.probe.width && selectedItem.probe.height ? `${selectedItem.probe.width} x ${selectedItem.probe.height}` : "-"}
-                </Descriptions.Item>
-                <Descriptions.Item label="帧率">{selectedItem.probe.fps || "-"}</Descriptions.Item>
-                <Descriptions.Item label="视频编码">{selectedItem.probe.codec || "-"}</Descriptions.Item>
-                <Descriptions.Item label="音频编码">{selectedItem.probe.audio_codec || "-"}</Descriptions.Item>
-                <Descriptions.Item label="画面描述">{selectedItem.analysis?.scene_description || "-"}</Descriptions.Item>
-                <Descriptions.Item label="景别">
-                  {selectedItem.analysis?.shot_size ? shotSizeLabels[selectedItem.analysis.shot_size] ?? selectedItem.analysis.shot_size : "-"}
-                </Descriptions.Item>
-                <Descriptions.Item label="运镜">
-                  {selectedItem.analysis?.camera_movement
-                    ? cameraMovementLabels[selectedItem.analysis.camera_movement] ?? selectedItem.analysis.camera_movement
-                    : "-"}
-                </Descriptions.Item>
-                <Descriptions.Item label="可用性">{selectedItem.analysis?.usability_status || "-"}</Descriptions.Item>
-              </Descriptions>
-            </Card>
+            {selectedItem.last_error ? <Alert type="error" showIcon message={selectedItem.last_error} /> : null}
 
-            <Card size="small" title="三帧抽样">
-              {selectedItem.frame_snapshots.length > 0 ? (
-                <div className="frame-grid">
-                  {selectedItem.frame_snapshots.map((frame) => (
-                    <div key={frame.frame_index} className="frame-card">
-                      <img className="frame-image" src={frame.image_url} alt={`frame-${frame.frame_index}`} />
-                      <Typography.Text type="secondary">
-                        第 {frame.frame_index + 1} 帧 · {formatTimestamp(frame.timestamp_ms)}
-                      </Typography.Text>
+            <div className="preprocess-main-stage preprocess-main-stage-single">
+              <Card className="preprocess-video-stage" bordered={false}>
+                <VideoTrimEditor
+                  src={selectedItem.source_url}
+                  durationMs={selectedItem.probe.duration_ms ?? Math.max(watchedSourceOutMs, selectedItem.source_out_ms, 0)}
+                  fps={selectedItem.probe.fps}
+                  trimInMs={watchedSourceInMs}
+                  trimOutMs={watchedSourceOutMs}
+                  onTrimChange={(range) => updateTrimRange(range.inMs, range.outMs)}
+                  analysisOverlay={
+                    <div className="preprocess-analysis-overlay">
+                      <Typography.Text className="preprocess-overlay-title">本地分析结果</Typography.Text>
+                      <Descriptions size="small" column={1}>
+                        <Descriptions.Item label="状态">{workspaceStatusLabels[selectedItem.status]}</Descriptions.Item>
+                        <Descriptions.Item label="时长">{formatDuration(selectedItem.probe.duration_ms)}</Descriptions.Item>
+                        <Descriptions.Item label="分辨率">
+                          {selectedItem.probe.width && selectedItem.probe.height
+                            ? `${selectedItem.probe.width} x ${selectedItem.probe.height}`
+                            : "-"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="画面描述">{selectedItem.analysis?.scene_description || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="景别">
+                          {selectedItem.analysis?.shot_size
+                            ? shotSizeLabels[selectedItem.analysis.shot_size] ?? selectedItem.analysis.shot_size
+                            : "-"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="运镜">
+                          {selectedItem.analysis?.camera_movement
+                            ? cameraMovementLabels[selectedItem.analysis.camera_movement] ??
+                              selectedItem.analysis.camera_movement
+                            : "-"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="可用状态">{selectedItem.analysis?.usability_status || "-"}</Descriptions.Item>
+                      </Descriptions>
                     </div>
-                  ))}
-                </div>
+                  }
+                />
+              </Card>
+            </div>
+
+            <div className="preprocess-footer-strip">
+              {watchedSourceType === "talking_head" ? (
+                <Form.Item
+                  name="transcript"
+                  label="口播转写"
+                  className="preprocess-footer-field preprocess-transcript-field"
+                  rules={[{ required: true, message: "口播素材必须填写转写内容" }]}
+                >
+                  <Input.TextArea rows={2} placeholder="[00:00:03:00]-[00:00:05:00] 大家好。" />
+                </Form.Item>
               ) : (
-                <Empty description="完成处理后会生成 10% / 50% / 90% 三帧" />
+                <div className="preprocess-footer-note">
+                  <Typography.Text type="secondary">当前为纯画面素材，无需填写口播转写。</Typography.Text>
+                </div>
               )}
-            </Card>
-          </Space>
+
+              <Form.Item name="reviewer_notes" label="备注" className="preprocess-footer-field">
+                <Input.TextArea rows={2} placeholder="记录本地预处理备注" />
+              </Form.Item>
+
+              <div className="preprocess-footer-actions">
+                <Button onClick={() => setFramesPreviewOpen(true)} disabled={selectedItem.frame_snapshots.length === 0}>
+                  查看三帧抽样
+                </Button>
+                {selectedItem.clean_shot_url ? (
+                  <Button onClick={() => setCleanShotPreviewOpen(true)}>查看 clean shot</Button>
+                ) : (
+                  <Typography.Text type="secondary">完成处理后会生成 clean shot 与三帧抽样。</Typography.Text>
+                )}
+              </div>
+            </div>
+          </Form>
         ) : null}
-      </Drawer>
+      </Modal>
+
+      <Modal
+        open={framesPreviewOpen}
+        onCancel={() => setFramesPreviewOpen(false)}
+        footer={null}
+        width={920}
+        title="三帧抽样"
+        destroyOnClose={false}
+      >
+        {selectedItem?.frame_snapshots.length ? (
+          <Image.PreviewGroup>
+            <div className="frame-grid">
+              {selectedItem.frame_snapshots.map((frame) => (
+                <div key={frame.frame_index} className="frame-card">
+                  <Image className="frame-image" src={frame.image_url} alt={`frame-${frame.frame_index}`} />
+                  <Typography.Text type="secondary">
+                    第 {frame.frame_index + 1} 帧 | {formatTimestamp(frame.timestamp_ms)}
+                  </Typography.Text>
+                </div>
+              ))}
+            </div>
+          </Image.PreviewGroup>
+        ) : (
+          <Empty description="当前还没有三帧抽样结果" />
+        )}
+      </Modal>
+
+      <Modal
+        open={cleanShotPreviewOpen}
+        onCancel={() => setCleanShotPreviewOpen(false)}
+        footer={null}
+        width={920}
+        title="clean shot 预览"
+        destroyOnClose={false}
+      >
+        {selectedItem?.clean_shot_url ? (
+          <video className="preprocess-video preprocess-clean-shot-modal-video" controls src={selectedItem.clean_shot_url} />
+        ) : (
+          <Empty description="当前还没有 clean shot 预览" />
+        )}
+      </Modal>
     </Space>
   );
 }
