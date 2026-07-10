@@ -107,9 +107,11 @@ type WorkspacePreviewFramesInput struct {
 }
 
 type WorkspaceVLMLabelInput struct {
-	SourceType  string `json:"source_type"`
-	SourceInMs  int    `json:"source_in_ms"`
-	SourceOutMs int    `json:"source_out_ms"`
+	SourceType    string `json:"source_type"`
+	SourceInMs    int    `json:"source_in_ms"`
+	SourceOutMs   int    `json:"source_out_ms"`
+	ServerBaseURL string `json:"server_base_url"`
+	AuthToken     string `json:"auth_token"`
 }
 
 type WorkspaceSubmitInput struct {
@@ -139,7 +141,7 @@ func NewWorkspace(root string, processor Processor) (*Workspace, error) {
 		root = filepath.Join(os.TempDir(), "aicut-local-workspace")
 	}
 	if processor == nil {
-		processor = NewProcessor(nil)
+		processor = NewProcessor()
 	}
 	if err := os.MkdirAll(filepath.Join(root, "items"), 0755); err != nil {
 		return nil, err
@@ -363,6 +365,7 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 	item.VLMError = ""
 	item.VLMStartedAt = nil
 	item.VLMFinishedAt = nil
+	item.Analysis = nil
 	item.UpdatedAt = time.Now()
 	w.items[itemID] = item
 	if err := w.persistLocked(); err != nil {
@@ -372,9 +375,11 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 	w.mu.Unlock()
 
 	go w.runVLMLabel(context.Background(), itemID, WorkspaceVLMLabelInput{
-		SourceType:  sourceType,
-		SourceInMs:  input.SourceInMs,
-		SourceOutMs: sourceOutMs,
+		SourceType:    sourceType,
+		SourceInMs:    input.SourceInMs,
+		SourceOutMs:   sourceOutMs,
+		ServerBaseURL: input.ServerBaseURL,
+		AuthToken:     input.AuthToken,
 	})
 
 	return item, nil
@@ -677,6 +682,13 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 }
 
 func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input WorkspaceVLMLabelInput) (modelgateway.AnalyzeAssetResult, []WorkspaceFrameSnapshot, error) {
+	if strings.TrimSpace(input.ServerBaseURL) == "" {
+		return modelgateway.AnalyzeAssetResult{}, nil, fmt.Errorf("server_base_url is required")
+	}
+	if strings.TrimSpace(input.AuthToken) == "" {
+		return modelgateway.AnalyzeAssetResult{}, nil, fmt.Errorf("auth_token is required")
+	}
+
 	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
 	frameDir := filepath.Join(w.root, "items", item.ID, "vlm-frames")
 	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
@@ -690,19 +702,23 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 	frameSnapshots := make([]WorkspaceFrameSnapshot, 0, len(frames))
 	frameRefs := make([]modelgateway.FrameReference, 0, len(frames))
 	for _, frame := range frames {
+		timestampMs := frame.TimestampMs
+		if frame.FrameIndex >= 0 && frame.FrameIndex < len(frameTimestamps) {
+			timestampMs = frameTimestamps[frame.FrameIndex]
+		}
 		frameSnapshots = append(frameSnapshots, WorkspaceFrameSnapshot{
 			FrameIndex:  frame.FrameIndex,
-			TimestampMs: frame.TimestampMs,
+			TimestampMs: timestampMs,
 			ImagePath:   frame.OutputPath,
 		})
 		frameRefs = append(frameRefs, modelgateway.FrameReference{
 			FrameIndex:  frame.FrameIndex,
-			TimestampMs: frame.TimestampMs,
+			TimestampMs: timestampMs,
 			StorageKey:  frame.OutputPath,
 		})
 	}
 
-	result, err := w.processor.Analyze(ctx, modelgateway.AnalyzeAssetInput{
+	result, err := analyzeFramesOnServer(ctx, input.ServerBaseURL, input.AuthToken, modelgateway.AnalyzeAssetInput{
 		AssetID:        item.ID,
 		SourceType:     input.SourceType,
 		DurationMs:     input.SourceOutMs - input.SourceInMs,
@@ -716,6 +732,92 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
 	return result, frameSnapshots, nil
+}
+
+func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken string, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	fields := map[string]string{
+		"asset_id":    input.AssetID,
+		"source_type": input.SourceType,
+		"duration_ms": fmt.Sprintf("%d", input.DurationMs),
+		"width":       fmt.Sprintf("%d", input.Width),
+		"height":      fmt.Sprintf("%d", input.Height),
+		"has_audio":   fmt.Sprintf("%t", input.HasAudio),
+		"audio_codec": input.AudioCodec,
+	}
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			return modelgateway.AnalyzeAssetResult{}, err
+		}
+	}
+
+	for _, frame := range input.FrameSnapshots {
+		if err := writer.WriteField(fmt.Sprintf("frame_%d_timestamp_ms", frame.FrameIndex), fmt.Sprintf("%d", frame.TimestampMs)); err != nil {
+			return modelgateway.AnalyzeAssetResult{}, err
+		}
+		if err := addFilePart(writer, fmt.Sprintf("frame_%d", frame.FrameIndex), frame.StorageKey, filepath.Base(frame.StorageKey)); err != nil {
+			return modelgateway.AnalyzeAssetResult{}, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return modelgateway.AnalyzeAssetResult{}, err
+	}
+
+	endpoint := strings.TrimRight(strings.TrimSpace(serverBaseURL), "/") + "/api/preprocess/vlm-label"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return modelgateway.AnalyzeAssetResult{}, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(authToken))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return modelgateway.AnalyzeAssetResult{}, fmt.Errorf("request server vlm label failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	if err != nil {
+		return modelgateway.AnalyzeAssetResult{}, fmt.Errorf("read server vlm label response failed: %w", err)
+	}
+
+	var decoded struct {
+		Data struct {
+			Analysis modelgateway.AnalyzeAssetResult `json:"analysis"`
+		} `json:"data"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(respBody, &decoded); err != nil {
+		return modelgateway.AnalyzeAssetResult{}, fmt.Errorf("decode server vlm label response failed: %w: %s", err, string(respBody))
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if decoded.Error != nil && decoded.Error.Message != "" {
+			return modelgateway.AnalyzeAssetResult{}, fmt.Errorf("%s", decoded.Error.Message)
+		}
+		return modelgateway.AnalyzeAssetResult{}, fmt.Errorf("server vlm label returned status %d", resp.StatusCode)
+	}
+	return decoded.Data.Analysis, nil
+}
+
+func addFilePart(writer *multipart.Writer, fieldName string, path string, fileName string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	part, err := writer.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(part, file)
+	return err
 }
 
 func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, input WorkspaceSubmitInput) (string, error) {

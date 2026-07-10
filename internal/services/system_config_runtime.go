@@ -10,6 +10,9 @@ func ResolveVLMAnalyzerConfig(service *SystemConfigService, fallback appconfig.C
 	resolved := modelgateway.Config{
 		Provider:   fallback.VLMProvider,
 		Model:      fallback.VLMModel,
+		BaseURL:    fallback.VLMBaseURL,
+		APIKey:     fallback.VLMAPIKey,
+		MaxTokens:  fallback.VLMMaxTokens,
 		Timeout:    fallback.ModelGatewayTimeout,
 		MaxRetries: fallback.VLMMaxRetries,
 	}
@@ -25,9 +28,20 @@ func ResolveVLMAnalyzerConfig(service *SystemConfigService, fallback appconfig.C
 	if config, err := service.Get("vlm.model"); err == nil {
 		resolved.Model = configStringValue(config.Value)
 	}
+	if config, err := service.Get(openAIBaseURLKey); err == nil {
+		resolved.BaseURL = configStringValue(config.Value)
+	}
+	if config, err := service.Get(openAIAPIKeyKey); err == nil {
+		resolved.APIKey = configStringValue(config.Value)
+	}
 	if config, err := service.Get("vlm.timeout_seconds"); err == nil {
 		if value := configIntValue(config.Value); value > 0 {
 			resolved.Timeout = time.Duration(value) * time.Second
+		}
+	}
+	if config, err := service.Get("vlm.max_tokens"); err == nil {
+		if value := configIntValue(config.Value); value > 0 {
+			resolved.MaxTokens = value
 		}
 	}
 	if config, err := service.Get("vlm.max_retries"); err == nil {

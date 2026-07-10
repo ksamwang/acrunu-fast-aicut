@@ -127,6 +127,7 @@ func (s *Server) routes() {
 	protected.PUT("/selling-points/:sellingPointID", s.handleUpdateSellingPoint)
 	protected.POST("/selling-points/:sellingPointID/archive", s.handleArchiveSellingPoint)
 	protected.POST("/uploads/tokens", s.handleCreateUploadToken)
+	protected.POST("/preprocess/vlm-label", s.handlePreprocessVLMLabel)
 	protected.GET("/assets", s.handleListAssets)
 	protected.GET("/assets/:assetID", s.handleGetAsset)
 	protected.GET("/assets/:assetID/frames", s.handleListAssetFrames)

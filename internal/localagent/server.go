@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 )
 
 type Options struct {
@@ -52,16 +50,8 @@ func New(opts Options) *Server {
 	}
 }
 
-func NewDefaultProcessor(provider string, model string, baseURL string, apiKey string, maxTokens int, timeout time.Duration, maxRetries int) Processor {
-	return NewProcessor(modelgateway.NewAnalyzer(modelgateway.Config{
-		Provider:   provider,
-		Model:      model,
-		BaseURL:    baseURL,
-		APIKey:     apiKey,
-		MaxTokens:  maxTokens,
-		Timeout:    timeout,
-		MaxRetries: maxRetries,
-	}, nil))
+func NewDefaultProcessor() Processor {
+	return NewProcessor()
 }
 
 func (s *Server) Run() error {

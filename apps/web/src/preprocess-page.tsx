@@ -642,7 +642,9 @@ export function PreprocessPage({ token }: { token: string }) {
         body: JSON.stringify({
           source_type: sourceType,
           source_in_ms: Math.round(sourceInMs),
-          source_out_ms: Math.round(sourceOutMs)
+          source_out_ms: Math.round(sourceOutMs),
+          server_base_url: window.location.origin,
+          auth_token: token
         })
       });
       setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -204,10 +205,49 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	}
 	item := imported[0]
 
+	vlmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/preprocess/vlm-label" {
+			t.Fatalf("unexpected vlm path: %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("expected bearer token, got %q", r.Header.Get("Authorization"))
+		}
+		if err := r.ParseMultipartForm(16 << 20); err != nil {
+			t.Fatalf("parse multipart: %v", err)
+		}
+		for index := 0; index < 3; index++ {
+			if _, _, err := r.FormFile(fmt.Sprintf("frame_%d", index)); err != nil {
+				t.Fatalf("expected frame_%d upload: %v", index, err)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"analysis": map[string]any{
+					"scene_description":  "server analyzed scene",
+					"shot_size":          "medium_close_up",
+					"camera_movement":    "static",
+					"visual_tags":        []string{"server", "frame"},
+					"quality_tags":       []string{"clear"},
+					"visible_product":    true,
+					"product_position":   "center",
+					"scene_context":      "indoor demo",
+					"action_description": "product is shown",
+					"people_presence":    false,
+					"face_visible":       false,
+					"lighting_condition": "normal indoor lighting",
+					"model_result":       map[string]any{"provider": "server-test"},
+				},
+			},
+		})
+	}))
+	defer vlmServer.Close()
+
 	queued, err := workspace.StartVLMLabel(item.ID, WorkspaceVLMLabelInput{
-		SourceType:  "visual_only",
-		SourceInMs:  1000,
-		SourceOutMs: 5000,
+		SourceType:    "visual_only",
+		SourceInMs:    1000,
+		SourceOutMs:   5000,
+		ServerBaseURL: vlmServer.URL,
+		AuthToken:     "test-token",
 	})
 	if err != nil {
 		t.Fatalf("StartVLMLabel() error = %v", err)
@@ -232,7 +272,7 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	if labeled.VLMStatus != vlmStatusReady {
 		t.Fatalf("expected ready status, got %s error=%s", labeled.VLMStatus, labeled.VLMError)
 	}
-	if labeled.Analysis == nil || labeled.Analysis.SceneDescription == "" {
+	if labeled.Analysis == nil || labeled.Analysis.SceneDescription != "server analyzed scene" {
 		t.Fatalf("expected analysis populated")
 	}
 	if len(labeled.PreviewFrames) != 3 {
