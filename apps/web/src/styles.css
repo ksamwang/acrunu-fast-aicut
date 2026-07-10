@@ -134,6 +134,240 @@ body {
   gap: 16px;
 }
 
+.preprocess-page-stack {
+  min-height: calc(100vh - 112px);
+}
+
+.preprocess-workspace-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.preprocess-workspace-toolbar h3 {
+  margin-bottom: 4px !important;
+}
+
+.preprocess-workspace-board {
+  position: relative;
+  flex: 1;
+  min-height: calc(100vh - 190px);
+  padding: 26px 30px 88px;
+  overflow: auto;
+  border: 4px solid #111827;
+  background:
+    linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    #f8fafc;
+  background-size: 28px 28px;
+}
+
+.preprocess-asset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 28px 30px;
+}
+
+.preprocess-asset-card {
+  width: 190px;
+  padding: 0;
+  overflow: hidden;
+  border: 4px solid #111827;
+  border-radius: 0;
+  background: #ffffff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.preprocess-asset-card:hover,
+.preprocess-asset-card:focus-visible {
+  border-color: #2563eb;
+  outline: none;
+}
+
+.preprocess-asset-preview {
+  position: relative;
+  height: 112px;
+  overflow: hidden;
+  background: #020617;
+}
+
+.preprocess-asset-preview img,
+.preprocess-asset-preview video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.preprocess-asset-status,
+.preprocess-asset-type {
+  position: absolute;
+  margin: 0;
+  border-radius: 0;
+  border-color: #111827;
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+}
+
+.preprocess-asset-status {
+  top: 8px;
+  left: 8px;
+}
+
+.preprocess-asset-type {
+  top: 8px;
+  right: 8px;
+}
+
+.preprocess-asset-meta {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px 10px;
+}
+
+.preprocess-asset-name,
+.preprocess-import-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preprocess-asset-detail {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preprocess-asset-error {
+  padding: 6px 10px 8px;
+  border-top: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.preprocess-workspace-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.preprocess-import-fab {
+  position: fixed;
+  right: 42px;
+  bottom: 42px;
+  width: 58px;
+  height: 58px;
+  border: 4px solid #111827;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #111827;
+  font-size: 34px;
+  line-height: 1;
+  box-shadow: none;
+  z-index: 20;
+}
+
+.preprocess-import-fab:hover,
+.preprocess-import-fab:focus-visible {
+  border-color: #111827 !important;
+  background: #111827 !important;
+  color: #ffffff !important;
+}
+
+.preprocess-import-modal .ant-modal-content,
+.preprocess-import-modal .ant-modal-header,
+.preprocess-import-modal .ant-modal-body {
+  border-radius: 0;
+}
+
+.preprocess-import-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.preprocess-import-dropzone {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 128px;
+  padding: 20px;
+  border: 3px dashed #111827;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.preprocess-import-dropzone input {
+  display: none;
+}
+
+.preprocess-import-dropzone span {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.preprocess-import-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.preprocess-import-preview-card {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 2px solid #111827;
+  background: #ffffff;
+}
+
+.preprocess-import-thumbnail {
+  width: 92px;
+  height: 58px;
+  overflow: hidden;
+  background: #020617;
+}
+
+.preprocess-import-thumbnail img,
+.preprocess-import-thumbnail video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.preprocess-import-info {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.preprocess-import-empty {
+  padding: 26px;
+  border: 2px solid #cbd5e1;
+  color: #64748b;
+  text-align: center;
+}
+
+.preprocess-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .preprocess-video {
   width: 100%;
   border-radius: 0;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -11,7 +11,6 @@ import {
   Modal,
   Select,
   Space,
-  Table,
   Tag,
   Typography,
   message
@@ -90,6 +89,14 @@ type WorkspaceListResponse = {
 
 type WorkspaceItemResponse = {
   item: WorkspaceItem;
+};
+
+type ImportPreview = {
+  id: string;
+  file: File;
+  objectUrl: string;
+  thumbnailUrl?: string;
+  durationMs?: number;
 };
 
 const workspaceStatusLabels: Record<WorkspaceItem["status"], string> = {
@@ -189,6 +196,56 @@ function formatDateTime(value?: string) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+function formatFileSize(size: number) {
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function getWorkspacePreviewUrl(item: WorkspaceItem) {
+  return item.frame_snapshots[0]?.image_url;
+}
+
+function createImportThumbnail(objectUrl: string): Promise<{ thumbnailUrl?: string; durationMs?: number }> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.src = objectUrl;
+
+    const finish = (result: { thumbnailUrl?: string; durationMs?: number }) => {
+      video.removeAttribute("src");
+      video.load();
+      resolve(result);
+    };
+
+    video.onerror = () => finish({});
+    video.onloadedmetadata = () => {
+      const durationMs = Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined;
+      const seekTime = Math.min(Math.max(video.duration * 0.08, 0.2), 1);
+      if (!Number.isFinite(video.duration) || video.duration <= 0) {
+        finish({ durationMs });
+        return;
+      }
+      video.currentTime = seekTime;
+      video.onseeked = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 320;
+        canvas.height = video.videoHeight || 180;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          finish({ durationMs });
+          return;
+        }
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        finish({ durationMs, thumbnailUrl: canvas.toDataURL("image/jpeg", 0.76) });
+      };
+    };
+  });
+}
+
 export function PreprocessPage({ token }: { token: string }) {
   const [items, setItems] = useState<WorkspaceItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -200,12 +257,14 @@ export function PreprocessPage({ token }: { token: string }) {
   const [duplicating, setDuplicating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importPreviews, setImportPreviews] = useState<ImportPreview[]>([]);
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
   const [submitProductID, setSubmitProductID] = useState<string>("");
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
   const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
   const [cleanShotPreviewOpen, setCleanShotPreviewOpen] = useState(false);
+  const importPreviewsRef = useRef<ImportPreview[]>([]);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
   const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
@@ -228,6 +287,16 @@ export function PreprocessPage({ token }: { token: string }) {
   }, []);
 
   useEffect(() => {
+    importPreviewsRef.current = importPreviews;
+  }, [importPreviews]);
+
+  useEffect(() => {
+    return () => {
+      importPreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview.objectUrl));
+    };
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       try {
         const result = await apiRequest<Product[]>("/api/products", token);
@@ -243,6 +312,15 @@ export function PreprocessPage({ token }: { token: string }) {
     [items, selectedItemID]
   );
   const selectedItem = selectedIndex >= 0 ? items[selectedIndex] : null;
+  const workspaceStats = useMemo(
+    () => ({
+      pending: items.filter((item) => item.status === "pending").length,
+      saved: items.filter((item) => item.status === "saved").length,
+      ready: items.filter((item) => item.status === "ready_to_submit").length,
+      submitted: items.filter((item) => item.status === "submitted").length
+    }),
+    [items]
+  );
 
   useEffect(() => {
     if (!selectedItem) {
@@ -286,14 +364,55 @@ export function PreprocessPage({ token }: { token: string }) {
     })();
   }, [submitProductID, token]);
 
+  const clearImportPreviews = () => {
+    importPreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview.objectUrl));
+    setImportPreviews([]);
+  };
+
+  const closeImportModal = () => {
+    if (importing) {
+      return;
+    }
+    clearImportPreviews();
+    setImportModalOpen(false);
+  };
+
+  const selectImportFiles = (files: File[]) => {
+    clearImportPreviews();
+    const nextPreviews = files.map((file, index) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+      file,
+      objectUrl: URL.createObjectURL(file)
+    }));
+    setImportPreviews(nextPreviews);
+
+    nextPreviews.forEach((preview) => {
+      void createImportThumbnail(preview.objectUrl).then((result) => {
+        setImportPreviews((current) =>
+          current.map((item) => (item.id === preview.id ? { ...item, ...result } : item))
+        );
+      });
+    });
+  };
+
+  const removeImportPreview = (id: string) => {
+    setImportPreviews((current) => {
+      const target = current.find((item) => item.id === id);
+      if (target) {
+        URL.revokeObjectURL(target.objectUrl);
+      }
+      return current.filter((item) => item.id !== id);
+    });
+  };
+
   const importFiles = async () => {
-    if (selectedFiles.length === 0) {
+    if (importPreviews.length === 0) {
       message.warning("请先选择原始视频文件");
       return;
     }
 
     const body = new FormData();
-    selectedFiles.forEach((file) => body.append("files", file));
+    importPreviews.forEach((preview) => body.append("files", preview.file));
 
     setImporting(true);
     try {
@@ -301,7 +420,8 @@ export function PreprocessPage({ token }: { token: string }) {
         method: "POST",
         body
       });
-      setSelectedFiles([]);
+      clearImportPreviews();
+      setImportModalOpen(false);
       await loadItems();
       message.success("原始视频已导入预处理工作区");
     } catch (error) {
@@ -457,90 +577,135 @@ export function PreprocessPage({ token }: { token: string }) {
   };
 
   return (
-    <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>预处理工作区</Typography.Title>
-
-      <Alert
-        type="info"
-        showIcon
-        message="这里是本地预处理工作区，不是服务端素材库"
-        description="原始视频、处理中间态、仅保存未提交的结果都只保留在本地 Agent 工作区。只有正式提交后，服务端才会创建素材资产。"
-      />
-
-      <Card
-        title="导入原始视频"
-        extra={
-          <Space>
-            <Button onClick={() => void loadItems()}>刷新列表</Button>
-            <Button danger loading={clearing} onClick={() => void clearWorkspace()}>
-              清空工作区
-            </Button>
-          </Space>
-        }
-      >
-        <Space direction="vertical" className="wide-space" size="middle">
-          <input
-            type="file"
-            accept="video/*"
-            multiple
-            onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
-          />
-          <Space wrap>
-            <Button type="primary" loading={importing} onClick={() => void importFiles()}>
-              导入到工作区
-            </Button>
-            <Typography.Text type="secondary">已选择 {selectedFiles.length} 个文件</Typography.Text>
-          </Space>
+    <Space direction="vertical" size="middle" className="page-stack preprocess-page-stack">
+      <div className="preprocess-workspace-toolbar">
+        <div>
+          <Typography.Title level={3}>预处理工作区</Typography.Title>
+          <Typography.Text type="secondary">
+            待处理 {workspaceStats.pending} / 已保存 {workspaceStats.saved} / 待提交 {workspaceStats.ready} / 已入库 {workspaceStats.submitted}
+          </Typography.Text>
+        </div>
+        <Space wrap>
+          <Button onClick={() => void loadItems()} loading={loading}>
+            刷新
+          </Button>
+          <Button danger loading={clearing} onClick={() => void clearWorkspace()}>
+            清空工作区
+          </Button>
         </Space>
-      </Card>
+      </div>
 
-      <Card title="待处理视频列表">
-        <Table<WorkspaceItem>
-          rowKey="id"
-          loading={loading}
-          dataSource={items}
-          locale={{ emptyText: <Empty description="本地工作区还没有视频" /> }}
-          pagination={false}
-          columns={[
-            {
-              title: "视频",
-              render: (_, item) => (
-                <Button type="link" className="table-link-button" onClick={() => setSelectedItemID(item.id)}>
-                  {item.asset_name || item.original_file_name}
-                </Button>
-              )
-            },
-            {
-              title: "状态",
-              dataIndex: "status",
-              render: (value: WorkspaceItem["status"]) => <Tag>{workspaceStatusLabels[value]}</Tag>
-            },
-            {
-              title: "类型",
-              dataIndex: "source_type",
-              render: (value?: string) => (value ? sourceTypeLabels[value] ?? value : "-")
-            },
-            {
-              title: "时长",
-              render: (_, item) => formatDuration(item.probe.duration_ms)
-            },
-            {
-              title: "提交结果",
-              render: (_, item) => (item.submitted_asset_id ? item.submitted_asset_id : "-")
-            },
-            {
-              title: "更新时间",
-              dataIndex: "updated_at",
-              render: (value?: string) => formatDateTime(value)
-            },
-            {
-              title: "错误",
-              render: (_, item) =>
-                item.last_error ? <Typography.Text type="danger">{item.last_error}</Typography.Text> : "-"
-            }
-          ]}
-        />
-      </Card>
+      <section className="preprocess-workspace-board">
+        {items.length === 0 ? (
+          <div className="preprocess-workspace-empty">
+            <Empty description={loading ? "正在加载本地工作区" : "还没有导入视频"} />
+            <Typography.Text type="secondary">点击右下角按钮导入原始视频，处理完成前不会进入服务端素材库。</Typography.Text>
+          </div>
+        ) : (
+          <div className="preprocess-asset-grid">
+            {items.map((item) => {
+              const previewUrl = getWorkspacePreviewUrl(item);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="preprocess-asset-card"
+                  onClick={() => setSelectedItemID(item.id)}
+                  title={item.asset_name || item.original_file_name}
+                >
+                  <div className="preprocess-asset-preview">
+                    {previewUrl ? (
+                      <img src={previewUrl} alt={item.asset_name || item.original_file_name} />
+                    ) : (
+                      <video src={item.source_url} muted preload="metadata" />
+                    )}
+                    <Tag className="preprocess-asset-status">{workspaceStatusLabels[item.status]}</Tag>
+                    <Tag className="preprocess-asset-type">{sourceTypeLabels[item.source_type || "visual_only"] ?? "-"}</Tag>
+                  </div>
+                  <div className="preprocess-asset-meta">
+                    <Typography.Text className="preprocess-asset-name">
+                      {item.asset_name || item.original_file_name}
+                    </Typography.Text>
+                    <Typography.Text className="preprocess-asset-detail">
+                      {formatDuration(item.probe.duration_ms)} · {formatResolution(item.probe.width, item.probe.height)}
+                    </Typography.Text>
+                    <Typography.Text className="preprocess-asset-detail">{formatDateTime(item.updated_at)}</Typography.Text>
+                  </div>
+                  {item.last_error ? <div className="preprocess-asset-error">{item.last_error}</div> : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <Button
+          type="primary"
+          className="preprocess-import-fab"
+          onClick={() => setImportModalOpen(true)}
+          aria-label="导入原始视频"
+        >
+          +
+        </Button>
+      </section>
+
+      <Modal
+        open={importModalOpen}
+        onCancel={closeImportModal}
+        footer={null}
+        width={860}
+        title="导入原始视频"
+        destroyOnClose={false}
+        className="preprocess-import-modal"
+      >
+        <div className="preprocess-import-panel">
+          <label className="preprocess-import-dropzone">
+            <input
+              type="file"
+              accept="video/*"
+              multiple
+              onChange={(event) => selectImportFiles(Array.from(event.target.files ?? []))}
+            />
+            <span>选择视频文件</span>
+            <Typography.Text type="secondary">支持一次选择多个原始视频，确认后导入本地预处理工作区。</Typography.Text>
+          </label>
+
+          {importPreviews.length > 0 ? (
+            <div className="preprocess-import-preview-grid">
+              {importPreviews.map((preview) => (
+                <div key={preview.id} className="preprocess-import-preview-card">
+                  <div className="preprocess-import-thumbnail">
+                    {preview.thumbnailUrl ? (
+                      <img src={preview.thumbnailUrl} alt={preview.file.name} />
+                    ) : (
+                      <video src={preview.objectUrl} muted preload="metadata" />
+                    )}
+                  </div>
+                  <div className="preprocess-import-info">
+                    <Typography.Text className="preprocess-import-name">{preview.file.name}</Typography.Text>
+                    <Typography.Text type="secondary">
+                      {formatFileSize(preview.file.size)} · {formatDuration(preview.durationMs)}
+                    </Typography.Text>
+                  </div>
+                  <Button size="small" onClick={() => removeImportPreview(preview.id)}>
+                    移除
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="preprocess-import-empty">选择文件后将在这里显示缩略预览。</div>
+          )}
+
+          <div className="preprocess-import-actions">
+            <Button onClick={closeImportModal} disabled={importing}>
+              取消
+            </Button>
+            <Button type="primary" loading={importing} disabled={importPreviews.length === 0} onClick={() => void importFiles()}>
+              确认导入工作区
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={!!selectedItem}
