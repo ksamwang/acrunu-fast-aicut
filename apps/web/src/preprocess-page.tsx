@@ -644,12 +644,9 @@ export function PreprocessPage({ token }: { token: string }) {
   return (
     <Space direction="vertical" size="middle" className="page-stack preprocess-page-stack">
       <div className="preprocess-workspace-toolbar">
-        <div>
-          <Typography.Title level={3}>预处理工作区</Typography.Title>
-          <Typography.Text type="secondary">
-            待处理 {workspaceStats.pending} / 已保存 {workspaceStats.saved} / 待提交 {workspaceStats.ready} / 已入库 {workspaceStats.submitted}
-          </Typography.Text>
-        </div>
+        <Typography.Text className="preprocess-workspace-status">
+          待处理 {workspaceStats.pending} / 已保存 {workspaceStats.saved} / 待提交 {workspaceStats.ready} / 已入库 {workspaceStats.submitted}
+        </Typography.Text>
         <Space wrap>
           <Button icon={<RefreshIcon />} onClick={() => void loadItems()} loading={loading}>
             刷新
