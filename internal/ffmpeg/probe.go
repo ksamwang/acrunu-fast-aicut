@@ -3,7 +3,6 @@ package ffmpeg
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -94,15 +93,6 @@ func LikelyHasHumanSpeech(sourceType string, result ProbeResult) bool {
 	}
 	return result.AudioChannels == 1
 }
-
-func ffprobePath() string {
-	path := os.Getenv("FFPROBE_PATH")
-	if path == "" {
-		return "ffprobe"
-	}
-	return path
-}
-
 func secondsStringToMs(value string) int {
 	seconds, err := strconv.ParseFloat(value, 64)
 	if err != nil {

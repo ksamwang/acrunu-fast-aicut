@@ -3,7 +3,6 @@ package ffmpeg
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 )
 
@@ -32,12 +31,4 @@ func Cut(ctx context.Context, inputPath string, outputPath string, startMs int, 
 	}
 
 	return nil
-}
-
-func ffmpegPath() string {
-	path := os.Getenv("FFMPEG_PATH")
-	if path == "" {
-		return "ffmpeg"
-	}
-	return path
 }

@@ -20,6 +20,19 @@ $env:FFMPEG_PATH="E:\tools\ffmpeg\bin\ffmpeg.exe"
 $env:FFPROBE_PATH="E:\tools\ffmpeg\bin\ffprobe.exe"
 ```
 
+项目也支持优先读取仓库内置工具目录：
+
+```text
+.tools/ffmpeg/windows-x64/bin/ffmpeg.exe
+.tools/ffmpeg/windows-x64/bin/ffprobe.exe
+```
+
+可使用脚本准备该目录：
+
+```powershell
+./scripts/setup-ffmpeg.ps1
+```
+
 ## 2. 环境变量
 
 复制 `.env.example` 为 `.env` 后按需调整。
