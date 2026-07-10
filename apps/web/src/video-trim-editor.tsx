@@ -420,7 +420,7 @@ export function VideoTrimEditor({
   const inPercent = (inFrame / totalFrames) * 100;
   const outPercent = (outFrame / totalFrames) * 100;
   const playheadPercent = (safeCurrentFrame / totalFrames) * 100;
-  const selectedFrameCount = Math.max(0, outFrame - inFrame);
+  const selectedDurationSeconds = Math.max(0, outFrame - inFrame) / frameRate;
   const rulerTicks = useMemo(() => buildRulerTicks(totalFrames / frameRate), [frameRate, totalFrames]);
 
   return (
@@ -472,7 +472,7 @@ export function VideoTrimEditor({
             {extraControls}
           </Space>
           <Typography.Text className="video-trim-timecode">
-            {formatSeconds(safeCurrentFrame / frameRate)} / {formatSeconds(totalFrames / frameRate)}
+            {formatSeconds(safeCurrentFrame / frameRate)} / {formatSeconds(totalFrames / frameRate)} · 选区 {formatSeconds(selectedDurationSeconds)}
           </Typography.Text>
           <Space size="small" className="video-trim-right-tools">
             <Typography.Text type="secondary">音量</Typography.Text>
@@ -527,12 +527,6 @@ export function VideoTrimEditor({
           <div className="video-trim-playhead" style={{ left: `${playheadPercent}%` }} />
         </div>
 
-        <div className="video-trim-readout">
-          <Typography.Text>起点：第 {inFrame} 帧 / {formatSeconds(inFrame / frameRate)}</Typography.Text>
-          <Typography.Text>终点：第 {outFrame} 帧 / {formatSeconds(outFrame / frameRate)}</Typography.Text>
-          <Typography.Text>片段：{selectedFrameCount} 帧 / {formatSeconds(selectedFrameCount / frameRate)}</Typography.Text>
-          <Typography.Text>帧率：{frameRate.toFixed(3)} fps</Typography.Text>
-        </div>
       </div>
     </div>
   );

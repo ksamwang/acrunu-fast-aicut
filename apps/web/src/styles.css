@@ -925,21 +925,6 @@ body {
   background: rgba(255, 255, 255, 0.9);
 }
 
-.video-trim-readout {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  color: #cbd5e1;
-}
-
-.video-trim-readout .ant-typography {
-  overflow: hidden;
-  font-size: 12px;
-  color: #94a3b8 !important;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .preprocess-modal input[type="range"] {
   height: 18px;
   accent-color: #3b82f6;
@@ -1081,8 +1066,7 @@ body {
     align-items: stretch;
   }
 
-  .video-trim-toolbar,
-  .video-trim-readout {
+  .video-trim-toolbar {
     grid-template-columns: 1fr;
   }
 
