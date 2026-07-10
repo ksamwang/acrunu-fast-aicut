@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -207,10 +208,11 @@ func FetchOpenAICompatibleModels(ctx context.Context, service *SystemConfigServi
 		return ModelDiscoveryResult{}, err
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, joinOpenAICompatibleURL(baseURL, "/v1/models"), nil)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
+	request.Header.Set("Accept", "application/json")
 	if apiKey != "" {
 		request.Header.Set("Authorization", "Bearer "+apiKey)
 	}
@@ -226,12 +228,20 @@ func FetchOpenAICompatibleModels(ctx context.Context, service *SystemConfigServi
 		return ModelDiscoveryResult{}, fmt.Errorf("model endpoint returned status %d", response.StatusCode)
 	}
 
+	body, err := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024))
+	if err != nil {
+		return ModelDiscoveryResult{}, fmt.Errorf("failed to read model list: %w", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(string(body)), "<") {
+		return ModelDiscoveryResult{}, fmt.Errorf("model endpoint returned HTML, please check whether Base URL is an OpenAI-compatible API address")
+	}
+
 	var payload struct {
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return ModelDiscoveryResult{}, fmt.Errorf("failed to decode model list: %w", err)
 	}
 
@@ -255,6 +265,18 @@ func FetchOpenAICompatibleModels(ctx context.Context, service *SystemConfigServi
 		result.Models = append(result.Models, ModelOption{ID: modelID})
 	}
 	return result, nil
+}
+
+func joinOpenAICompatibleURL(base string, suffix string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	suffix = "/" + strings.TrimLeft(suffix, "/")
+	if strings.HasSuffix(base, suffix) {
+		return base
+	}
+	if strings.HasSuffix(base, "/v1") && strings.HasPrefix(suffix, "/v1/") {
+		return base + strings.TrimPrefix(suffix, "/v1")
+	}
+	return base + suffix
 }
 
 func GetRuntimeSettings(service *SystemConfigService) (RuntimeSettings, error) {

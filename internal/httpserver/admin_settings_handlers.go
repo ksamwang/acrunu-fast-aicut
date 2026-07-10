@@ -182,8 +182,10 @@ func isAdminSettingsBadRequest(err error) bool {
 		"vlm_timeout_seconds",
 		"vlm_max_retries",
 		"failed to decode model list",
+		"model endpoint returned HTML",
 		"model endpoint returned status",
 		"failed to request model list",
+		"failed to read model list",
 	)
 }
 

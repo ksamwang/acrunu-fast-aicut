@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -93,6 +94,52 @@ func TestFetchOpenAICompatibleModels(t *testing.T) {
 	}
 	if result.Models[0].ID != "gpt-4.1" || result.Models[1].ID != "gpt-4o-mini" {
 		t.Fatalf("unexpected models %#v", result.Models)
+	}
+}
+
+func TestFetchOpenAICompatibleModelsAppendsV1ForRootBaseURL(t *testing.T) {
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"id": "deepseek-chat"},
+			},
+		})
+	}))
+	defer modelServer.Close()
+
+	service := NewSystemConfigService()
+	result, err := FetchOpenAICompatibleModels(t.Context(), service, OpenAICompatibleResolveInput{
+		BaseURL: modelServer.URL,
+		APIKey:  "secret-key",
+	})
+	if err != nil {
+		t.Fatalf("fetch models failed: %v", err)
+	}
+	if len(result.Models) != 1 || result.Models[0].ID != "deepseek-chat" {
+		t.Fatalf("unexpected models %#v", result.Models)
+	}
+}
+
+func TestFetchOpenAICompatibleModelsReturnsReadableHTMLResponseError(t *testing.T) {
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<html><body>login</body></html>"))
+	}))
+	defer modelServer.Close()
+
+	service := NewSystemConfigService()
+	_, err := FetchOpenAICompatibleModels(t.Context(), service, OpenAICompatibleResolveInput{
+		BaseURL: modelServer.URL,
+		APIKey:  "secret-key",
+	})
+	if err == nil {
+		t.Fatalf("expected html response error")
+	}
+	if !strings.Contains(err.Error(), "model endpoint returned HTML") {
+		t.Fatalf("unexpected error %v", err)
 	}
 }
 
