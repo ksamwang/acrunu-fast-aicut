@@ -23,19 +23,22 @@ func main() {
 	defer modelProviderService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
+	assetEmbeddingService := services.NewConfiguredAssetEmbeddingService(context.Background(), cfg, productAssetService.Service, systemConfigService.Service, modelProviderService.Service, logger)
+	defer assetEmbeddingService.Close()
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
 	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(context.Background(), systemConfigService.Service, modelProviderService.Service, cfg), nil)
+	assetProcessingService := services.NewAssetProcessingService(
+		cfg.StorageRoot,
+		productAssetService.Service,
+		taskService.Service,
+		queueClient,
+		analyzer,
+		logger,
+	).WithAssetEmbeddingService(assetEmbeddingService.Service)
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
-		services.NewAssetProcessingService(
-			cfg.StorageRoot,
-			productAssetService.Service,
-			taskService.Service,
-			queueClient,
-			analyzer,
-			logger,
-		),
+		assetProcessingService,
 	)
 
 	if cfg.QueueBackend == "file" {

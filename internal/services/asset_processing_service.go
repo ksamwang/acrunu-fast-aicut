@@ -25,13 +25,14 @@ const (
 )
 
 type AssetProcessingService struct {
-	storageRoot         string
-	localStore          *storage.LocalStore
-	productAssetService *ProductAssetService
-	taskService         *TaskService
-	queueClient         assetAnalysisTaskEnqueuer
-	analyzer            modelgateway.AssetAnalyzer
-	logger              *slog.Logger
+	storageRoot           string
+	localStore            *storage.LocalStore
+	productAssetService   *ProductAssetService
+	assetEmbeddingService *AssetEmbeddingService
+	taskService           *TaskService
+	queueClient           assetAnalysisTaskEnqueuer
+	analyzer              modelgateway.AssetAnalyzer
+	logger                *slog.Logger
 }
 
 func NewAssetProcessingService(
@@ -58,6 +59,11 @@ func NewAssetProcessingService(
 		analyzer:            analyzer,
 		logger:              logger,
 	}
+}
+
+func (s *AssetProcessingService) WithAssetEmbeddingService(assetEmbeddingService *AssetEmbeddingService) *AssetProcessingService {
+	s.assetEmbeddingService = assetEmbeddingService
+	return s
 }
 
 func (s *AssetProcessingService) HandleAssetExtractFrames(ctx context.Context, payload queue.AssetExtractFramesPayload) error {
@@ -140,6 +146,16 @@ func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, p
 func (s *AssetProcessingService) HandleAssetAnalyze(ctx context.Context, payload queue.AssetAnalyzePayload) error {
 	return s.runTrackedTask(ctx, payload.TaskID, payload.AssetID, "asset_analyze", func(runCtx context.Context) error {
 		return s.handleAssetAnalyze(runCtx, payload)
+	})
+}
+
+func (s *AssetProcessingService) HandleAssetEmbedding(ctx context.Context, payload queue.AssetEmbeddingPayload) error {
+	return s.runTrackedTask(ctx, payload.TaskID, payload.AssetID, "asset_embedding", func(runCtx context.Context) error {
+		if s.assetEmbeddingService == nil {
+			return fmt.Errorf("asset embedding service is nil")
+		}
+		_, err := s.assetEmbeddingService.VectorizeAsset(runCtx, payload.AssetID)
+		return err
 	})
 }
 

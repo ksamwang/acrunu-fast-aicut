@@ -76,4 +76,7 @@ func TestWorkerHandlerAssetMethodsAllowNilProcessingService(t *testing.T) {
 	if err := handler.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{AssetID: "asset-1"}); err != nil {
 		t.Fatalf("expected nil processing service to be ignored for analyze, got %v", err)
 	}
+	if err := handler.HandleAssetEmbedding(context.Background(), queue.AssetEmbeddingPayload{AssetID: "asset-1"}); err != nil {
+		t.Fatalf("expected nil processing service to be ignored for embedding, got %v", err)
+	}
 }

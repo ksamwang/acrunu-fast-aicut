@@ -3,6 +3,7 @@ package queue
 const TypeTestTask = "test:task"
 const TypeAssetExtractFrames = "asset:extract_frames"
 const TypeAssetAnalyze = "asset:analyze"
+const TypeAssetEmbedding = "asset:embedding"
 
 const (
 	FrameExtractionModeFixedInterval = "fixed_interval"
@@ -29,6 +30,11 @@ type AssetExtractFramesPayload struct {
 }
 
 type AssetAnalyzePayload struct {
+	TaskID  string `json:"task_id"`
+	AssetID string `json:"asset_id"`
+}
+
+type AssetEmbeddingPayload struct {
 	TaskID  string `json:"task_id"`
 	AssetID string `json:"asset_id"`
 }

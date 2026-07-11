@@ -35,3 +35,10 @@ func (h *WorkerHandler) HandleAssetAnalyze(ctx context.Context, payload queue.As
 	}
 	return h.assetProcessingService.HandleAssetAnalyze(ctx, payload)
 }
+
+func (h *WorkerHandler) HandleAssetEmbedding(ctx context.Context, payload queue.AssetEmbeddingPayload) error {
+	if h.assetProcessingService == nil {
+		return nil
+	}
+	return h.assetProcessingService.HandleAssetEmbedding(ctx, payload)
+}

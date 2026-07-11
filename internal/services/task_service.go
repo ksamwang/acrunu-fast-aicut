@@ -42,6 +42,7 @@ type TaskStore interface {
 	CreateTestTask(ctx context.Context, userID string) (GenerationTask, error)
 	CreateAssetExtractFramesTask(ctx context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error)
 	CreateAssetAnalyzeTask(ctx context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error)
+	CreateAssetEmbeddingTask(ctx context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error)
 	GetTask(ctx context.Context, taskID string) (GenerationTask, error)
 	ListTasks(ctx context.Context) ([]GenerationTask, error)
 	MarkRunning(ctx context.Context, taskID string) error
@@ -90,6 +91,14 @@ func (s *TaskService) CreateAssetExtractFramesTask(ctx context.Context, userID s
 
 func (s *TaskService) CreateAssetAnalyzeTask(ctx context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error) {
 	task, err := s.store.CreateAssetAnalyzeTask(ctx, userID, productID, payload)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) CreateAssetEmbeddingTask(ctx context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error) {
+	task, err := s.store.CreateAssetEmbeddingTask(ctx, userID, productID, payload)
 	if err != nil {
 		return GenerationTask{}, err
 	}
@@ -175,6 +184,12 @@ func (s *fileTaskStore) CreateAssetExtractFramesTask(_ context.Context, userID s
 
 func (s *fileTaskStore) CreateAssetAnalyzeTask(_ context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error) {
 	return s.createTask(userID, productID, "asset_analyze", map[string]any{
+		"asset_id": payload.AssetID,
+	})
+}
+
+func (s *fileTaskStore) CreateAssetEmbeddingTask(_ context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error) {
+	return s.createTask(userID, productID, "asset_embedding", map[string]any{
 		"asset_id": payload.AssetID,
 	})
 }

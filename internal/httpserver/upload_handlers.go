@@ -176,6 +176,9 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	if probeErr == nil {
 		s.enqueueAssetFrameExtraction(c, response, token.UserID, asset, submissionMode == "preprocessed")
 	}
+	if submissionMode == "preprocessed" {
+		s.enqueueAssetEmbedding(c, response, token.UserID, asset)
+	}
 	if submissionMode != "preprocessed" && probeErr != nil {
 		response["probe_error"] = probeErr.Error()
 	}
@@ -540,6 +543,26 @@ func (s *Server) enqueueAssetFrameExtraction(c *gin.Context, response gin.H, use
 	if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(payload); enqueueErr != nil {
 		_ = s.taskService.MarkFailed(c.Request.Context(), frameTask.ID, enqueueErr.Error())
 		response["frame_task_error"] = enqueueErr.Error()
+	}
+}
+
+func (s *Server) enqueueAssetEmbedding(c *gin.Context, response gin.H, userID string, asset services.Asset) {
+	payload := queue.AssetEmbeddingPayload{AssetID: asset.ID}
+	embeddingTask, taskErr := s.taskService.CreateAssetEmbeddingTask(c.Request.Context(), userID, asset.ProductID, payload)
+	if taskErr != nil {
+		response["embedding_task_error"] = taskErr.Error()
+		return
+	}
+	response["embedding_task"] = embeddingTask
+	if embeddingTask.ID == "" {
+		return
+	}
+
+	response["embedding_task_id"] = embeddingTask.ID
+	payload.TaskID = embeddingTask.ID
+	if enqueueErr := s.queueClient.EnqueueAssetEmbedding(payload.TaskID, payload.AssetID); enqueueErr != nil {
+		_ = s.taskService.MarkFailed(c.Request.Context(), embeddingTask.ID, enqueueErr.Error())
+		response["embedding_task_error"] = enqueueErr.Error()
 	}
 }
 

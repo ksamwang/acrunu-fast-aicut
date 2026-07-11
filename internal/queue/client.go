@@ -91,3 +91,19 @@ func (c *Client) EnqueueAssetAnalyze(taskID string, assetID string) error {
 	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetAnalyze, encodedPayload), asynq.MaxRetry(3))
 	return err
 }
+
+func (c *Client) EnqueueAssetEmbedding(taskID string, assetID string) error {
+	encodedPayload, err := json.Marshal(AssetEmbeddingPayload{TaskID: taskID, AssetID: assetID})
+	if err != nil {
+		return err
+	}
+
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeAssetEmbedding, encodedPayload, 3)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetEmbedding, encodedPayload), asynq.MaxRetry(3))
+	return err
+}

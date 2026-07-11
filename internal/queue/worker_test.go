@@ -12,6 +12,7 @@ type stubHandler struct {
 	testTaskID       string
 	extractedAssetID string
 	analyzedAssetID  string
+	embeddedAssetID  string
 	extractFailures  int
 	extractCalls     int
 }
@@ -34,6 +35,30 @@ func (h *stubHandler) HandleAssetExtractFrames(_ context.Context, payload AssetE
 func (h *stubHandler) HandleAssetAnalyze(_ context.Context, payload AssetAnalyzePayload) error {
 	h.analyzedAssetID = payload.AssetID
 	return nil
+}
+
+func (h *stubHandler) HandleAssetEmbedding(_ context.Context, payload AssetEmbeddingPayload) error {
+	h.embeddedAssetID = payload.AssetID
+	return nil
+}
+
+func TestHandleFileTaskDispatchesAssetEmbedding(t *testing.T) {
+	payload, err := json.Marshal(AssetEmbeddingPayload{AssetID: "asset-3"})
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+
+	handler := &stubHandler{}
+	if err := handleFileTask(context.Background(), FileTask{
+		Type:    TypeAssetEmbedding,
+		Payload: payload,
+	}, handler); err != nil {
+		t.Fatalf("handleFileTask failed: %v", err)
+	}
+
+	if handler.embeddedAssetID != "asset-3" {
+		t.Fatalf("expected embedded asset id asset-3, got %s", handler.embeddedAssetID)
+	}
 }
 
 func TestHandleFileTaskDispatchesAssetAnalyze(t *testing.T) {

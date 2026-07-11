@@ -157,6 +157,10 @@ func (failingTaskStore) CreateAssetAnalyzeTask(_ context.Context, _ string, _ st
 	return services.GenerationTask{}, nil
 }
 
+func (failingTaskStore) CreateAssetEmbeddingTask(_ context.Context, _ string, _ string, _ queue.AssetEmbeddingPayload) (services.GenerationTask, error) {
+	return services.GenerationTask{}, nil
+}
+
 func (failingTaskStore) GetTask(_ context.Context, _ string) (services.GenerationTask, error) {
 	return services.GenerationTask{}, nil
 }

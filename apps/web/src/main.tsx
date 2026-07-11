@@ -404,6 +404,7 @@ const taskStatusLabels: Record<string, string> = {
 
 const taskTypeLabels: Record<string, string> = {
   asset_analyze: "素材分析",
+  asset_embedding: "素材向量化",
   asset_extract_frames: "素材抽帧",
   test: "测试任务"
 };
@@ -2676,6 +2677,7 @@ function TasksPage({ token }: { token: string }) {
               options={[
                 { value: "asset_extract_frames", label: "素材抽帧" },
                 { value: "asset_analyze", label: "素材分析" },
+                { value: "asset_embedding", label: "素材向量化" },
                 { value: "test", label: "测试任务" }
               ]}
               onChange={(value) => setTaskFilters((current) => ({ ...current, taskType: value ?? "" }))}
