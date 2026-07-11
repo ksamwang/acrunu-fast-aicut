@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -116,12 +117,13 @@ type WorkspacePreviewFramesInput struct {
 }
 
 type WorkspaceVLMLabelInput struct {
-	SourceType    string `json:"source_type"`
-	ProductName   string `json:"product_name"`
-	SourceInMs    int    `json:"source_in_ms"`
-	SourceOutMs   int    `json:"source_out_ms"`
-	ServerBaseURL string `json:"server_base_url"`
-	AuthToken     string `json:"auth_token"`
+	SourceType                   string `json:"source_type"`
+	ProductName                  string `json:"product_name"`
+	ProductReferenceImageDataURL string `json:"product_reference_image_data_url"`
+	SourceInMs                   int    `json:"source_in_ms"`
+	SourceOutMs                  int    `json:"source_out_ms"`
+	ServerBaseURL                string `json:"server_base_url"`
+	AuthToken                    string `json:"auth_token"`
 }
 
 type WorkspaceSubmitInput struct {
@@ -897,7 +899,7 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 		})
 	}
 
-	result, err := analyzeFramesOnServer(ctx, input.ServerBaseURL, input.AuthToken, modelgateway.AnalyzeAssetInput{
+	result, err := analyzeFramesOnServer(ctx, input.ServerBaseURL, input.AuthToken, input.ProductReferenceImageDataURL, modelgateway.AnalyzeAssetInput{
 		AssetID:        item.ID,
 		SourceType:     input.SourceType,
 		ProductName:    input.ProductName,
@@ -914,7 +916,7 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 	return result, frameSnapshots, nil
 }
 
-func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken string, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
+func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken string, productReferenceImageDataURL string, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
@@ -939,6 +941,15 @@ func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken 
 			return modelgateway.AnalyzeAssetResult{}, err
 		}
 		if err := addFilePart(writer, fmt.Sprintf("frame_%d", frame.FrameIndex), frame.StorageKey, filepath.Base(frame.StorageKey)); err != nil {
+			return modelgateway.AnalyzeAssetResult{}, err
+		}
+	}
+	if strings.TrimSpace(productReferenceImageDataURL) != "" {
+		imageBytes, fileName, err := decodeImageDataURL(productReferenceImageDataURL)
+		if err != nil {
+			return modelgateway.AnalyzeAssetResult{}, err
+		}
+		if err := addBytesPart(writer, "product_reference_image", fileName, imageBytes); err != nil {
 			return modelgateway.AnalyzeAssetResult{}, err
 		}
 	}
@@ -999,6 +1010,42 @@ func addFilePart(writer *multipart.Writer, fieldName string, path string, fileNa
 	}
 	_, err = io.Copy(part, file)
 	return err
+}
+
+func addBytesPart(writer *multipart.Writer, fieldName string, fileName string, data []byte) error {
+	part, err := writer.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(data)
+	return err
+}
+
+func decodeImageDataURL(value string) ([]byte, string, error) {
+	value = strings.TrimSpace(value)
+	const marker = ";base64,"
+	markerIndex := strings.Index(value, marker)
+	if markerIndex < 0 || !strings.HasPrefix(value, "data:image/") {
+		return nil, "", fmt.Errorf("invalid product reference image data url")
+	}
+	mimeType := strings.TrimPrefix(value[:markerIndex], "data:")
+	encoded := value[markerIndex+len(marker):]
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, "", fmt.Errorf("decode product reference image failed: %w", err)
+	}
+	ext := ".jpg"
+	switch mimeType {
+	case "image/png":
+		ext = ".png"
+	case "image/webp":
+		ext = ".webp"
+	case "image/jpeg", "image/jpg":
+		ext = ".jpg"
+	default:
+		return nil, "", fmt.Errorf("unsupported product reference image type: %s", mimeType)
+	}
+	return data, "product-reference" + ext, nil
 }
 
 func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, input WorkspaceSubmitInput) (string, error) {

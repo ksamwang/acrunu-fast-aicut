@@ -67,6 +67,22 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 			},
 		})
 	}
+	if input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != "" {
+		dataURL, err := imageDataURL(input.ProductReferenceImage.StorageKey)
+		if err != nil {
+			return AnalyzeAssetResult{}, NewError(ErrorCodeConfiguration, fmt.Sprintf("read product reference image failed: %v", err), false, err)
+		}
+		userContent = append(userContent, map[string]any{
+			"type": "text",
+			"text": "Product reference image follows. Use it only as identification reference, not as a video frame.",
+		})
+		userContent = append(userContent, map[string]any{
+			"type": "image_url",
+			"image_url": map[string]any{
+				"url": dataURL,
+			},
+		})
+	}
 
 	payload := map[string]any{
 		"model": a.model,
@@ -137,6 +153,7 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 	result.ModelResult["provider"] = "openai_compatible"
 	result.ModelResult["model"] = a.model
 	result.ModelResult["max_tokens"] = a.maxTokens
+	result.ModelResult["has_product_reference_image"] = input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != ""
 	return result, nil
 }
 

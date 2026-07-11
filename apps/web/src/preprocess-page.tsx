@@ -24,6 +24,7 @@ const LOCAL_AGENT_BASE_URL = "http://127.0.0.1:58721";
 type Product = {
   id: string;
   name: string;
+  metadata?: Record<string, unknown>;
 };
 
 type SellingPoint = {
@@ -315,6 +316,11 @@ function sourceIdentityKey(item: WorkspaceItem) {
   return `${item.id}:${sourceURL}:${durationMs}:${fps}:${sourceMode}`;
 }
 
+function productReferenceImage(product?: Product | null) {
+  const image = product?.metadata?.reference_image;
+  return typeof image === "string" ? image : "";
+}
+
 function createImportThumbnail(objectUrl: string): Promise<{ thumbnailUrl?: string; durationMs?: number }> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
@@ -400,6 +406,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
   const [submitProductID, setSubmitProductID] = useState<string>("");
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
+  const [useProductReferenceImage, setUseProductReferenceImage] = useState(true);
   const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
   const [transcriptModalOpen, setTranscriptModalOpen] = useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
@@ -415,6 +422,11 @@ export function PreprocessPage({ token }: { token: string }) {
   const watchedSourceOutMs = Form.useWatch("source_out_ms", form) ?? 0;
   const watchedInterpretFPS = Boolean(Form.useWatch("interpret_fps_enabled", form));
   const watchedPlaybackFPS = Number(Form.useWatch("playback_fps", form) ?? 25);
+  const selectedSubmitProduct = useMemo(
+    () => products.find((product) => product.id === submitProductID) ?? null,
+    [products, submitProductID]
+  );
+  const selectedProductReferenceImage = productReferenceImage(selectedSubmitProduct);
 
   useEffect(() => {
     if (watchedSourceType === "talking_head" && watchedInterpretFPS) {
@@ -424,6 +436,10 @@ export function PreprocessPage({ token }: { token: string }) {
       });
     }
   }, [form, watchedInterpretFPS, watchedSourceType]);
+
+  useEffect(() => {
+    setUseProductReferenceImage(watchedSourceType === "visual_only" && !!selectedProductReferenceImage);
+  }, [selectedProductReferenceImage, watchedSourceType]);
 
   const loadItems = async () => {
     setLoading(true);
@@ -733,8 +749,10 @@ export function PreprocessPage({ token }: { token: string }) {
     const sourceType = values.source_type ?? selectedItem.source_type ?? "visual_only";
     const productName =
       sourceType === "visual_only"
-        ? products.find((product) => product.id === submitProductID)?.name ?? ""
+        ? selectedSubmitProduct?.name ?? ""
         : "";
+    const productReferenceImageDataURL =
+      sourceType === "visual_only" && useProductReferenceImage ? selectedProductReferenceImage : "";
     if (!Number.isFinite(sourceInMs) || !Number.isFinite(sourceOutMs) || sourceOutMs <= sourceInMs) {
       message.warning("请先设置有效的裁切入点和出点");
       return;
@@ -752,6 +770,7 @@ export function PreprocessPage({ token }: { token: string }) {
         body: JSON.stringify({
           source_type: sourceType,
           product_name: productName,
+          product_reference_image_data_url: productReferenceImageDataURL,
           source_in_ms: Math.round(sourceInMs),
           source_out_ms: Math.round(sourceOutMs),
           server_base_url: window.location.origin,
@@ -1247,6 +1266,15 @@ export function PreprocessPage({ token }: { token: string }) {
                       <Button size="small" onClick={openNotesModal}>
                         备注
                       </Button>
+                      <Space size={4}>
+                        <Switch
+                          size="small"
+                          checked={useProductReferenceImage}
+                          disabled={watchedSourceType !== "visual_only" || !selectedProductReferenceImage}
+                          onChange={setUseProductReferenceImage}
+                        />
+                        <Typography.Text type="secondary">参考图</Typography.Text>
+                      </Space>
                       <Button size="small" loading={startingVLMLabel} onClick={() => void startVLMLabel()}>
                         VLM标注
                       </Button>

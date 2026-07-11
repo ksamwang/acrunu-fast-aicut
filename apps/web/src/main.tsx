@@ -47,6 +47,7 @@ type Product = {
   description?: string;
   category?: string;
   status: string;
+  metadata?: Record<string, unknown>;
 };
 
 type SellingPoint = {
@@ -155,6 +156,28 @@ type AssetSemanticPreview = {
   open_semantic_description: string;
   embedding_targets: AssetEmbeddingTarget[];
 };
+
+function productReferenceImage(product?: Product | null) {
+  const image = product?.metadata?.reference_image;
+  return typeof image === "string" ? image : "";
+}
+
+function readImageFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("请选择图片文件"));
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      reject(new Error("产品参考图不能超过 2MB"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(file);
+  });
+}
 
 type AssetEmbeddingObject = {
   id: string;
@@ -1140,18 +1163,29 @@ function ProductManagementPage({ token }: { token: string }) {
     productForm.setFieldsValue({
       name: product.name,
       category: product.category,
-      description: product.description
+      description: product.description,
+      reference_image: productReferenceImage(product)
     });
     setProductOpen(true);
   };
 
   const saveProduct = async () => {
     const values = await productForm.validateFields();
+    const { reference_image: referenceImage, ...productValues } = values;
+    const metadata = { ...(editingProduct?.metadata ?? {}) };
+    if (referenceImage) {
+      metadata.reference_image = referenceImage;
+    } else {
+      delete metadata.reference_image;
+    }
     await apiRequest<Product>(
       editingProduct ? `/api/products/${editingProduct.id}` : "/api/products",
       {
         method: editingProduct ? "PUT" : "POST",
-        body: JSON.stringify({ ...values, metadata: {} })
+        body: JSON.stringify({
+          ...productValues,
+          metadata
+        })
       },
       token
     );
@@ -1246,6 +1280,16 @@ function ProductManagementPage({ token }: { token: string }) {
           loading={products.loading || productStatsLoading}
           dataSource={productRows}
           columns={[
+            {
+              title: "参考图",
+              width: 88,
+              render: (_, record) =>
+                productReferenceImage(record) ? (
+                  <img className="product-reference-thumb" src={productReferenceImage(record)} alt={`${record.name}参考图`} />
+                ) : (
+                  <Typography.Text type="secondary">未上传</Typography.Text>
+                )
+            },
             { title: "产品", dataIndex: "name", width: 220 },
             { title: "分类", dataIndex: "category", render: (value) => value || "-" },
             { title: "状态", dataIndex: "status", width: 100, render: (status) => <Tag>{translateValue(status, productStatusLabels)}</Tag> },
@@ -1303,6 +1347,42 @@ function ProductManagementPage({ token }: { token: string }) {
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="reference_image" label="产品白底参考图">
+            <Input type="hidden" />
+          </Form.Item>
+          <Form.Item shouldUpdate noStyle>
+            {() => {
+              const referenceImage = productForm.getFieldValue("reference_image");
+              return (
+                <Space direction="vertical" className="wide-space">
+                  {referenceImage ? (
+                    <img className="product-reference-preview" src={referenceImage} alt="产品白底参考图预览" />
+                  ) : (
+                    <Typography.Text type="secondary">可上传一张白底产品图，用于 VLM 标注时辅助识别产品。</Typography.Text>
+                  )}
+                  <Space wrap>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.currentTarget.value = "";
+                        if (!file) {
+                          return;
+                        }
+                        void readImageFileAsDataURL(file)
+                          .then((dataURL) => productForm.setFieldValue("reference_image", dataURL))
+                          .catch((error) => message.error(error instanceof Error ? error.message : "读取参考图失败"));
+                      }}
+                    />
+                    <Button size="small" disabled={!referenceImage} onClick={() => productForm.setFieldValue("reference_image", "")}>
+                      移除参考图
+                    </Button>
+                  </Space>
+                </Space>
+              );
+            }}
           </Form.Item>
         </Form>
       </Modal>

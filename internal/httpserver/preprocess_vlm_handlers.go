@@ -48,17 +48,28 @@ func (s *Server) handlePreprocessVLMLabel(c *gin.Context) {
 		})
 	}
 
+	var productReferenceImage *modelgateway.ImageReference
+	if file, err := c.FormFile("product_reference_image"); err == nil {
+		imagePath := filepath.Join(tempDir, "product_reference"+safeFrameExt(file.Filename))
+		if err := c.SaveUploadedFile(file, imagePath); err != nil {
+			Fail(c, http.StatusInternalServerError, "save_product_reference_image_failed", err.Error())
+			return
+		}
+		productReferenceImage = &modelgateway.ImageReference{StorageKey: imagePath}
+	}
+
 	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(c.Request.Context(), s.systemConfigService, s.modelProviderService, s.cfg), nil)
 	result, err := analyzer.AnalyzeAsset(c.Request.Context(), modelgateway.AnalyzeAssetInput{
-		AssetID:        c.PostForm("asset_id"),
-		SourceType:     c.PostForm("source_type"),
-		ProductName:    c.PostForm("product_name"),
-		DurationMs:     formInt(c, "duration_ms"),
-		Width:          formInt(c, "width"),
-		Height:         formInt(c, "height"),
-		HasAudio:       c.PostForm("has_audio") == "true",
-		AudioCodec:     c.PostForm("audio_codec"),
-		FrameSnapshots: frames,
+		AssetID:               c.PostForm("asset_id"),
+		SourceType:            c.PostForm("source_type"),
+		ProductName:           c.PostForm("product_name"),
+		DurationMs:            formInt(c, "duration_ms"),
+		Width:                 formInt(c, "width"),
+		Height:                formInt(c, "height"),
+		HasAudio:              c.PostForm("has_audio") == "true",
+		AudioCodec:            c.PostForm("audio_codec"),
+		FrameSnapshots:        frames,
+		ProductReferenceImage: productReferenceImage,
 	})
 	if err != nil {
 		Fail(c, http.StatusBadGateway, "vlm_label_failed", err.Error())
