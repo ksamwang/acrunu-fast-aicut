@@ -197,13 +197,6 @@ type AssetReviewPayload = {
   reviewer_notes: string;
 };
 
-type AssetBusinessTagPayload = {
-  is_curated: boolean;
-  business_tags: string[];
-  narrative_roles: string[];
-  usage_notes: string;
-};
-
 type Task = {
   id: string;
   product_id?: string;
@@ -1482,10 +1475,8 @@ function AssetsPage({ token }: { token: string }) {
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
   const [savingSellingPoints, setSavingSellingPoints] = useState(false);
-  const [savingBusinessTags, setSavingBusinessTags] = useState(false);
   const [reviewForm] = Form.useForm<AssetReviewPayload>();
   const [sellingPointForm] = Form.useForm<AssetSellingPointPayload>();
-  const [businessTagForm] = Form.useForm<AssetBusinessTagPayload>();
 
   const assetPath = useMemo(() => {
     const params = new URLSearchParams();
@@ -1641,7 +1632,6 @@ function AssetsPage({ token }: { token: string }) {
     if (!selectedAsset) {
       reviewForm.resetFields();
       sellingPointForm.resetFields();
-      businessTagForm.resetFields();
       setEditingAnalysis(false);
       return;
     }
@@ -1656,17 +1646,7 @@ function AssetsPage({ token }: { token: string }) {
       usability_status: selectedAsset.usability_status || "usable",
       reviewer_notes: selectedAsset.reviewer_notes || ""
     });
-    businessTagForm.setFieldsValue({
-      is_curated: Boolean(selectedAsset.metadata?.is_curated),
-      business_tags: Array.isArray(selectedAsset.metadata?.business_tags)
-        ? (selectedAsset.metadata?.business_tags as string[])
-        : [],
-      narrative_roles: Array.isArray(selectedAsset.metadata?.narrative_roles)
-        ? (selectedAsset.metadata?.narrative_roles as string[])
-        : [],
-      usage_notes: typeof selectedAsset.metadata?.usage_notes === "string" ? (selectedAsset.metadata?.usage_notes as string) : ""
-    });
-  }, [businessTagForm, reviewForm, selectedAsset, sellingPointForm]);
+  }, [reviewForm, selectedAsset, sellingPointForm]);
 
   useEffect(() => {
     sellingPointForm.setFieldsValue({
@@ -1741,32 +1721,6 @@ function AssetsPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "更新素材卖点失败");
     } finally {
       setSavingSellingPoints(false);
-    }
-  };
-
-  const saveAssetBusinessTags = async () => {
-    if (!selectedAsset) {
-      return;
-    }
-
-    const values = await businessTagForm.validateFields();
-    setSavingBusinessTags(true);
-    try {
-      const updated = await apiRequest<Asset>(
-        `/api/assets/${selectedAsset.id}/business-tags`,
-        {
-          method: "PUT",
-          body: JSON.stringify(values)
-        },
-        token
-      );
-      setSelectedAsset(updated);
-      await assets.reload();
-      message.success("精选业务标签已更新");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "更新精选业务标签失败");
-    } finally {
-      setSavingBusinessTags(false);
     }
   };
 
@@ -2065,7 +2019,6 @@ function AssetsPage({ token }: { token: string }) {
                       <div className="asset-card-meta">
                         <span>{productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"}</span>
                         <span>{asset.width && asset.height ? asset.width + "x" + asset.height : "未知分辨率"}</span>
-                        <span>{asset.fps ? asset.fps.toFixed(0) + "fps" : "未知帧率"}</span>
                       </div>
                       <div className="asset-card-labels">
                         {asset.shot_size ? <Tag>{translateValue(asset.shot_size, shotSizeLabels)}</Tag> : null}
@@ -2127,7 +2080,6 @@ function AssetsPage({ token }: { token: string }) {
                 <div className="asset-detail-quick-meta">
                   <span>时长 {formatDuration(selectedAsset.duration_ms)}</span>
                   <span>{selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}x${selectedAsset.height}` : "未知分辨率"}</span>
-                  <span>{selectedAsset.fps ? `${selectedAsset.fps}fps` : "未知帧率"}</span>
                   <span>{selectedAsset.has_audio ? "含音频" : "无音频"}</span>
                   <span>{translateValue(selectedAsset.usability_status, usabilityStatusLabels)}</span>
                 </div>
@@ -2274,7 +2226,6 @@ function AssetsPage({ token }: { token: string }) {
                         <Descriptions.Item label="分辨率">
                           {selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}x${selectedAsset.height}` : "-"}
                         </Descriptions.Item>
-                        <Descriptions.Item label="帧率">{selectedAsset.fps ?? "-"}</Descriptions.Item>
                         <Descriptions.Item label="视频编码">{selectedAsset.codec || "-"}</Descriptions.Item>
                         <Descriptions.Item label="是否含音频">{selectedAsset.has_audio ? "是" : "否"}</Descriptions.Item>
                         <Descriptions.Item label="音频编码">{selectedAsset.audio_codec || "-"}</Descriptions.Item>
@@ -2319,69 +2270,6 @@ function AssetsPage({ token }: { token: string }) {
                           )}
                         </Descriptions.Item>
                       </Descriptions>
-                    </div>
-                  )
-                },
-                {
-                  key: "business",
-                  label: "业务标签",
-                  forceRender: true,
-                  children: (
-                    <div className="asset-detail-tab-panel">
-                      <Card
-                        title="精选业务标签"
-                        extra={
-                          <Button type="primary" size="small" loading={savingBusinessTags} onClick={saveAssetBusinessTags}>
-                            保存精选标签
-                          </Button>
-                        }
-                      >
-                        <Space direction="vertical" className="wide-space">
-                          <Form form={businessTagForm} layout="vertical">
-                            <Form.Item name="is_curated" label="是否精选">
-                              <Select
-                                options={[
-                                  { value: true, label: "精选素材" },
-                                  { value: false, label: "普通素材" }
-                                ]}
-                              />
-                            </Form.Item>
-                            <Form.Item name="business_tags" label="业务标签">
-                              <Select mode="tags" tokenSeparators={[","]} open={false} />
-                            </Form.Item>
-                            <Form.Item name="narrative_roles" label="叙事角色">
-                              <Select mode="tags" tokenSeparators={[","]} open={false} />
-                            </Form.Item>
-                            <Form.Item name="usage_notes" label="使用建议">
-                              <Input.TextArea rows={3} />
-                            </Form.Item>
-                          </Form>
-                          <Descriptions bordered column={1} size="small">
-                            <Descriptions.Item label="当前精选状态">
-                              {selectedAsset.metadata?.is_curated ? "精选素材" : "普通素材"}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="当前业务标签">
-                              {renderTagList(
-                                Array.isArray(selectedAsset.metadata?.business_tags) ? (selectedAsset.metadata?.business_tags as string[]) : [],
-                                "暂无业务标签"
-                              )}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="当前叙事角色">
-                              {renderTagList(
-                                Array.isArray(selectedAsset.metadata?.narrative_roles) ? (selectedAsset.metadata?.narrative_roles as string[]) : [],
-                                "暂无叙事角色"
-                              )}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="当前使用建议">
-                              {typeof selectedAsset.metadata?.usage_notes === "string" && selectedAsset.metadata?.usage_notes ? (
-                                selectedAsset.metadata?.usage_notes as string
-                              ) : (
-                                <Typography.Text type="secondary">暂无使用建议</Typography.Text>
-                              )}
-                            </Descriptions.Item>
-                          </Descriptions>
-                        </Space>
-                      </Card>
                     </div>
                   )
                 },
