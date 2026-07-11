@@ -636,6 +636,15 @@ body {
   white-space: nowrap;
 }
 
+.preprocess-modal .preprocess-asset-name-input,
+.preprocess-modal .preprocess-header-field .ant-select-selection-item,
+.preprocess-modal .preprocess-header-field .ant-select-selection-placeholder,
+.preprocess-modal .preprocess-header-submit > .ant-typography,
+.preprocess-modal .preprocess-header-submit .ant-select-selection-item,
+.preprocess-modal .preprocess-header-submit .ant-select-selection-placeholder {
+  color: #ffffff !important;
+}
+
 .preprocess-header-actions {
   display: flex;
   justify-content: flex-end;

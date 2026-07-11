@@ -200,6 +200,13 @@ const sourceTypeLabels: Record<string, string> = {
   talking_head: "口播"
 };
 
+const sourceTypeOptions: Array<{ value: NonNullable<WorkspaceItem["source_type"]>; label: string }> = [
+  { value: "visual_only", label: sourceTypeLabels.visual_only },
+  { value: "talking_head", label: sourceTypeLabels.talking_head }
+];
+
+const defaultSourceType: NonNullable<WorkspaceItem["source_type"]> = sourceTypeOptions[0]?.value ?? "visual_only";
+
 const sourceTypeColors: Record<string, string> = {
   visual_only: "cyan",
   talking_head: "purple"
@@ -520,7 +527,7 @@ export function PreprocessPage({ token }: { token: string }) {
         : selectedItem.probe.duration_ms ?? 0;
     form.setFieldsValue({
       asset_name: selectedItem.asset_name ?? "",
-      source_type: selectedItem.source_type ?? "visual_only",
+      source_type: selectedItem.source_type || defaultSourceType,
       source_in_ms: selectedItem.source_in_ms ?? 0,
       source_out_ms: sourceOutMs,
       interpret_fps_enabled: Boolean(selectedItem.interpret_fps_enabled),
@@ -746,7 +753,7 @@ export function PreprocessPage({ token }: { token: string }) {
       selectedItem
     );
     const { sourceInMs, sourceOutMs } = range;
-    const sourceType = values.source_type ?? selectedItem.source_type ?? "visual_only";
+    const sourceType = values.source_type || selectedItem.source_type || defaultSourceType;
     const productName =
       sourceType === "visual_only"
         ? selectedSubmitProduct?.name ?? ""
@@ -1018,8 +1025,8 @@ export function PreprocessPage({ token }: { token: string }) {
                     <Tag color={workspaceStatusColors[item.status]} className="preprocess-asset-status">
                       {workspaceStatusLabels[item.status]}
                     </Tag>
-                    <Tag color={sourceTypeColors[item.source_type || "visual_only"] ?? "default"} className="preprocess-asset-type">
-                      {sourceTypeLabels[item.source_type || "visual_only"] ?? "-"}
+                    <Tag color={sourceTypeColors[item.source_type || defaultSourceType] ?? "default"} className="preprocess-asset-type">
+                      {sourceTypeLabels[item.source_type || defaultSourceType] ?? "-"}
                     </Tag>
                   </div>
                   <div className="preprocess-asset-meta">
@@ -1156,7 +1163,7 @@ export function PreprocessPage({ token }: { token: string }) {
                   {selectedItem.asset_name || selectedItem.original_file_name}
                 </Typography.Text>
                 <Tag>{workspaceStatusLabels[selectedItem.status]}</Tag>
-                <Tag>{sourceTypeLabels[selectedItem.source_type || "visual_only"] ?? "-"}</Tag>
+                <Tag>{sourceTypeLabels[selectedItem.source_type || defaultSourceType] ?? "-"}</Tag>
                 {selectedItem.submitted_asset_id ? <Tag color="success">已入库</Tag> : null}
               </div>
 
@@ -1168,15 +1175,13 @@ export function PreprocessPage({ token }: { token: string }) {
                 <Form.Item
                   name="source_type"
                   className="preprocess-header-field"
+                  initialValue={defaultSourceType}
                   rules={[{ required: true, message: "请选择素材类型" }]}
                 >
                   <Select
                     popupClassName="preprocess-select-dropdown"
                     placeholder="素材类型"
-                    options={[
-                      { value: "visual_only", label: "纯画面" },
-                      { value: "talking_head", label: "口播" }
-                    ]}
+                    options={sourceTypeOptions}
                   />
                 </Form.Item>
 
@@ -1375,7 +1380,7 @@ export function PreprocessPage({ token }: { token: string }) {
           />
           <Descriptions size="small" column={1}>
             <Descriptions.Item label="素材类型">
-              {sourceTypeLabels[watchedSourceType || selectedItem?.source_type || "visual_only"] ?? "-"}
+              {sourceTypeLabels[watchedSourceType || selectedItem?.source_type || defaultSourceType] ?? "-"}
             </Descriptions.Item>
             <Descriptions.Item label="源帧率">{formatProbeFPS(sourceFPS)}</Descriptions.Item>
             <Descriptions.Item label="当前工作源帧率">{formatProbeFPS(workingFPS)}</Descriptions.Item>
