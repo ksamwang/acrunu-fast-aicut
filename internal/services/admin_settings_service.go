@@ -24,13 +24,15 @@ type OpenAICompatibleSettings struct {
 	APIKeyConfigured bool   `json:"api_key_configured"`
 	LLMModel         string `json:"llm_model"`
 	VLMModel         string `json:"vlm_model"`
+	EmbeddingModel   string `json:"embedding_model"`
 }
 
 type OpenAICompatibleSettingsUpdate struct {
-	BaseURL  string `json:"base_url"`
-	APIKey   string `json:"api_key"`
-	LLMModel string `json:"llm_model"`
-	VLMModel string `json:"vlm_model"`
+	BaseURL        string `json:"base_url"`
+	APIKey         string `json:"api_key"`
+	LLMModel       string `json:"llm_model"`
+	VLMModel       string `json:"vlm_model"`
+	EmbeddingModel string `json:"embedding_model"`
 }
 
 type OpenAICompatibleResolveInput struct {
@@ -79,6 +81,9 @@ func GetOpenAICompatibleSettings(service *SystemConfigService) (OpenAICompatible
 	if config, err := service.Get("vlm.model"); err == nil {
 		settings.VLMModel = configStringValue(config.Value)
 	}
+	if config, err := service.Get("embedding.model"); err == nil {
+		settings.EmbeddingModel = configStringValue(config.Value)
+	}
 
 	return settings, nil
 }
@@ -110,6 +115,10 @@ func UpdateOpenAICompatibleSettings(service *SystemConfigService, input OpenAICo
 	vlmModel := strings.TrimSpace(input.VLMModel)
 	if vlmModel == "" {
 		return OpenAICompatibleSettings{}, fmt.Errorf("vlm_model is required")
+	}
+	embeddingModel := strings.TrimSpace(input.EmbeddingModel)
+	if embeddingModel == "" {
+		return OpenAICompatibleSettings{}, fmt.Errorf("embedding_model is required")
 	}
 
 	if _, err := service.Upsert(SystemConfig{
@@ -150,6 +159,14 @@ func UpdateOpenAICompatibleSettings(service *SystemConfigService, input OpenAICo
 		return OpenAICompatibleSettings{}, err
 	}
 	if _, err := service.Upsert(SystemConfig{
+		Key:         "embedding.provider",
+		Value:       openAICompatibleProvider,
+		Type:        "string",
+		Description: "Default embedding provider",
+	}); err != nil {
+		return OpenAICompatibleSettings{}, err
+	}
+	if _, err := service.Upsert(SystemConfig{
 		Key:         "llm.model",
 		Value:       llmModel,
 		Type:        "string",
@@ -162,6 +179,14 @@ func UpdateOpenAICompatibleSettings(service *SystemConfigService, input OpenAICo
 		Value:       vlmModel,
 		Type:        "string",
 		Description: "Default VLM model",
+	}); err != nil {
+		return OpenAICompatibleSettings{}, err
+	}
+	if _, err := service.Upsert(SystemConfig{
+		Key:         "embedding.model",
+		Value:       embeddingModel,
+		Type:        "string",
+		Description: "Default embedding model",
 	}); err != nil {
 		return OpenAICompatibleSettings{}, err
 	}

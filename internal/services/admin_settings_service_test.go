@@ -12,10 +12,11 @@ func TestUpdateAndGetOpenAICompatibleSettings(t *testing.T) {
 	service := NewSystemConfigService()
 
 	updated, err := UpdateOpenAICompatibleSettings(service, OpenAICompatibleSettingsUpdate{
-		BaseURL:  "https://example.com/v1",
-		APIKey:   "secret-key",
-		LLMModel: "gpt-4.1",
-		VLMModel: "gpt-4o-mini",
+		BaseURL:        "https://example.com/v1",
+		APIKey:         "secret-key",
+		LLMModel:       "gpt-4.1",
+		VLMModel:       "gpt-4o-mini",
+		EmbeddingModel: "text-embedding-v3",
 	})
 	if err != nil {
 		t.Fatalf("update settings failed: %v", err)
@@ -32,6 +33,9 @@ func TestUpdateAndGetOpenAICompatibleSettings(t *testing.T) {
 	}
 	if updated.VLMModel != "gpt-4o-mini" {
 		t.Fatalf("expected vlm model persisted, got %q", updated.VLMModel)
+	}
+	if updated.EmbeddingModel != "text-embedding-v3" {
+		t.Fatalf("expected embedding model persisted, got %q", updated.EmbeddingModel)
 	}
 
 	apiKeyConfig, err := service.Get(openAIAPIKeyKey)
@@ -76,10 +80,11 @@ func TestFetchOpenAICompatibleModels(t *testing.T) {
 
 	service := NewSystemConfigService()
 	if _, err := UpdateOpenAICompatibleSettings(service, OpenAICompatibleSettingsUpdate{
-		BaseURL:  modelServer.URL + "/v1",
-		APIKey:   "secret-key",
-		LLMModel: "gpt-4.1",
-		VLMModel: "gpt-4o-mini",
+		BaseURL:        modelServer.URL + "/v1",
+		APIKey:         "secret-key",
+		LLMModel:       "gpt-4.1",
+		VLMModel:       "gpt-4o-mini",
+		EmbeddingModel: "text-embedding-v3",
 	}); err != nil {
 		t.Fatalf("seed settings failed: %v", err)
 	}

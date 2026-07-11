@@ -205,6 +205,7 @@ type OpenAICompatibleSettings = {
   api_key_configured: boolean;
   llm_model: string;
   vlm_model: string;
+  embedding_model: string;
 };
 
 type RuntimeSettings = {
@@ -2592,8 +2593,15 @@ function LegacySettingsPage({ token }: { token: string }) {
   };
 
   const syncModelOptions = (items: string[]) => {
-    const currentValues = providerForm.getFieldsValue(["llm_model", "vlm_model"]);
-    setModelOptions(mergeModelOptions([...(items ?? []), currentValues.llm_model ?? "", currentValues.vlm_model ?? ""]));
+    const currentValues = providerForm.getFieldsValue(["llm_model", "vlm_model", "embedding_model"]);
+    setModelOptions(
+      mergeModelOptions([
+        ...(items ?? []),
+        currentValues.llm_model ?? "",
+        currentValues.vlm_model ?? "",
+        currentValues.embedding_model ?? ""
+      ])
+    );
   };
 
   useEffect(() => {
@@ -2604,9 +2612,10 @@ function LegacySettingsPage({ token }: { token: string }) {
       base_url: providerSettings.data.base_url,
       api_key: "",
       llm_model: providerSettings.data.llm_model,
-      vlm_model: providerSettings.data.vlm_model
+      vlm_model: providerSettings.data.vlm_model,
+      embedding_model: providerSettings.data.embedding_model
     });
-    syncModelOptions([providerSettings.data.llm_model, providerSettings.data.vlm_model]);
+    syncModelOptions([providerSettings.data.llm_model, providerSettings.data.vlm_model, providerSettings.data.embedding_model]);
   }, [providerForm, providerSettings.data]);
 
   useEffect(() => {
@@ -2694,7 +2703,7 @@ function LegacySettingsPage({ token }: { token: string }) {
         token
       );
       await providerSettings.reload();
-      syncModelOptions([values.llm_model ?? "", values.vlm_model ?? ""]);
+      syncModelOptions([values.llm_model ?? "", values.vlm_model ?? "", values.embedding_model ?? ""]);
       message.success("模型接入配置已保存。");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "保存模型接入配置失败");
@@ -2817,6 +2826,19 @@ function LegacySettingsPage({ token }: { token: string }) {
                 filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
               />
             </Form.Item>
+            <Form.Item
+              name="embedding_model"
+              label="默认向量模型"
+              extra="用于素材语义文本向量化和后续 pgvector 相似度召回。"
+              rules={[{ required: true, message: "请选择默认向量模型" }]}
+            >
+              <Select
+                showSearch
+                placeholder="请先获取模型列表"
+                options={modelOptions}
+                filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+              />
+            </Form.Item>
           </Form>
         </Space>
       </Card>
@@ -2920,8 +2942,15 @@ function SettingsPage({ token }: { token: string }) {
   };
 
   const syncModelOptions = (items: string[]) => {
-    const currentValues = providerForm.getFieldsValue(["llm_model", "vlm_model"]);
-    setModelOptions(mergeModelOptions([...(items ?? []), currentValues.llm_model ?? "", currentValues.vlm_model ?? ""]));
+    const currentValues = providerForm.getFieldsValue(["llm_model", "vlm_model", "embedding_model"]);
+    setModelOptions(
+      mergeModelOptions([
+        ...(items ?? []),
+        currentValues.llm_model ?? "",
+        currentValues.vlm_model ?? "",
+        currentValues.embedding_model ?? ""
+      ])
+    );
   };
 
   useEffect(() => {
@@ -2932,9 +2961,10 @@ function SettingsPage({ token }: { token: string }) {
       base_url: providerSettings.data.base_url,
       api_key: "",
       llm_model: providerSettings.data.llm_model,
-      vlm_model: providerSettings.data.vlm_model
+      vlm_model: providerSettings.data.vlm_model,
+      embedding_model: providerSettings.data.embedding_model
     });
-    syncModelOptions([providerSettings.data.llm_model, providerSettings.data.vlm_model]);
+    syncModelOptions([providerSettings.data.llm_model, providerSettings.data.vlm_model, providerSettings.data.embedding_model]);
   }, [providerForm, providerSettings.data]);
 
   useEffect(() => {
@@ -3022,7 +3052,7 @@ function SettingsPage({ token }: { token: string }) {
         token
       );
       await providerSettings.reload();
-      syncModelOptions([values.llm_model ?? "", values.vlm_model ?? ""]);
+      syncModelOptions([values.llm_model ?? "", values.vlm_model ?? "", values.embedding_model ?? ""]);
       message.success("模型接入配置已保存。");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "保存模型接入配置失败");
@@ -3158,6 +3188,20 @@ function SettingsPage({ token }: { token: string }) {
                 label="默认 VLM 模型"
                 extra="用于素材理解、抽帧分析和标签提取。"
                 rules={[{ required: true, message: "请选择默认 VLM 模型" }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="请先拉取模型列表"
+                  options={modelOptions}
+                  disabled={modelOptions.length === 0}
+                  filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+                />
+              </Form.Item>
+              <Form.Item
+                name="embedding_model"
+                label="默认向量模型"
+                extra="用于素材语义文本向量化和后续 pgvector 相似度召回。"
+                rules={[{ required: true, message: "请选择默认向量模型" }]}
               >
                 <Select
                   showSearch

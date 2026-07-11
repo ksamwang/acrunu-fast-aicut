@@ -31,7 +31,7 @@ func TestHandleUpdateAndGetOpenAICompatibleSettings(t *testing.T) {
 		SystemConfigService: systemConfigService,
 	})
 
-	body := bytes.NewBufferString(`{"base_url":"https://example.com/v1","api_key":"secret-key","llm_model":"gpt-4.1","vlm_model":"gpt-4o-mini"}`)
+	body := bytes.NewBufferString(`{"base_url":"https://example.com/v1","api_key":"secret-key","llm_model":"gpt-4.1","vlm_model":"gpt-4o-mini","embedding_model":"text-embedding-v3"}`)
 	updateReq := httptest.NewRequest(http.MethodPut, "/api/admin/model-access/openai-compatible", body)
 	updateReq.Header.Set("Content-Type", "application/json")
 	updateReq.Header.Set("Authorization", adminAuthHeader())
@@ -54,6 +54,9 @@ func TestHandleUpdateAndGetOpenAICompatibleSettings(t *testing.T) {
 	if !updateResp.Data.APIKeyConfigured {
 		t.Fatalf("expected api key configured")
 	}
+	if updateResp.Data.EmbeddingModel != "text-embedding-v3" {
+		t.Fatalf("expected embedding model configured, got %#v", updateResp.Data)
+	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/admin/model-access/openai-compatible", nil)
 	getReq.Header.Set("Authorization", adminAuthHeader())
@@ -72,6 +75,9 @@ func TestHandleUpdateAndGetOpenAICompatibleSettings(t *testing.T) {
 	}
 	if getResp.Data.APIKeyConfigured != true {
 		t.Fatalf("expected api key configured in get response")
+	}
+	if getResp.Data.EmbeddingModel != "text-embedding-v3" {
+		t.Fatalf("expected embedding model in get response, got %#v", getResp.Data)
 	}
 }
 

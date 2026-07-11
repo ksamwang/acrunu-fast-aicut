@@ -11,10 +11,11 @@ import (
 )
 
 type updateOpenAICompatibleSettingsRequest struct {
-	BaseURL  string `json:"base_url"`
-	APIKey   string `json:"api_key"`
-	LLMModel string `json:"llm_model"`
-	VLMModel string `json:"vlm_model"`
+	BaseURL        string `json:"base_url"`
+	APIKey         string `json:"api_key"`
+	LLMModel       string `json:"llm_model"`
+	VLMModel       string `json:"vlm_model"`
+	EmbeddingModel string `json:"embedding_model"`
 }
 
 type resolveOpenAICompatibleRequest struct {
@@ -51,10 +52,11 @@ func (s *Server) handleUpdateOpenAICompatibleSettings(c *gin.Context) {
 	}
 
 	settings, err := services.UpdateOpenAICompatibleSettings(s.systemConfigService, services.OpenAICompatibleSettingsUpdate{
-		BaseURL:  req.BaseURL,
-		APIKey:   req.APIKey,
-		LLMModel: req.LLMModel,
-		VLMModel: req.VLMModel,
+		BaseURL:        req.BaseURL,
+		APIKey:         req.APIKey,
+		LLMModel:       req.LLMModel,
+		VLMModel:       req.VLMModel,
+		EmbeddingModel: req.EmbeddingModel,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -172,6 +174,7 @@ func isAdminSettingsBadRequest(err error) bool {
 		"base_url",
 		"llm_model",
 		"vlm_model",
+		"embedding_model",
 		"llm_max_concurrency",
 		"vlm_max_concurrency",
 		"asr_max_concurrency",
