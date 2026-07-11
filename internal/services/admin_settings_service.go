@@ -52,6 +52,7 @@ type ModelCapabilitySetting struct {
 	Capability string `json:"capability"`
 	ProviderID string `json:"provider_id"`
 	Model      string `json:"model"`
+	Dimension  int    `json:"dimension,omitempty"`
 }
 
 type ModelCapabilitySettings struct {
@@ -411,6 +412,9 @@ func UpdateModelCapabilitySettings(service *SystemConfigService, input ModelCapa
 		if strings.TrimSpace(setting.Model) == "" {
 			return ModelCapabilitySettings{}, fmt.Errorf("%s.model is required", setting.Capability)
 		}
+		if setting.Capability == "embedding" && setting.Dimension <= 0 {
+			return ModelCapabilitySettings{}, fmt.Errorf("embedding.dimension must be >= 1")
+		}
 		if _, err := service.Upsert(SystemConfig{
 			Key:         setting.Capability + ".provider_id",
 			Value:       strings.TrimSpace(setting.ProviderID),
@@ -435,6 +439,16 @@ func UpdateModelCapabilitySettings(service *SystemConfigService, input ModelCapa
 		}); err != nil {
 			return ModelCapabilitySettings{}, err
 		}
+		if setting.Capability == "embedding" {
+			if _, err := service.Upsert(SystemConfig{
+				Key:         "embedding.dimension",
+				Value:       setting.Dimension,
+				Type:        "number",
+				Description: "Default embedding vector dimension",
+			}); err != nil {
+				return ModelCapabilitySettings{}, err
+			}
+		}
 	}
 	return GetModelCapabilitySettings(service)
 }
@@ -447,6 +461,14 @@ func getModelCapabilitySetting(service *SystemConfigService, capability string) 
 	if config, err := service.Get(capability + ".model"); err == nil {
 		setting.Model = configStringValue(config.Value)
 	}
+	if capability == "embedding" {
+		setting.Dimension = 1024
+		if config, err := service.Get("embedding.dimension"); err == nil {
+			if value := configIntValue(config.Value); value > 0 {
+				setting.Dimension = value
+			}
+		}
+	}
 	return setting
 }
 
@@ -455,6 +477,7 @@ func normalizeCapabilityInput(capability string, input ModelCapabilitySetting) M
 		Capability: capability,
 		ProviderID: strings.TrimSpace(input.ProviderID),
 		Model:      strings.TrimSpace(input.Model),
+		Dimension:  input.Dimension,
 	}
 }
 

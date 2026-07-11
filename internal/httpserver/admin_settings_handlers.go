@@ -279,6 +279,7 @@ func isAdminSettingsBadRequest(err error) bool {
 		"llm_model",
 		"vlm_model",
 		"embedding_model",
+		"embedding.dimension",
 		"llm_max_concurrency",
 		"vlm_max_concurrency",
 		"asr_max_concurrency",

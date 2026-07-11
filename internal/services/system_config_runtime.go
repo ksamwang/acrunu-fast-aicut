@@ -78,6 +78,47 @@ func ResolveVLMAnalyzerConfigWithProviders(ctx context.Context, service *SystemC
 	return resolved
 }
 
+func ResolveEmbeddingConfigWithProviders(ctx context.Context, service *SystemConfigService, providerService *ModelProviderService, fallback appconfig.Config) modelgateway.Config {
+	resolved := modelgateway.Config{
+		Provider:   "mock",
+		Model:      "text-embedding-v4",
+		Dimensions: 1024,
+		Timeout:    fallback.ModelGatewayTimeout,
+	}
+	if service == nil {
+		return resolved
+	}
+	if config, err := service.Get("embedding.model"); err == nil {
+		if value := configStringValue(config.Value); value != "" {
+			resolved.Model = value
+		}
+	}
+	if config, err := service.Get("embedding.dimension"); err == nil {
+		if value := configIntValue(config.Value); value > 0 {
+			resolved.Dimensions = value
+		}
+	}
+	if providerService == nil {
+		return resolved
+	}
+	config, err := service.Get("embedding.provider_id")
+	if err != nil {
+		return resolved
+	}
+	providerID := configStringValue(config.Value)
+	if providerID == "" {
+		return resolved
+	}
+	access, err := providerService.GetAccess(ctx, providerID)
+	if err != nil || !access.Enabled {
+		return resolved
+	}
+	resolved.Provider = access.ProviderType
+	resolved.BaseURL = access.BaseURL
+	resolved.APIKey = access.APIKey
+	return resolved
+}
+
 func configStringValue(value any) string {
 	switch typed := value.(type) {
 	case string:

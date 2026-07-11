@@ -156,6 +156,36 @@ type AssetSemanticPreview = {
   embedding_targets: AssetEmbeddingTarget[];
 };
 
+type AssetEmbeddingObject = {
+  id: string;
+  asset_id: string;
+  object_type: string;
+  object_id: string;
+  text: string;
+  text_hash: string;
+  provider_id: string;
+  model: string;
+  dimension: number;
+  metadata?: Record<string, unknown>;
+  status: string;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type AssetEmbeddingListResponse = {
+  asset_id: string;
+  items: AssetEmbeddingObject[];
+};
+
+type AssetEmbeddingRunResult = {
+  asset_id: string;
+  provider_id: string;
+  model: string;
+  dimension: number;
+  objects: AssetEmbeddingObject[];
+};
+
 type AssetReviewPayload = {
   scene_description: string;
   shot_size: string;
@@ -244,6 +274,7 @@ type ModelCapabilitySetting = {
   capability: string;
   provider_id: string;
   model: string;
+  dimension?: number;
 };
 
 type ModelCapabilitySettings = {
@@ -1439,10 +1470,13 @@ function AssetsPage({ token }: { token: string }) {
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
   const [speechSegments, setSpeechSegments] = useState<AssetSpeechSegment[]>([]);
   const [semanticPreview, setSemanticPreview] = useState<AssetSemanticPreview | null>(null);
+  const [assetEmbeddings, setAssetEmbeddings] = useState<AssetEmbeddingObject[]>([]);
   const [assetSellingPoints, setAssetSellingPoints] = useState<SellingPoint[]>([]);
   const [framesLoading, setFramesLoading] = useState(false);
   const [speechSegmentsLoading, setSpeechSegmentsLoading] = useState(false);
   const [semanticPreviewLoading, setSemanticPreviewLoading] = useState(false);
+  const [assetEmbeddingsLoading, setAssetEmbeddingsLoading] = useState(false);
+  const [vectorizingAsset, setVectorizingAsset] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState(false);
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
@@ -1516,6 +1550,7 @@ function AssetsPage({ token }: { token: string }) {
       setFrames([]);
       setSpeechSegments([]);
       setSemanticPreview(null);
+      setAssetEmbeddings([]);
       setAssetSellingPoints([]);
       return;
     }
@@ -1549,6 +1584,20 @@ function AssetsPage({ token }: { token: string }) {
     };
 
     void loadSemanticPreview();
+
+    const loadAssetEmbeddings = async () => {
+      setAssetEmbeddingsLoading(true);
+      try {
+        const response = await apiRequest<AssetEmbeddingListResponse>(`/api/assets/${selectedAsset.id}/embeddings`, {}, token);
+        setAssetEmbeddings(response.items);
+      } catch {
+        setAssetEmbeddings([]);
+      } finally {
+        setAssetEmbeddingsLoading(false);
+      }
+    };
+
+    void loadAssetEmbeddings();
 
     const loadSpeechSegments = async () => {
       if (selectedAsset.source_type !== "talking_head") {
@@ -1717,6 +1766,26 @@ function AssetsPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "更新精选业务标签失败");
     } finally {
       setSavingBusinessTags(false);
+    }
+  };
+
+  const vectorizeSelectedAsset = async () => {
+    if (!selectedAsset) {
+      return;
+    }
+    setVectorizingAsset(true);
+    try {
+      const result = await apiRequest<AssetEmbeddingRunResult>(
+        `/api/assets/${selectedAsset.id}/embeddings`,
+        { method: "POST" },
+        token
+      );
+      setAssetEmbeddings(result.objects);
+      message.success(`已生成 ${result.objects.length} 个向量对象`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "生成向量失败");
+    } finally {
+      setVectorizingAsset(false);
     }
   };
 
@@ -2445,7 +2514,15 @@ function AssetsPage({ token }: { token: string }) {
                   forceRender: true,
                   children: (
                     <div className="asset-detail-tab-panel">
-                      <Card title="开放语义与向量化对象" loading={semanticPreviewLoading}>
+                      <Card
+                        title="开放语义与向量化对象"
+                        loading={semanticPreviewLoading}
+                        extra={
+                          <Button type="primary" loading={vectorizingAsset} onClick={() => void vectorizeSelectedAsset()}>
+                            生成/更新向量
+                          </Button>
+                        }
+                      >
                         <Descriptions bordered column={1} size="small">
                           <Descriptions.Item label="开放语义描述">
                             {semanticPreview?.open_semantic_description ? (
@@ -2483,6 +2560,42 @@ function AssetsPage({ token }: { token: string }) {
                               />
                             ) : (
                               <Typography.Text type="secondary">暂无向量化对象预览</Typography.Text>
+                            )}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="已保存向量对象">
+                            {assetEmbeddings.length > 0 ? (
+                              <Table<AssetEmbeddingObject>
+                                rowKey="id"
+                                dataSource={assetEmbeddings}
+                                loading={assetEmbeddingsLoading}
+                                pagination={false}
+                                size="small"
+                                columns={[
+                                  {
+                                    title: "对象类型",
+                                    dataIndex: "object_type"
+                                  },
+                                  {
+                                    title: "模型",
+                                    dataIndex: "model"
+                                  },
+                                  {
+                                    title: "维度",
+                                    dataIndex: "dimension"
+                                  },
+                                  {
+                                    title: "状态",
+                                    dataIndex: "status"
+                                  },
+                                  {
+                                    title: "更新时间",
+                                    dataIndex: "updated_at",
+                                    render: (value: string) => new Date(value).toLocaleString()
+                                  }
+                                ]}
+                              />
+                            ) : (
+                              <Typography.Text type="secondary">{assetEmbeddingsLoading ? "加载中" : "暂未生成向量"}</Typography.Text>
                             )}
                           </Descriptions.Item>
                         </Descriptions>
@@ -3030,7 +3143,8 @@ function SettingsPage({ token }: { token: string }) {
       vlm_provider_id: settings.vlm.provider_id,
       vlm_model: settings.vlm.model,
       embedding_provider_id: settings.embedding.provider_id,
-      embedding_model: settings.embedding.model
+      embedding_model: settings.embedding.model,
+      embedding_dimension: settings.embedding.dimension ?? 1024
     });
     setModelsByProvider((current) => {
       const next = { ...current };
@@ -3160,7 +3274,7 @@ function SettingsPage({ token }: { token: string }) {
           body: JSON.stringify({
             llm: { provider_id: values.llm_provider_id, model: values.llm_model },
             vlm: { provider_id: values.vlm_provider_id, model: values.vlm_model },
-            embedding: { provider_id: values.embedding_provider_id, model: values.embedding_model }
+            embedding: { provider_id: values.embedding_provider_id, model: values.embedding_model, dimension: values.embedding_dimension }
           })
         },
         token
@@ -3297,6 +3411,11 @@ function SettingsPage({ token }: { token: string }) {
                         />
                       )}
                     </Form.Item>
+                    {row.key === "embedding" && (
+                      <Form.Item name="embedding_dimension" label="维度" rules={[{ required: true, message: "请输入向量维度" }]}>
+                        <InputNumber min={1} placeholder="1024" style={{ width: "100%" }} />
+                      </Form.Item>
+                    )}
                   </div>
                   {!row.manualModelInput && (
                     <Button size="small" disabled={!row.selectedProviderID} loading={loadingModels} onClick={() => void loadModels(row.selectedProviderID, true)}>

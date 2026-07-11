@@ -11,6 +11,7 @@ type Config struct {
 	Model      string
 	BaseURL    string
 	APIKey     string
+	Dimensions int
 	MaxTokens  int
 	Timeout    time.Duration
 	MaxRetries int

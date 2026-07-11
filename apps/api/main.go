@@ -21,14 +21,17 @@ func main() {
 	defer modelProviderService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
+	assetEmbeddingService := services.NewConfiguredAssetEmbeddingService(context.Background(), cfg, productAssetService.Service, systemConfigService.Service, modelProviderService.Service, logger)
+	defer assetEmbeddingService.Close()
 
 	server := httpserver.New(httpserver.Options{
-		Config:               cfg,
-		Logger:               logger,
-		TaskService:          taskService.Service,
-		SystemConfigService:  systemConfigService.Service,
-		ModelProviderService: modelProviderService.Service,
-		ProductAssetService:  productAssetService.Service,
+		Config:                cfg,
+		Logger:                logger,
+		TaskService:           taskService.Service,
+		SystemConfigService:   systemConfigService.Service,
+		ModelProviderService:  modelProviderService.Service,
+		ProductAssetService:   productAssetService.Service,
+		AssetEmbeddingService: assetEmbeddingService.Service,
 	})
 
 	if err := server.Run(); err != nil {

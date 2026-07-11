@@ -125,6 +125,31 @@ func (s *Server) handleGetAssetSemanticPreview(c *gin.Context) {
 	OK(c, preview)
 }
 
+func (s *Server) handleListAssetEmbeddings(c *gin.Context) {
+	items, err := s.assetEmbeddingService.ListAssetEmbeddingObjects(c.Request.Context(), c.Param("assetID"))
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	OK(c, gin.H{
+		"asset_id": c.Param("assetID"),
+		"items":    items,
+	})
+}
+
+func (s *Server) handleVectorizeAsset(c *gin.Context) {
+	result, err := s.assetEmbeddingService.VectorizeAsset(c.Request.Context(), c.Param("assetID"))
+	if err != nil {
+		if err == services.ErrAssetNotFound {
+			handleProductError(c, err)
+			return
+		}
+		Fail(c, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	OK(c, result)
+}
+
 func (s *Server) handleUpdateAssetSellingPoints(c *gin.Context) {
 	var req updateAssetSellingPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

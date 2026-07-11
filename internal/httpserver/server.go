@@ -11,26 +11,28 @@ import (
 )
 
 type Options struct {
-	Config               config.Config
-	Logger               *slog.Logger
-	TaskService          *services.TaskService
-	SystemConfigService  *services.SystemConfigService
-	ModelProviderService *services.ModelProviderService
-	ProductAssetService  *services.ProductAssetService
+	Config                config.Config
+	Logger                *slog.Logger
+	TaskService           *services.TaskService
+	SystemConfigService   *services.SystemConfigService
+	ModelProviderService  *services.ModelProviderService
+	ProductAssetService   *services.ProductAssetService
+	AssetEmbeddingService *services.AssetEmbeddingService
 }
 
 type Server struct {
-	cfg                  config.Config
-	logger               *slog.Logger
-	engine               *gin.Engine
-	userService          *services.UserService
-	systemConfigService  *services.SystemConfigService
-	modelProviderService *services.ModelProviderService
-	productAssetService  *services.ProductAssetService
-	uploadTokenService   *services.UploadTokenService
-	localStore           *storage.LocalStore
-	taskService          *services.TaskService
-	queueClient          *queue.Client
+	cfg                   config.Config
+	logger                *slog.Logger
+	engine                *gin.Engine
+	userService           *services.UserService
+	systemConfigService   *services.SystemConfigService
+	modelProviderService  *services.ModelProviderService
+	productAssetService   *services.ProductAssetService
+	assetEmbeddingService *services.AssetEmbeddingService
+	uploadTokenService    *services.UploadTokenService
+	localStore            *storage.LocalStore
+	taskService           *services.TaskService
+	queueClient           *queue.Client
 }
 
 func New(opts Options) *Server {
@@ -56,19 +58,24 @@ func New(opts Options) *Server {
 	if productAssetService == nil {
 		productAssetService = services.NewProductAssetService()
 	}
+	assetEmbeddingService := opts.AssetEmbeddingService
+	if assetEmbeddingService == nil {
+		assetEmbeddingService = services.NewAssetEmbeddingService(nil, productAssetService, systemConfigService, modelProviderService, opts.Config)
+	}
 
 	server := &Server{
-		cfg:                  opts.Config,
-		logger:               opts.Logger,
-		engine:               gin.New(),
-		userService:          services.NewUserService(opts.Config),
-		systemConfigService:  systemConfigService,
-		modelProviderService: modelProviderService,
-		productAssetService:  productAssetService,
-		uploadTokenService:   services.NewUploadTokenService(),
-		localStore:           storage.NewLocalStore(opts.Config.StorageRoot),
-		taskService:          taskService,
-		queueClient:          queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
+		cfg:                   opts.Config,
+		logger:                opts.Logger,
+		engine:                gin.New(),
+		userService:           services.NewUserService(opts.Config),
+		systemConfigService:   systemConfigService,
+		modelProviderService:  modelProviderService,
+		productAssetService:   productAssetService,
+		assetEmbeddingService: assetEmbeddingService,
+		uploadTokenService:    services.NewUploadTokenService(),
+		localStore:            storage.NewLocalStore(opts.Config.StorageRoot),
+		taskService:           taskService,
+		queueClient:           queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
 	}
 
 	server.routes()
@@ -155,6 +162,8 @@ func (s *Server) routes() {
 	protected.GET("/assets/:assetID/selling-points", s.handleListAssetSellingPoints)
 	protected.GET("/assets/:assetID/speech-segments", s.handleListAssetSpeechSegments)
 	protected.GET("/assets/:assetID/semantic-preview", s.handleGetAssetSemanticPreview)
+	protected.GET("/assets/:assetID/embeddings", s.handleListAssetEmbeddings)
+	protected.POST("/assets/:assetID/embeddings", s.handleVectorizeAsset)
 	protected.PUT("/assets/:assetID/review", s.handleUpdateAssetReview)
 	protected.PUT("/assets/:assetID/selling-points", s.handleUpdateAssetSellingPoints)
 	protected.PUT("/assets/:assetID/business-tags", s.handleUpdateAssetBusinessTags)
