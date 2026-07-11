@@ -55,6 +55,31 @@ body {
   width: 100%;
 }
 
+.settings-page-stack {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+  padding-bottom: 24px;
+}
+
+.settings-top-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin-bottom: 0;
+  padding-top: 2px;
+  background: #f4f6f8;
+}
+
+.settings-top-tabs > .ant-tabs-nav {
+  margin-bottom: 0;
+}
+
+.settings-tab-panel {
+  margin-top: 0;
+}
+
 .wide-space {
   width: 100%;
 }

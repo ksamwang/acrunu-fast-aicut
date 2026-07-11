@@ -2960,6 +2960,7 @@ function SettingsPage({ token }: { token: string }) {
   const [savingCapabilities, setSavingCapabilities] = useState(false);
   const [savingRuntime, setSavingRuntime] = useState(false);
   const [lastModelCount, setLastModelCount] = useState<number | null>(null);
+  const [settingsTab, setSettingsTab] = useState<"providers" | "models" | "runtime">("providers");
 
   const providers = providersResource.data ?? [];
   const providerOptions = providers.map((provider) => ({ value: provider.id, label: provider.name }));
@@ -3151,11 +3152,21 @@ function SettingsPage({ token }: { token: string }) {
   ];
 
   return (
-    <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>系统设置</Typography.Title>
+    <Space direction="vertical" size="middle" className="page-stack settings-page-stack">
+      <Tabs
+        className="settings-top-tabs"
+        activeKey={settingsTab}
+        onChange={(key) => setSettingsTab(key as "providers" | "models" | "runtime")}
+        items={[
+          { key: "providers", label: "模型供应商" },
+          { key: "models", label: "默认模型" },
+          { key: "runtime", label: "运行控制" }
+        ]}
+      />
 
       <Card
-        title="模型供应商"
+        className="settings-tab-panel"
+        style={{ display: settingsTab === "providers" ? undefined : "none" }}
         extra={
           <Space>
             <Button onClick={providersResource.reload}>刷新</Button>
@@ -3165,12 +3176,6 @@ function SettingsPage({ token }: { token: string }) {
         loading={providersResource.loading}
       >
         <Space direction="vertical" size="large" className="wide-space">
-          <Alert
-            type="info"
-            showIcon
-            message="先配置供应商，再为 LLM / VLM / 向量模型选择模型"
-            description="供应商只保存 OpenAI Compatible 的 Base URL 和 API Key；模型列表从对应供应商的 /models 端点拉取。"
-          />
           <Table
             rowKey="id"
             pagination={false}
@@ -3200,7 +3205,8 @@ function SettingsPage({ token }: { token: string }) {
       </Card>
 
       <Card
-        title="默认模型"
+        className="settings-tab-panel"
+        style={{ display: settingsTab === "models" ? undefined : "none" }}
         extra={<Button type="primary" loading={savingCapabilities} onClick={() => void saveCapabilitySettings()}>保存默认模型</Button>}
         loading={capabilitySettings.loading}
       >
@@ -3276,15 +3282,13 @@ function SettingsPage({ token }: { token: string }) {
         </Form>
       </Modal>
 
-      <Card title="运行控制" extra={<Button onClick={runtimeSettings.reload}>刷新</Button>} loading={runtimeSettings.loading}>
+      <Card
+        className="settings-tab-panel"
+        style={{ display: settingsTab === "runtime" ? undefined : "none" }}
+        extra={<Button onClick={runtimeSettings.reload}>刷新</Button>}
+        loading={runtimeSettings.loading}
+      >
         <Space direction="vertical" size="large" className="wide-space">
-          <Alert
-            type="info"
-            showIcon
-            message="这些配置决定系统吞吐和保护阈值"
-            description="模型调用不再做并发限制；这里保留 ASR、TTS、渲染和任务队列的运行控制。"
-          />
-
           <Form form={runtimeForm} layout="vertical">
             <div className="settings-section-grid">
               <Card size="small" title="模型与渲染并发" className="settings-inner-card">
