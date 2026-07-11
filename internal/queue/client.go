@@ -55,11 +55,12 @@ func (c *Client) EnqueueAssetExtractFrames(payload AssetExtractFramesPayload) er
 		return fmt.Errorf("task id is required")
 	}
 	encodedPayload, err := json.Marshal(AssetExtractFramesPayload{
-		TaskID:     payload.TaskID,
-		AssetID:    payload.AssetID,
-		StorageKey: payload.StorageKey,
-		DurationMs: payload.DurationMs,
-		Strategy:   payload.Strategy,
+		TaskID:      payload.TaskID,
+		AssetID:     payload.AssetID,
+		StorageKey:  payload.StorageKey,
+		DurationMs:  payload.DurationMs,
+		Strategy:    payload.Strategy,
+		SkipAnalyze: payload.SkipAnalyze,
 	})
 	if err != nil {
 		return err

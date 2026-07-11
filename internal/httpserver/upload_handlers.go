@@ -173,22 +173,8 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	if len(duplicates) > 0 {
 		response["duplicate_assets"] = duplicates
 	}
-	if submissionMode != "preprocessed" && probeErr == nil {
-		frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), token.UserID, asset.ProductID, servicesQueueExtractPayload(asset, ""))
-		if taskErr != nil {
-			response["frame_task_error"] = taskErr.Error()
-		} else {
-			response["frame_task"] = frameTask
-		}
-		if frameTask.ID != "" {
-			response["frame_task_id"] = frameTask.ID
-		}
-		if frameTask.ID != "" {
-			if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(servicesQueueExtractPayload(asset, frameTask.ID)); enqueueErr != nil {
-				_ = s.taskService.MarkFailed(c.Request.Context(), frameTask.ID, enqueueErr.Error())
-				response["frame_task_error"] = enqueueErr.Error()
-			}
-		}
+	if probeErr == nil {
+		s.enqueueAssetFrameExtraction(c, response, token.UserID, asset, submissionMode == "preprocessed")
 	}
 	if submissionMode != "preprocessed" && probeErr != nil {
 		response["probe_error"] = probeErr.Error()
@@ -537,15 +523,40 @@ func parseTimecodeToMilliseconds(value string) (int, bool) {
 	return totalMs, true
 }
 
-func servicesQueueExtractPayload(asset services.Asset, taskID string) queue.AssetExtractFramesPayload {
+func (s *Server) enqueueAssetFrameExtraction(c *gin.Context, response gin.H, userID string, asset services.Asset, preprocessed bool) {
+	payload := servicesQueueExtractPayload(asset, "", preprocessed)
+	frameTask, taskErr := s.taskService.CreateAssetExtractFramesTask(c.Request.Context(), userID, asset.ProductID, payload)
+	if taskErr != nil {
+		response["frame_task_error"] = taskErr.Error()
+		return
+	}
+	response["frame_task"] = frameTask
+	if frameTask.ID == "" {
+		return
+	}
+
+	response["frame_task_id"] = frameTask.ID
+	payload.TaskID = frameTask.ID
+	if enqueueErr := s.queueClient.EnqueueAssetExtractFrames(payload); enqueueErr != nil {
+		_ = s.taskService.MarkFailed(c.Request.Context(), frameTask.ID, enqueueErr.Error())
+		response["frame_task_error"] = enqueueErr.Error()
+	}
+}
+
+func servicesQueueExtractPayload(asset services.Asset, taskID string, preprocessed bool) queue.AssetExtractFramesPayload {
+	frameCount := suggestedFrameCountForDuration(asset.DurationMs)
+	if preprocessed {
+		frameCount = 3
+	}
 	return queue.AssetExtractFramesPayload{
-		TaskID:     taskID,
-		AssetID:    asset.ID,
-		StorageKey: asset.StorageKey,
-		DurationMs: asset.DurationMs,
+		TaskID:      taskID,
+		AssetID:     asset.ID,
+		StorageKey:  asset.StorageKey,
+		DurationMs:  asset.DurationMs,
+		SkipAnalyze: preprocessed,
 		Strategy: queue.FrameExtractionStrategy{
 			Mode:       queue.FrameExtractionModeFixedInterval,
-			FrameCount: suggestedFrameCountForDuration(asset.DurationMs),
+			FrameCount: frameCount,
 		},
 	}
 }

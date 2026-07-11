@@ -167,6 +167,9 @@ func (s *fileTaskStore) CreateAssetExtractFramesTask(_ context.Context, userID s
 	if payload.Strategy.KeyframeWindowMs > 0 {
 		summary["keyframe_window_ms"] = payload.Strategy.KeyframeWindowMs
 	}
+	if payload.SkipAnalyze {
+		summary["skip_analyze"] = true
+	}
 	return s.createTask(userID, productID, "asset_extract_frames", summary)
 }
 

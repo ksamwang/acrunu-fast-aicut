@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -588,8 +589,19 @@ func TestHandleUploadCleanShotPreprocessedSubmissionSkipsServerAnalysis(t *testi
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("unmarshal upload response failed: %v", err)
 	}
-	if _, exists := response.Data["frame_task_id"]; exists {
-		t.Fatalf("expected no frame task for preprocessed submission, got %#v", response.Data["frame_task_id"])
+	frameTaskID, exists := response.Data["frame_task_id"].(string)
+	if !exists || frameTaskID == "" {
+		t.Fatalf("expected frame task for preprocessed submission, got %#v", response.Data["frame_task_id"])
+	}
+	task, err := server.taskService.GetTask(context.Background(), frameTaskID)
+	if err != nil {
+		t.Fatalf("expected frame task to be stored: %v", err)
+	}
+	if task.PayloadSummary["skip_analyze"] != true {
+		t.Fatalf("expected preprocessed frame task to skip analyze, got %#v", task.PayloadSummary)
+	}
+	if task.PayloadSummary["frame_count"] != float64(3) {
+		t.Fatalf("expected preprocessed frame task to extract 3 frames, got %#v", task.PayloadSummary["frame_count"])
 	}
 
 	assetPayload, ok := response.Data["asset"].(map[string]any)

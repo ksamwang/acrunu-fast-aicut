@@ -1070,7 +1070,7 @@ func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, 
 	}
 	defer file.Close()
 
-	part, err := writer.CreateFormFile("file", item.CleanShotName)
+	part, err := writer.CreateFormFile("file", cleanShotUploadFileName(item))
 	if err != nil {
 		return "", err
 	}
@@ -1278,6 +1278,29 @@ func sanitizeFileName(name string) string {
 	name = strings.ReplaceAll(name, "/", "_")
 	name = strings.ReplaceAll(name, "\\", "_")
 	return name
+}
+
+func cleanShotUploadFileName(item WorkspaceItem) string {
+	cleanExt := filepath.Ext(item.CleanShotName)
+	if cleanExt == "" {
+		cleanExt = filepath.Ext(item.SourceFileName)
+	}
+	if cleanExt == "" {
+		cleanExt = ".mp4"
+	}
+
+	name := firstNonEmpty(item.AssetName, firstNonEmpty(item.OriginalFileName, item.SourceFileName))
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "." || name == string(filepath.Separator) {
+		name = ""
+	}
+	if strings.TrimSpace(name) == "" {
+		name = "clean-shot" + cleanExt
+	}
+	if filepath.Ext(name) == "" {
+		name += cleanExt
+	}
+	return sanitizeFileName(name)
 }
 
 func fileChecksum(path string) (string, error) {

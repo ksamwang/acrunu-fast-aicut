@@ -72,6 +72,7 @@ type Asset = {
   asset_name?: string;
   storage_key: string;
   file_name: string;
+  source_original_name?: string;
   source_type: string;
   status: string;
   analysis_status?: string;
@@ -373,6 +374,17 @@ function assetVideoURL(asset: Asset) {
   return `/storage/${encodeURI(asset.storage_key)}`;
 }
 
+function assetFileDisplayName(asset: Asset) {
+  if (asset.source_original_name && /^clean-shot\.[^.]+$/i.test(asset.file_name)) {
+    return asset.source_original_name;
+  }
+  return asset.file_name || asset.source_original_name || "-";
+}
+
+function assetDisplayTitle(asset: Asset) {
+  return asset.asset_name || assetFileDisplayName(asset);
+}
+
 function formatDateTime(value?: string) {
   if (!value) {
     return "-";
@@ -568,7 +580,7 @@ function LegacyProductsPage({ token }: { token: string }) {
             pagination={false}
             columns={[
               { title: "卖点", render: () => selectedSellingPoint.title },
-              { title: "素材", render: (_, asset) => asset.asset_name || asset.file_name },
+              { title: "素材", render: (_, asset) => assetDisplayTitle(asset) },
               { title: "类型", dataIndex: "source_type", render: (value) => translateValue(value, sourceTypeLabels) },
               { title: "状态", dataIndex: "status", render: (status) => <Tag>{translateValue(status, assetStatusLabels)}</Tag> },
               { title: "分析状态", dataIndex: "analysis_status", render: (status) => translateValue(status, analysisStatusLabels) }
@@ -938,7 +950,7 @@ function ProductsPage({ token }: { token: string }) {
           pagination={false}
           locale={{ emptyText: "当前卖点还没有关联素材" }}
           columns={[
-            { title: "素材", render: (_, asset) => asset.asset_name || asset.file_name },
+            { title: "素材", render: (_, asset) => assetDisplayTitle(asset) },
             { title: "类型", dataIndex: "source_type", width: 120, render: (value) => translateValue(value, sourceTypeLabels) },
             { title: "状态", dataIndex: "status", width: 120, render: (status) => <Tag>{translateValue(status, assetStatusLabels)}</Tag> },
             { title: "分析状态", dataIndex: "analysis_status", width: 120, render: (status) => translateValue(status, analysisStatusLabels) }
@@ -1293,8 +1305,8 @@ function ProductManagementPage({ token }: { token: string }) {
             {(sellingPointAssets.data ?? []).map((asset) => (
               <Card key={asset.id} className="product-linked-asset-card" bodyStyle={{ padding: 12 }}>
                 <video className="product-linked-asset-video" src={assetVideoURL(asset)} muted preload="metadata" controls />
-                <Typography.Text className="product-linked-asset-title" title={asset.asset_name || asset.file_name}>
-                  {asset.asset_name || asset.file_name}
+                <Typography.Text className="product-linked-asset-title" title={assetDisplayTitle(asset)}>
+                  {assetDisplayTitle(asset)}
                 </Typography.Text>
                 <Space size={[4, 4]} wrap>
                   <Tag>{translateValue(asset.source_type, sourceTypeLabels)}</Tag>
@@ -1883,7 +1895,8 @@ function AssetsPage({ token }: { token: string }) {
           ) : (
             <div className="asset-card-grid">
               {assetItems.map((asset) => {
-                const title = asset.asset_name || asset.file_name;
+                const title = assetDisplayTitle(asset);
+                const fileName = assetFileDisplayName(asset);
                 const tags = [...(asset.scene_tags ?? []), ...(asset.subjects ?? [])].slice(0, 4);
                 return (
                   <button
@@ -1902,7 +1915,7 @@ function AssetsPage({ token }: { token: string }) {
                     </div>
                     <div className="asset-card-body">
                       <Typography.Text className="asset-card-title">{title}</Typography.Text>
-                      <Typography.Text className="asset-card-file">{asset.file_name}</Typography.Text>
+                      <Typography.Text className="asset-card-file">{fileName}</Typography.Text>
                       <div className="asset-card-meta">
                         <span>{productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"}</span>
                         <span>{asset.width && asset.height ? asset.width + "x" + asset.height : "未知分辨率"}</span>
@@ -1942,7 +1955,7 @@ function AssetsPage({ token }: { token: string }) {
       </Space>
 
       <Modal
-        title={selectedAsset ? `素材详情：${selectedAsset.asset_name || selectedAsset.file_name}` : "素材详情"}
+        title={selectedAsset ? `素材详情：${assetDisplayTitle(selectedAsset)}` : "素材详情"}
         open={selectedAsset !== null}
         footer={null}
         width="86vw"
@@ -1956,8 +1969,8 @@ function AssetsPage({ token }: { token: string }) {
                 <video src={assetVideoURL(selectedAsset)} controls preload="metadata" />
                 <div className="asset-detail-title-block">
                   <div>
-                    <Typography.Title level={4}>{selectedAsset.asset_name || selectedAsset.file_name}</Typography.Title>
-                    <Typography.Text type="secondary">{selectedAsset.file_name}</Typography.Text>
+                    <Typography.Title level={4}>{assetDisplayTitle(selectedAsset)}</Typography.Title>
+                    <Typography.Text type="secondary">{assetFileDisplayName(selectedAsset)}</Typography.Text>
                   </div>
                   <Space wrap>
                     <Tag>{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Tag>
@@ -2107,7 +2120,7 @@ function AssetsPage({ token }: { token: string }) {
                   children: (
                     <div className="asset-detail-tab-panel">
                       <Descriptions bordered column={2} size="small">
-                        <Descriptions.Item label="文件">{selectedAsset.file_name}</Descriptions.Item>
+                        <Descriptions.Item label="文件">{assetFileDisplayName(selectedAsset)}</Descriptions.Item>
                         <Descriptions.Item label="素材类型">{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Descriptions.Item>
                         <Descriptions.Item label="状态">{translateValue(selectedAsset.status, assetStatusLabels)}</Descriptions.Item>
                         <Descriptions.Item label="分析状态">{translateValue(selectedAsset.analysis_status, analysisStatusLabels)}</Descriptions.Item>

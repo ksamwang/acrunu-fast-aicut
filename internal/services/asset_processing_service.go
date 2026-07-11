@@ -110,7 +110,7 @@ func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, p
 		}
 	}
 
-	if s.queueClient != nil {
+	if s.queueClient != nil && !payload.SkipAnalyze {
 		asset, ok := s.productAssetService.GetAsset(payload.AssetID)
 		if !ok {
 			return ErrAssetNotFound

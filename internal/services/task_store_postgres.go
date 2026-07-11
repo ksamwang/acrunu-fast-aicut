@@ -40,6 +40,9 @@ func (s *PostgresTaskStore) CreateAssetExtractFramesTask(ctx context.Context, us
 	if payload.Strategy.KeyframeWindowMs > 0 {
 		summary["keyframe_window_ms"] = payload.Strategy.KeyframeWindowMs
 	}
+	if payload.SkipAnalyze {
+		summary["skip_analyze"] = true
+	}
 	return s.createTask(ctx, userID, productID, "asset_extract_frames", summary)
 }
 

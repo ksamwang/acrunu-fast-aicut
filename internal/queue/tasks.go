@@ -20,11 +20,12 @@ type FrameExtractionStrategy struct {
 }
 
 type AssetExtractFramesPayload struct {
-	TaskID     string                  `json:"task_id"`
-	AssetID    string                  `json:"asset_id"`
-	StorageKey string                  `json:"storage_key"`
-	DurationMs int                     `json:"duration_ms"`
-	Strategy   FrameExtractionStrategy `json:"strategy"`
+	TaskID      string                  `json:"task_id"`
+	AssetID     string                  `json:"asset_id"`
+	StorageKey  string                  `json:"storage_key"`
+	DurationMs  int                     `json:"duration_ms"`
+	Strategy    FrameExtractionStrategy `json:"strategy"`
+	SkipAnalyze bool                    `json:"skip_analyze,omitempty"`
 }
 
 type AssetAnalyzePayload struct {
