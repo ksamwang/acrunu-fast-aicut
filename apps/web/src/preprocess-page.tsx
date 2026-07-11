@@ -344,6 +344,23 @@ function isButtonElementTarget(target: EventTarget | null) {
   return target instanceof Element ? target.closest("button") : null;
 }
 
+function currentSourceDurationMs(item: WorkspaceItem) {
+  return item.probe.duration_ms && item.probe.duration_ms > 0
+    ? item.probe.duration_ms
+    : Math.max(item.source_out_ms ?? 0, 0);
+}
+
+function clampCurrentSourceRange(sourceInMs: number, sourceOutMs: number, item: WorkspaceItem) {
+  const durationMs = currentSourceDurationMs(item);
+  const safeDurationMs = durationMs > 0 ? durationMs : sourceOutMs;
+  const safeInMs = Math.max(0, Math.min(Math.round(sourceInMs), Math.max(safeDurationMs - 1, 0)));
+  const safeOutMs = Math.max(safeInMs + 1, Math.min(Math.round(sourceOutMs), safeDurationMs));
+  return {
+    sourceInMs: safeInMs,
+    sourceOutMs: safeOutMs
+  };
+}
+
 export function PreprocessPage({ token }: { token: string }) {
   const [items, setItems] = useState<WorkspaceItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -371,7 +388,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
   const initializedEditorItemIDRef = useRef<string | null>(null);
-  const preprocessWorkbenchRef = useRef<HTMLFormElement | null>(null);
+  const preprocessWorkbenchRef = useRef<HTMLDivElement | null>(null);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
   const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
@@ -647,12 +664,21 @@ export function PreprocessPage({ token }: { token: string }) {
       return;
     }
     const values = form.getFieldsValue(["source_in_ms", "source_out_ms"]);
-    const sourceInMs = Number(values.source_in_ms ?? selectedItem.source_in_ms ?? 0);
-    const sourceOutMs = Number(values.source_out_ms ?? selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0);
+    const range = clampCurrentSourceRange(
+      Number(values.source_in_ms ?? selectedItem.source_in_ms ?? 0),
+      Number(values.source_out_ms ?? selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0),
+      selectedItem
+    );
+    const { sourceInMs, sourceOutMs } = range;
     if (!Number.isFinite(sourceInMs) || !Number.isFinite(sourceOutMs) || sourceOutMs <= sourceInMs) {
       message.warning("请先设置有效的裁切入点和出点");
       return;
     }
+
+    form.setFieldsValue({
+      source_in_ms: sourceInMs,
+      source_out_ms: sourceOutMs
+    });
 
     setPreviewingFrames(true);
     try {
@@ -664,17 +690,7 @@ export function PreprocessPage({ token }: { token: string }) {
           source_out_ms: Math.round(sourceOutMs)
         })
       });
-      setItems((current) =>
-        current.map((item) =>
-          item.id === response.item.id
-            ? {
-                ...response.item,
-                source_in_ms: Math.round(sourceInMs),
-                source_out_ms: Math.round(sourceOutMs)
-              }
-            : item
-        )
-      );
+      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
       setFramesPreviewOpen(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "三帧抽样失败");
@@ -688,8 +704,12 @@ export function PreprocessPage({ token }: { token: string }) {
       return;
     }
     const values = form.getFieldsValue(["source_type", "source_in_ms", "source_out_ms"]);
-    const sourceInMs = Number(values.source_in_ms ?? selectedItem.source_in_ms ?? 0);
-    const sourceOutMs = Number(values.source_out_ms ?? selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0);
+    const range = clampCurrentSourceRange(
+      Number(values.source_in_ms ?? selectedItem.source_in_ms ?? 0),
+      Number(values.source_out_ms ?? selectedItem.source_out_ms ?? selectedItem.probe.duration_ms ?? 0),
+      selectedItem
+    );
+    const { sourceInMs, sourceOutMs } = range;
     const sourceType = values.source_type ?? selectedItem.source_type ?? "visual_only";
     const productName =
       sourceType === "visual_only"
@@ -699,6 +719,11 @@ export function PreprocessPage({ token }: { token: string }) {
       message.warning("请先设置有效的裁切入点和出点");
       return;
     }
+    form.setFieldsValue({
+      source_in_ms: sourceInMs,
+      source_out_ms: sourceOutMs
+    });
+
     setStartingVLMLabel(true);
     try {
       const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/vlm-label`, {

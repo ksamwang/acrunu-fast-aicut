@@ -299,15 +299,12 @@ func (w *Workspace) PreviewFrames(ctx context.Context, itemID string, input Work
 	}
 	w.mu.Unlock()
 
-	sourceOutMs := input.SourceOutMs
-	if sourceOutMs <= 0 {
-		sourceOutMs = item.Probe.DurationMs
-	}
-	if err := validateSourceRange(input.SourceInMs, sourceOutMs, item.Probe.DurationMs); err != nil {
+	sourceInMs, sourceOutMs, err := normalizeSourceRangeForDuration(input.SourceInMs, input.SourceOutMs, item.Probe.DurationMs)
+	if err != nil {
 		return WorkspaceItem{}, err
 	}
 
-	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, sourceOutMs, item.Probe.FPS)
+	frameTimestamps := resolveThreeFrameTimestampsInRange(sourceInMs, sourceOutMs, item.Probe.FPS)
 	frameDir := filepath.Join(w.root, "items", item.ID, "preview-frames")
 	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
 	if err != nil {
@@ -333,7 +330,7 @@ func (w *Workspace) PreviewFrames(ctx context.Context, itemID string, input Work
 	if !ok {
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
-	current.PreviewInMs = input.SourceInMs
+	current.PreviewInMs = sourceInMs
 	current.PreviewOutMs = sourceOutMs
 	current.PreviewFrames = frameSnapshots
 	current.LastError = ""
@@ -352,11 +349,8 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 		w.mu.Unlock()
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
-	sourceOutMs := input.SourceOutMs
-	if sourceOutMs <= 0 {
-		sourceOutMs = item.Probe.DurationMs
-	}
-	if err := validateSourceRange(input.SourceInMs, sourceOutMs, item.Probe.DurationMs); err != nil {
+	sourceInMs, sourceOutMs, err := normalizeSourceRangeForDuration(input.SourceInMs, input.SourceOutMs, item.Probe.DurationMs)
+	if err != nil {
 		w.mu.Unlock()
 		return WorkspaceItem{}, err
 	}
@@ -373,7 +367,7 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 	}
 
 	item.SourceType = sourceType
-	item.SourceInMs = input.SourceInMs
+	item.SourceInMs = sourceInMs
 	item.SourceOutMs = sourceOutMs
 	item.VLMStatus = vlmStatusQueued
 	item.VLMError = ""
@@ -391,7 +385,7 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 	go w.runVLMLabel(context.Background(), itemID, WorkspaceVLMLabelInput{
 		SourceType:    sourceType,
 		ProductName:   input.ProductName,
-		SourceInMs:    input.SourceInMs,
+		SourceInMs:    sourceInMs,
 		SourceOutMs:   sourceOutMs,
 		ServerBaseURL: input.ServerBaseURL,
 		AuthToken:     input.AuthToken,
@@ -1200,6 +1194,22 @@ func validateSourceRange(sourceInMs int, sourceOutMs int, durationMs int) error 
 		return fmt.Errorf("source range exceeds source duration")
 	}
 	return nil
+}
+
+func normalizeSourceRangeForDuration(sourceInMs int, sourceOutMs int, durationMs int) (int, int, error) {
+	if sourceOutMs <= 0 {
+		sourceOutMs = durationMs
+	}
+	if durationMs > 0 && sourceOutMs > durationMs {
+		sourceOutMs = durationMs
+	}
+	if durationMs > 0 && sourceInMs >= durationMs {
+		return 0, 0, fmt.Errorf("source range exceeds source duration")
+	}
+	if err := validateSourceRange(sourceInMs, sourceOutMs, durationMs); err != nil {
+		return 0, 0, err
+	}
+	return sourceInMs, sourceOutMs, nil
 }
 
 func resolveThreeFrameTimestamps(durationMs int, fps float64) []int {
