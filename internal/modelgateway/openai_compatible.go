@@ -74,7 +74,7 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 		}
 		userContent = append(userContent, map[string]any{
 			"type": "text",
-			"text": "Product reference image follows. Use it only as identification reference, not as a video frame.",
+			"text": "Product reference image follows. It defines the target product to recognize in the preceding video frames. Do not treat this reference image as a video frame or scene content.",
 		})
 		userContent = append(userContent, map[string]any{
 			"type": "image_url",

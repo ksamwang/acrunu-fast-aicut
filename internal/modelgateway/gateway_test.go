@@ -49,11 +49,11 @@ func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
 		SourceType:  "visual_only",
 		ProductName: "车载氛围灯",
 	})
-	if !strings.Contains(visualBundle.Prompts[0].User, "product_name") {
+	if !strings.Contains(visualBundle.Prompts[0].User, "Target product name") {
 		t.Fatalf("expected visual_only prompt to include product context, got %s", visualBundle.Prompts[0].User)
 	}
-	if !strings.Contains(visualBundle.Prompts[0].User, "visible_product must be based only on visual evidence") {
-		t.Fatalf("expected weak product context warning, got %s", visualBundle.Prompts[0].User)
+	if !strings.Contains(visualBundle.Prompts[0].User, "visible_product means the target product is visible") {
+		t.Fatalf("expected target product visibility rule, got %s", visualBundle.Prompts[0].User)
 	}
 
 	talkingHeadBundle := BuildPromptBundle(AnalyzeAssetInput{
