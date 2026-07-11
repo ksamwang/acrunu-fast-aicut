@@ -20,6 +20,7 @@ import {
   Select,
   Space,
   Table,
+  Tabs,
   Tag,
   Typography,
   message
@@ -1949,114 +1950,112 @@ function AssetsPage({ token }: { token: string }) {
         onCancel={() => setSelectedAsset(null)}
       >
         {selectedAsset ? (
-          <Space direction="vertical" size="large" className="wide-space" data-testid="asset-detail-modal">
-            <div className="asset-detail-hero">
-              <video src={assetVideoURL(selectedAsset)} controls preload="metadata" />
-              <div className="asset-detail-hero-meta">
-                <Typography.Title level={4}>{selectedAsset.asset_name || selectedAsset.file_name}</Typography.Title>
-                <Typography.Text type="secondary">{selectedAsset.file_name}</Typography.Text>
-                <Space wrap>
-                  <Tag>{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Tag>
-                  <Tag>{translateValue(selectedAsset.status, assetStatusLabels)}</Tag>
-                  {selectedAsset.analysis_status ? <Tag color="blue">{translateValue(selectedAsset.analysis_status, analysisStatusLabels)}</Tag> : null}
-                </Space>
-              </div>
-            </div>
-            <Descriptions bordered column={2} size="small">
-              <Descriptions.Item label="文件">{selectedAsset.file_name}</Descriptions.Item>
-              <Descriptions.Item label="素材类型">{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Descriptions.Item>
-              <Descriptions.Item label="状态">{translateValue(selectedAsset.status, assetStatusLabels)}</Descriptions.Item>
-              <Descriptions.Item label="分析状态">{translateValue(selectedAsset.analysis_status, analysisStatusLabels)}</Descriptions.Item>
-              <Descriptions.Item label="时长">{formatDuration(selectedAsset.duration_ms)}</Descriptions.Item>
-              <Descriptions.Item label="分辨率">
-                {selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}x${selectedAsset.height}` : "-"}
-              </Descriptions.Item>
-              <Descriptions.Item label="帧率">{selectedAsset.fps ?? "-"}</Descriptions.Item>
-              <Descriptions.Item label="视频编码">{selectedAsset.codec || "-"}</Descriptions.Item>
-              <Descriptions.Item label="是否含音频">{selectedAsset.has_audio ? "是" : "否"}</Descriptions.Item>
-              <Descriptions.Item label="音频编码">{selectedAsset.audio_codec || "-"}</Descriptions.Item>
-              <Descriptions.Item label="码率">{selectedAsset.bitrate_kbps ? `${selectedAsset.bitrate_kbps} kbps` : "-"}</Descriptions.Item>
-              <Descriptions.Item label="人工清洗状态">
-                {translateValue(selectedAsset.manual_clean_status, manualCleanStatusLabels)}
-              </Descriptions.Item>
-              <Descriptions.Item label="可用性">{translateValue(selectedAsset.usability_status, usabilityStatusLabels)}</Descriptions.Item>
-            </Descriptions>
+          <div className="asset-detail-shell" data-testid="asset-detail-modal">
+            <div className="asset-detail-workspace">
+              <section className="asset-detail-preview">
+                <video src={assetVideoURL(selectedAsset)} controls preload="metadata" />
+                <div className="asset-detail-title-block">
+                  <div>
+                    <Typography.Title level={4}>{selectedAsset.asset_name || selectedAsset.file_name}</Typography.Title>
+                    <Typography.Text type="secondary">{selectedAsset.file_name}</Typography.Text>
+                  </div>
+                  <Space wrap>
+                    <Tag>{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Tag>
+                    <Tag>{translateValue(selectedAsset.status, assetStatusLabels)}</Tag>
+                    {selectedAsset.analysis_status ? <Tag color="blue">{translateValue(selectedAsset.analysis_status, analysisStatusLabels)}</Tag> : null}
+                  </Space>
+                </div>
+                <div className="asset-detail-quick-meta">
+                  <span>时长 {formatDuration(selectedAsset.duration_ms)}</span>
+                  <span>{selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}x${selectedAsset.height}` : "未知分辨率"}</span>
+                  <span>{selectedAsset.fps ? `${selectedAsset.fps}fps` : "未知帧率"}</span>
+                  <span>{selectedAsset.has_audio ? "含音频" : "无音频"}</span>
+                  <span>{translateValue(selectedAsset.usability_status, usabilityStatusLabels)}</span>
+                </div>
+              </section>
 
-            <Card title="分析摘要">
-              <Space direction="vertical" className="wide-space">
-                <Space>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setEditingAnalysis((current) => !current);
-                      reviewForm.setFieldsValue({
-                        scene_description: selectedAsset.scene_description || "",
-                        shot_size: selectedAsset.shot_size || "",
-                        camera_movement: selectedAsset.camera_movement || "",
-                        subjects: selectedAsset.subjects || [],
-                        scene_tags: selectedAsset.scene_tags || [],
-                        quality_tags: selectedAsset.quality_tags || [],
-                        usability_status: selectedAsset.usability_status || "usable",
-                        reviewer_notes: selectedAsset.reviewer_notes || ""
-                      });
-                    }}
-                  >
-                    {editingAnalysis ? "取消编辑" : "编辑标签"}
-                  </Button>
-                  {editingAnalysis ? (
-                    <Button type="primary" size="small" loading={savingAnalysis} onClick={saveAnalysisReview} data-testid="save-asset-review">
-                      保存复核
-                    </Button>
-                  ) : null}
-                  {selectedAsset.status === "archived" ? (
+              <section className="asset-detail-analysis-card">
+                <div className="asset-detail-section-head">
+                  <div>
+                    <Typography.Title level={5}>分析与维护</Typography.Title>
+                    <Typography.Text type="secondary">画面标签、可用性和人工复核</Typography.Text>
+                  </div>
+                  <Space wrap>
                     <Button
                       size="small"
-                      loading={updatingArchive}
-                      onClick={() => void updateAssetArchiveState(selectedAsset, "restore")}
-                      data-testid="restore-asset"
+                      onClick={() => {
+                        setEditingAnalysis((current) => !current);
+                        reviewForm.setFieldsValue({
+                          scene_description: selectedAsset.scene_description || "",
+                          shot_size: selectedAsset.shot_size || "",
+                          camera_movement: selectedAsset.camera_movement || "",
+                          subjects: selectedAsset.subjects || [],
+                          scene_tags: selectedAsset.scene_tags || [],
+                          quality_tags: selectedAsset.quality_tags || [],
+                          usability_status: selectedAsset.usability_status || "usable",
+                          reviewer_notes: selectedAsset.reviewer_notes || ""
+                        });
+                      }}
                     >
-                      恢复素材
+                      {editingAnalysis ? "取消编辑" : "编辑标签"}
                     </Button>
-                  ) : (
-                    <Button
-                      size="small"
-                      danger
-                      loading={updatingArchive}
-                      onClick={() => void updateAssetArchiveState(selectedAsset, "archive")}
-                      data-testid="archive-asset"
-                    >
-                      归档素材
-                    </Button>
-                  )}
-                </Space>
+                    {editingAnalysis ? (
+                      <Button type="primary" size="small" loading={savingAnalysis} onClick={saveAnalysisReview} data-testid="save-asset-review">
+                        保存复核
+                      </Button>
+                    ) : null}
+                    {selectedAsset.status === "archived" ? (
+                      <Button
+                        size="small"
+                        loading={updatingArchive}
+                        onClick={() => void updateAssetArchiveState(selectedAsset, "restore")}
+                        data-testid="restore-asset"
+                      >
+                        恢复素材
+                      </Button>
+                    ) : (
+                      <Button
+                        size="small"
+                        danger
+                        loading={updatingArchive}
+                        onClick={() => void updateAssetArchiveState(selectedAsset, "archive")}
+                        data-testid="archive-asset"
+                      >
+                        归档素材
+                      </Button>
+                    )}
+                  </Space>
+                </div>
 
                 {editingAnalysis ? (
-                  <Form form={reviewForm} layout="vertical" data-testid="asset-review-form">
+                  <Form form={reviewForm} layout="vertical" data-testid="asset-review-form" className="asset-detail-review-form">
                     <Form.Item name="scene_description" label="画面描述">
                       <Input.TextArea rows={3} />
                     </Form.Item>
-                    <Form.Item name="shot_size" label="景别">
-                      <Select
-                        allowClear
-                        options={[
-                          { value: "close_up", label: "特写" },
-                          { value: "medium_close_up", label: "近景" },
-                          { value: "medium_shot", label: "中景" },
-                          { value: "wide_shot", label: "远景" }
-                        ]}
-                      />
-                    </Form.Item>
-                    <Form.Item name="camera_movement" label="运镜">
-                      <Select
-                        allowClear
-                        options={[
-                          { value: "static", label: "固定机位" },
-                          { value: "slow_push_in", label: "缓慢推进" },
-                          { value: "pan", label: "平移" },
-                          { value: "handheld", label: "手持" }
-                        ]}
-                      />
-                    </Form.Item>
+                    <div className="asset-detail-form-grid">
+                      <Form.Item name="shot_size" label="景别">
+                        <Select
+                          allowClear
+                          options={[
+                            { value: "close_up", label: "特写" },
+                            { value: "medium_close_up", label: "近景" },
+                            { value: "medium_shot", label: "中景" },
+                            { value: "wide_shot", label: "远景" }
+                          ]}
+                        />
+                      </Form.Item>
+                      <Form.Item name="camera_movement" label="运镜">
+                        <Select
+                          allowClear
+                          options={[
+                            { value: "static", label: "固定机位" },
+                            { value: "slow_push_in", label: "缓慢推进" },
+                            { value: "pan", label: "平移" },
+                            { value: "handheld", label: "手持" }
+                          ]}
+                        />
+                      </Form.Item>
+                    </div>
                     <Form.Item name="subjects" label="主体标签">
                       <Select mode="tags" tokenSeparators={[","]} open={false} />
                     </Form.Item>
@@ -2080,253 +2079,331 @@ function AssetsPage({ token }: { token: string }) {
                     </Form.Item>
                   </Form>
                 ) : (
-                  <Descriptions bordered column={1} size="small" data-testid="asset-analysis-panel">
+                  <Descriptions bordered column={1} size="small" data-testid="asset-analysis-panel" className="asset-detail-analysis-summary">
                     <Descriptions.Item label="画面描述">
                       {selectedAsset.scene_description || <Typography.Text type="secondary">暂无分析结果。</Typography.Text>}
                     </Descriptions.Item>
-                    <Descriptions.Item label="景别">
-                      {translateValue(selectedAsset.shot_size, shotSizeLabels)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="运镜">
-                      {translateValue(selectedAsset.camera_movement, cameraMovementLabels)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="主体标签">
-                      {renderTagList(selectedAsset.subjects, "暂无主体标签")}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="场景标签">
-                      {renderTagList(selectedAsset.scene_tags, "暂无场景标签")}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="质量标签">
-                      {renderTagList(selectedAsset.quality_tags, "暂无质量问题")}
-                    </Descriptions.Item>
+                    <Descriptions.Item label="景别">{translateValue(selectedAsset.shot_size, shotSizeLabels)}</Descriptions.Item>
+                    <Descriptions.Item label="运镜">{translateValue(selectedAsset.camera_movement, cameraMovementLabels)}</Descriptions.Item>
+                    <Descriptions.Item label="主体标签">{renderTagList(selectedAsset.subjects, "暂无主体标签")}</Descriptions.Item>
+                    <Descriptions.Item label="场景标签">{renderTagList(selectedAsset.scene_tags, "暂无场景标签")}</Descriptions.Item>
+                    <Descriptions.Item label="质量标签">{renderTagList(selectedAsset.quality_tags, "暂无质量问题")}</Descriptions.Item>
                     <Descriptions.Item label="复核备注">
                       {selectedAsset.reviewer_notes || <Typography.Text type="secondary">无</Typography.Text>}
                     </Descriptions.Item>
-                    <Descriptions.Item label="分析错误">
-                      {selectedAsset.analysis_error || <Typography.Text type="secondary">无</Typography.Text>}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="模型原始结果">
-                      {selectedAsset.model_result && Object.keys(selectedAsset.model_result).length > 0 ? (
-                        <pre className="json-block">{JSON.stringify(selectedAsset.model_result, null, 2)}</pre>
-                      ) : (
-                        <Typography.Text type="secondary">暂无模型原始输出</Typography.Text>
-                      )}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="模型标准化标签">
-                      {selectedAsset.model_labels && Object.keys(selectedAsset.model_labels).length > 0 ? (
-                        <pre className="json-block">{JSON.stringify(selectedAsset.model_labels, null, 2)}</pre>
-                      ) : (
-                        <Typography.Text type="secondary">暂无标准化模型标签</Typography.Text>
-                      )}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="人工覆盖结果">
-                      {selectedAsset.review_overrides && Object.keys(selectedAsset.review_overrides).length > 0 ? (
-                        <pre className="json-block">{JSON.stringify(selectedAsset.review_overrides, null, 2)}</pre>
-                      ) : (
-                        <Typography.Text type="secondary">暂无人工覆盖</Typography.Text>
-                      )}
-                    </Descriptions.Item>
                   </Descriptions>
                 )}
-              </Space>
-            </Card>
+              </section>
+            </div>
 
-            <Card title="开放语义与向量化对象" loading={semanticPreviewLoading}>
-              <Descriptions bordered column={1} size="small">
-                <Descriptions.Item label="开放语义描述">
-                  {semanticPreview?.open_semantic_description ? (
-                    semanticPreview.open_semantic_description
-                  ) : (
-                    <Typography.Text type="secondary">暂无开放语义描述</Typography.Text>
-                  )}
-                </Descriptions.Item>
-                <Descriptions.Item label="向量化对象预览">
-                  {semanticPreview && semanticPreview.embedding_targets.length > 0 ? (
-                    <Table<AssetEmbeddingTarget>
-                      rowKey="object_id"
-                      dataSource={semanticPreview.embedding_targets}
-                      pagination={false}
-                      size="small"
-                      columns={[
-                        {
-                          title: "对象类型",
-                          render: (_, item) => item.object_type
-                        },
-                        {
-                          title: "对象文本",
-                          dataIndex: "text"
-                        },
-                        {
-                          title: "元数据",
-                          render: (_, item) =>
-                            item.metadata && Object.keys(item.metadata).length > 0 ? (
-                              <pre className="json-block">{JSON.stringify(item.metadata, null, 2)}</pre>
-                            ) : (
-                              <Typography.Text type="secondary">无</Typography.Text>
-                            )
-                        }
-                      ]}
-                    />
-                  ) : (
-                    <Typography.Text type="secondary">暂无向量化对象预览</Typography.Text>
-                  )}
-                </Descriptions.Item>
-              </Descriptions>
-            </Card>
-
-            <Card
-              title="精选业务标签"
-              extra={
-                <Button type="primary" size="small" loading={savingBusinessTags} onClick={saveAssetBusinessTags}>
-                  保存精选标签
-                </Button>
-              }
-            >
-              <Space direction="vertical" className="wide-space">
-                <Form form={businessTagForm} layout="vertical">
-                  <Form.Item name="is_curated" label="是否精选">
-                    <Select
-                      options={[
-                        { value: true, label: "精选素材" },
-                        { value: false, label: "普通素材" }
-                      ]}
-                    />
-                  </Form.Item>
-                  <Form.Item name="business_tags" label="业务标签">
-                    <Select mode="tags" tokenSeparators={[","]} open={false} />
-                  </Form.Item>
-                  <Form.Item name="narrative_roles" label="叙事角色">
-                    <Select mode="tags" tokenSeparators={[","]} open={false} />
-                  </Form.Item>
-                  <Form.Item name="usage_notes" label="使用建议">
-                    <Input.TextArea rows={3} />
-                  </Form.Item>
-                </Form>
-                <Descriptions bordered column={1} size="small">
-                  <Descriptions.Item label="当前精选状态">
-                    {selectedAsset.metadata?.is_curated ? "精选素材" : "普通素材"}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="当前业务标签">
-                    {renderTagList(
-                      Array.isArray(selectedAsset.metadata?.business_tags) ? (selectedAsset.metadata?.business_tags as string[]) : [],
-                      "暂无业务标签"
-                    )}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="当前叙事角色">
-                    {renderTagList(
-                      Array.isArray(selectedAsset.metadata?.narrative_roles) ? (selectedAsset.metadata?.narrative_roles as string[]) : [],
-                      "暂无叙事角色"
-                    )}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="当前使用建议">
-                    {typeof selectedAsset.metadata?.usage_notes === "string" && selectedAsset.metadata?.usage_notes ? (
-                      selectedAsset.metadata?.usage_notes as string
-                    ) : (
-                      <Typography.Text type="secondary">暂无使用建议</Typography.Text>
-                    )}
-                  </Descriptions.Item>
-                </Descriptions>
-              </Space>
-            </Card>
-
-            <Card
-              title="卖点关联"
-              extra={
-                <Button
-                  type="primary"
-                  size="small"
-                  loading={savingSellingPoints}
-                  onClick={saveAssetSellingPoints}
-                  data-testid="save-asset-selling-points"
-                >
-                  保存卖点关联
-                </Button>
-              }
-            >
-              <Space direction="vertical" className="wide-space">
-                <Form form={sellingPointForm} layout="vertical">
-                  <Form.Item name="selling_point_ids" label="关联卖点">
-                    <Select
-                      mode="multiple"
-                      allowClear
-                      placeholder="请选择卖点"
-                      options={(assetDetailSellingPoints.data ?? []).map((item) => ({
-                        value: item.id,
-                        label: item.title
-                      }))}
-                      data-testid="asset-selling-points-select"
-                    />
-                  </Form.Item>
-                </Form>
-                <Descriptions bordered column={1} size="small">
-                  <Descriptions.Item label="当前关联">
-                    {assetSellingPoints.length > 0 ? (
-                      <Space wrap size={[6, 6]}>
-                        {assetSellingPoints.map((item) => (
-                          <Tag key={item.id}>{item.title}</Tag>
-                        ))}
-                      </Space>
-                    ) : (
-                      <Typography.Text type="secondary">暂无关联卖点。</Typography.Text>
-                    )}
-                  </Descriptions.Item>
-                </Descriptions>
-              </Space>
-            </Card>
-
-            <Card title="抽帧预览" loading={framesLoading}>
-              {frames.length === 0 ? (
-                <Empty description="暂无抽帧结果" />
-              ) : (
-                <div className="frame-grid">
-                  {frames.map((frame) => (
-                    <div key={frame.id} className="frame-card" data-testid="frame-card">
-                      <img
-                        className="frame-image"
-                        src={`/storage/${encodeURI(frame.storage_key)}`}
-                        alt={`frame-${frame.frame_index}`}
-                      />
-                      <Typography.Text strong>{formatTimestamp(frame.timestamp_ms)}</Typography.Text>
-                      <Typography.Text type="secondary">第 {frame.frame_index} 帧</Typography.Text>
+            <Tabs
+              className="asset-detail-tabs"
+              defaultActiveKey="basic"
+              items={[
+                {
+                  key: "basic",
+                  label: "基础信息",
+                  forceRender: true,
+                  children: (
+                    <div className="asset-detail-tab-panel">
+                      <Descriptions bordered column={2} size="small">
+                        <Descriptions.Item label="文件">{selectedAsset.file_name}</Descriptions.Item>
+                        <Descriptions.Item label="素材类型">{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Descriptions.Item>
+                        <Descriptions.Item label="状态">{translateValue(selectedAsset.status, assetStatusLabels)}</Descriptions.Item>
+                        <Descriptions.Item label="分析状态">{translateValue(selectedAsset.analysis_status, analysisStatusLabels)}</Descriptions.Item>
+                        <Descriptions.Item label="时长">{formatDuration(selectedAsset.duration_ms)}</Descriptions.Item>
+                        <Descriptions.Item label="分辨率">
+                          {selectedAsset.width && selectedAsset.height ? `${selectedAsset.width}x${selectedAsset.height}` : "-"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="帧率">{selectedAsset.fps ?? "-"}</Descriptions.Item>
+                        <Descriptions.Item label="视频编码">{selectedAsset.codec || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="是否含音频">{selectedAsset.has_audio ? "是" : "否"}</Descriptions.Item>
+                        <Descriptions.Item label="音频编码">{selectedAsset.audio_codec || "-"}</Descriptions.Item>
+                        <Descriptions.Item label="码率">{selectedAsset.bitrate_kbps ? `${selectedAsset.bitrate_kbps} kbps` : "-"}</Descriptions.Item>
+                        <Descriptions.Item label="人工清洗状态">
+                          {translateValue(selectedAsset.manual_clean_status, manualCleanStatusLabels)}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="可用性">{translateValue(selectedAsset.usability_status, usabilityStatusLabels)}</Descriptions.Item>
+                      </Descriptions>
                     </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            {selectedAsset.source_type === "talking_head" ? (
-              <Card title="口播句段" loading={speechSegmentsLoading}>
-                {speechSegments.length === 0 ? (
-                  <Empty description="暂无已入库的口播句段" />
-                ) : (
-                  <Table<AssetSpeechSegment>
-                    rowKey="id"
-                    dataSource={speechSegments}
-                    pagination={false}
-                    size="small"
-                    columns={[
+                  )
+                },
+                {
+                  key: "ai",
+                  label: "AI 分析",
+                  forceRender: true,
+                  children: (
+                    <div className="asset-detail-tab-panel">
+                      <Descriptions bordered column={1} size="small">
+                        <Descriptions.Item label="分析错误">
+                          {selectedAsset.analysis_error || <Typography.Text type="secondary">无</Typography.Text>}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="模型原始结果">
+                          {selectedAsset.model_result && Object.keys(selectedAsset.model_result).length > 0 ? (
+                            <pre className="json-block">{JSON.stringify(selectedAsset.model_result, null, 2)}</pre>
+                          ) : (
+                            <Typography.Text type="secondary">暂无模型原始输出</Typography.Text>
+                          )}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="模型标准化标签">
+                          {selectedAsset.model_labels && Object.keys(selectedAsset.model_labels).length > 0 ? (
+                            <pre className="json-block">{JSON.stringify(selectedAsset.model_labels, null, 2)}</pre>
+                          ) : (
+                            <Typography.Text type="secondary">暂无标准化模型标签</Typography.Text>
+                          )}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="人工覆盖结果">
+                          {selectedAsset.review_overrides && Object.keys(selectedAsset.review_overrides).length > 0 ? (
+                            <pre className="json-block">{JSON.stringify(selectedAsset.review_overrides, null, 2)}</pre>
+                          ) : (
+                            <Typography.Text type="secondary">暂无人工覆盖</Typography.Text>
+                          )}
+                        </Descriptions.Item>
+                      </Descriptions>
+                    </div>
+                  )
+                },
+                {
+                  key: "business",
+                  label: "业务标签",
+                  forceRender: true,
+                  children: (
+                    <div className="asset-detail-tab-panel">
+                      <Card
+                        title="精选业务标签"
+                        extra={
+                          <Button type="primary" size="small" loading={savingBusinessTags} onClick={saveAssetBusinessTags}>
+                            保存精选标签
+                          </Button>
+                        }
+                      >
+                        <Space direction="vertical" className="wide-space">
+                          <Form form={businessTagForm} layout="vertical">
+                            <Form.Item name="is_curated" label="是否精选">
+                              <Select
+                                options={[
+                                  { value: true, label: "精选素材" },
+                                  { value: false, label: "普通素材" }
+                                ]}
+                              />
+                            </Form.Item>
+                            <Form.Item name="business_tags" label="业务标签">
+                              <Select mode="tags" tokenSeparators={[","]} open={false} />
+                            </Form.Item>
+                            <Form.Item name="narrative_roles" label="叙事角色">
+                              <Select mode="tags" tokenSeparators={[","]} open={false} />
+                            </Form.Item>
+                            <Form.Item name="usage_notes" label="使用建议">
+                              <Input.TextArea rows={3} />
+                            </Form.Item>
+                          </Form>
+                          <Descriptions bordered column={1} size="small">
+                            <Descriptions.Item label="当前精选状态">
+                              {selectedAsset.metadata?.is_curated ? "精选素材" : "普通素材"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="当前业务标签">
+                              {renderTagList(
+                                Array.isArray(selectedAsset.metadata?.business_tags) ? (selectedAsset.metadata?.business_tags as string[]) : [],
+                                "暂无业务标签"
+                              )}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="当前叙事角色">
+                              {renderTagList(
+                                Array.isArray(selectedAsset.metadata?.narrative_roles) ? (selectedAsset.metadata?.narrative_roles as string[]) : [],
+                                "暂无叙事角色"
+                              )}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="当前使用建议">
+                              {typeof selectedAsset.metadata?.usage_notes === "string" && selectedAsset.metadata?.usage_notes ? (
+                                selectedAsset.metadata?.usage_notes as string
+                              ) : (
+                                <Typography.Text type="secondary">暂无使用建议</Typography.Text>
+                              )}
+                            </Descriptions.Item>
+                          </Descriptions>
+                        </Space>
+                      </Card>
+                    </div>
+                  )
+                },
+                {
+                  key: "selling-points",
+                  label: "卖点关联",
+                  forceRender: true,
+                  children: (
+                    <div className="asset-detail-tab-panel">
+                      <Card
+                        title="卖点关联"
+                        extra={
+                          <Button
+                            type="primary"
+                            size="small"
+                            loading={savingSellingPoints}
+                            onClick={saveAssetSellingPoints}
+                            data-testid="save-asset-selling-points"
+                          >
+                            保存卖点关联
+                          </Button>
+                        }
+                      >
+                        <Space direction="vertical" className="wide-space">
+                          <Form form={sellingPointForm} layout="vertical">
+                            <Form.Item name="selling_point_ids" label="关联卖点">
+                              <Select
+                                mode="multiple"
+                                allowClear
+                                placeholder="请选择卖点"
+                                options={(assetDetailSellingPoints.data ?? []).map((item) => ({
+                                  value: item.id,
+                                  label: item.title
+                                }))}
+                                data-testid="asset-selling-points-select"
+                              />
+                            </Form.Item>
+                          </Form>
+                          <Descriptions bordered column={1} size="small">
+                            <Descriptions.Item label="当前关联">
+                              {assetSellingPoints.length > 0 ? (
+                                <Space wrap size={[6, 6]}>
+                                  {assetSellingPoints.map((item) => (
+                                    <Tag key={item.id}>{item.title}</Tag>
+                                  ))}
+                                </Space>
+                              ) : (
+                                <Typography.Text type="secondary">暂无关联卖点。</Typography.Text>
+                              )}
+                            </Descriptions.Item>
+                          </Descriptions>
+                        </Space>
+                      </Card>
+                    </div>
+                  )
+                },
+                {
+                  key: "frames",
+                  label: "抽帧预览",
+                  forceRender: true,
+                  children: (
+                    <div className="asset-detail-tab-panel">
+                      <Card title="抽帧预览" loading={framesLoading}>
+                        {frames.length === 0 ? (
+                          <Empty description="暂无抽帧结果" />
+                        ) : (
+                          <div className="frame-grid">
+                            {frames.map((frame) => (
+                              <div key={frame.id} className="frame-card" data-testid="frame-card">
+                                <img
+                                  className="frame-image"
+                                  src={`/storage/${encodeURI(frame.storage_key)}`}
+                                  alt={`frame-${frame.frame_index}`}
+                                />
+                                <Typography.Text strong>{formatTimestamp(frame.timestamp_ms)}</Typography.Text>
+                                <Typography.Text type="secondary">第 {frame.frame_index} 帧</Typography.Text>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                    </div>
+                  )
+                },
+                ...(selectedAsset.source_type === "talking_head"
+                  ? [
                       {
-                        title: "时间",
-                        render: (_, segment) => `${formatTimestamp(segment.start_ms)} - ${formatTimestamp(segment.end_ms)}`
-                      },
-                      {
-                        title: "文本",
-                        dataIndex: "transcript"
-                      },
-                      {
-                        title: "来源",
-                        dataIndex: "source"
-                      },
-                      {
-                        title: "状态",
-                        dataIndex: "status"
+                        key: "speech",
+                        label: "口播句段",
+                        forceRender: true,
+                        children: (
+                          <div className="asset-detail-tab-panel">
+                            <Card title="口播句段" loading={speechSegmentsLoading}>
+                              {speechSegments.length === 0 ? (
+                                <Empty description="暂无已入库的口播句段" />
+                              ) : (
+                                <Table<AssetSpeechSegment>
+                                  rowKey="id"
+                                  dataSource={speechSegments}
+                                  pagination={false}
+                                  size="small"
+                                  columns={[
+                                    {
+                                      title: "时间",
+                                      render: (_, segment) => `${formatTimestamp(segment.start_ms)} - ${formatTimestamp(segment.end_ms)}`
+                                    },
+                                    {
+                                      title: "文本",
+                                      dataIndex: "transcript"
+                                    },
+                                    {
+                                      title: "来源",
+                                      dataIndex: "source"
+                                    },
+                                    {
+                                      title: "状态",
+                                      dataIndex: "status"
+                                    }
+                                  ]}
+                                />
+                              )}
+                            </Card>
+                          </div>
+                        )
                       }
-                    ]}
-                  />
-                )}
-              </Card>
-            ) : null}
-          </Space>
+                    ]
+                  : []),
+                {
+                  key: "semantic",
+                  label: "向量预览",
+                  forceRender: true,
+                  children: (
+                    <div className="asset-detail-tab-panel">
+                      <Card title="开放语义与向量化对象" loading={semanticPreviewLoading}>
+                        <Descriptions bordered column={1} size="small">
+                          <Descriptions.Item label="开放语义描述">
+                            {semanticPreview?.open_semantic_description ? (
+                              semanticPreview.open_semantic_description
+                            ) : (
+                              <Typography.Text type="secondary">暂无开放语义描述</Typography.Text>
+                            )}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="向量化对象预览">
+                            {semanticPreview && semanticPreview.embedding_targets.length > 0 ? (
+                              <Table<AssetEmbeddingTarget>
+                                rowKey="object_id"
+                                dataSource={semanticPreview.embedding_targets}
+                                pagination={false}
+                                size="small"
+                                columns={[
+                                  {
+                                    title: "对象类型",
+                                    render: (_, item) => item.object_type
+                                  },
+                                  {
+                                    title: "对象文本",
+                                    dataIndex: "text"
+                                  },
+                                  {
+                                    title: "元数据",
+                                    render: (_, item) =>
+                                      item.metadata && Object.keys(item.metadata).length > 0 ? (
+                                        <pre className="json-block">{JSON.stringify(item.metadata, null, 2)}</pre>
+                                      ) : (
+                                        <Typography.Text type="secondary">无</Typography.Text>
+                                      )
+                                  }
+                                ]}
+                              />
+                            ) : (
+                              <Typography.Text type="secondary">暂无向量化对象预览</Typography.Text>
+                            )}
+                          </Descriptions.Item>
+                        </Descriptions>
+                      </Card>
+                    </div>
+                  )
+                }
+              ]}
+            />
+          </div>
         ) : null}
       </Modal>
     </div>
