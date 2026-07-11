@@ -3200,9 +3200,9 @@ function SettingsPage({ token }: { token: string }) {
   const selectedEmbeddingProviderID = Form.useWatch("embedding_provider_id", capabilityForm);
 
   const capabilityRows = [
-    { key: "llm", title: "LLM", providerField: "llm_provider_id", modelField: "llm_model", selectedProviderID: selectedLLMProviderID, description: "用于文案生成、编排等文本推理任务。" },
-    { key: "vlm", title: "VLM", providerField: "vlm_provider_id", modelField: "vlm_model", selectedProviderID: selectedVLMProviderID, description: "用于素材抽帧分析、画面理解和标签提取。" },
-    { key: "embedding", title: "向量模型", providerField: "embedding_provider_id", modelField: "embedding_model", selectedProviderID: selectedEmbeddingProviderID, description: "用于素材语义文本向量化和后续 pgvector 检索。" }
+    { key: "llm", title: "LLM", providerField: "llm_provider_id", modelField: "llm_model", selectedProviderID: selectedLLMProviderID, description: "用于文案生成、编排等文本推理任务。", manualModelInput: false },
+    { key: "vlm", title: "VLM", providerField: "vlm_provider_id", modelField: "vlm_model", selectedProviderID: selectedVLMProviderID, description: "用于素材抽帧分析、画面理解和标签提取。", manualModelInput: false },
+    { key: "embedding", title: "向量模型", providerField: "embedding_provider_id", modelField: "embedding_model", selectedProviderID: selectedEmbeddingProviderID, description: "用于素材语义文本向量化和后续 pgvector 检索。", manualModelInput: true }
   ];
 
   return (
@@ -3284,19 +3284,25 @@ function SettingsPage({ token }: { token: string }) {
                         }}
                       />
                     </Form.Item>
-                    <Form.Item name={row.modelField} label="模型" rules={[{ required: true, message: "请选择模型" }]}>
-                      <Select
-                        showSearch
-                        placeholder={row.selectedProviderID ? "选择模型" : "请先选择供应商"}
-                        options={modelOptions}
-                        disabled={!row.selectedProviderID || modelOptions.length === 0}
-                        filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-                      />
+                    <Form.Item name={row.modelField} label="模型" rules={[{ required: true, message: row.manualModelInput ? "请输入模型 ID" : "请选择模型" }]}>
+                      {row.manualModelInput ? (
+                        <Input placeholder="请输入向量模型 ID，例如 text-embedding-v3" />
+                      ) : (
+                        <Select
+                          showSearch
+                          placeholder={row.selectedProviderID ? "选择模型" : "请先选择供应商"}
+                          options={modelOptions}
+                          disabled={!row.selectedProviderID || modelOptions.length === 0}
+                          filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+                        />
+                      )}
                     </Form.Item>
                   </div>
-                  <Button size="small" disabled={!row.selectedProviderID} loading={loadingModels} onClick={() => void loadModels(row.selectedProviderID, true)}>
-                    重新拉取该供应商模型
-                  </Button>
+                  {!row.manualModelInput && (
+                    <Button size="small" disabled={!row.selectedProviderID} loading={loadingModels} onClick={() => void loadModels(row.selectedProviderID, true)}>
+                      重新拉取该供应商模型
+                    </Button>
+                  )}
                 </Card>
               );
             })}
