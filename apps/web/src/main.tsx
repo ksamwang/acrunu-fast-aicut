@@ -254,6 +254,60 @@ type ModelCapabilitySettings = {
 
 type ViewKey = "products" | "preprocess" | "assets" | "tasks" | "settings";
 
+const defaultView: ViewKey = "products";
+const viewKeys: ViewKey[] = ["products", "preprocess", "assets", "tasks", "settings"];
+const storedSessionKey = "aicut.session";
+
+function isViewKey(value: string): value is ViewKey {
+  return viewKeys.includes(value as ViewKey);
+}
+
+function normalizeViewForRole(view: ViewKey, role?: User["role"]): ViewKey {
+  if (view === "settings" && role !== "admin") {
+    return defaultView;
+  }
+  return view;
+}
+
+function readHashView(role?: User["role"]): ViewKey {
+  const raw = window.location.hash.replace(/^#\/?/, "").split(/[/?&]/)[0];
+  if (!isViewKey(raw)) {
+    return defaultView;
+  }
+  return normalizeViewForRole(raw, role);
+}
+
+function writeHashView(view: ViewKey) {
+  const nextHash = `#/${view}`;
+  if (window.location.hash !== nextHash) {
+    window.location.hash = nextHash;
+  }
+}
+
+function readStoredSession(): Session | null {
+  try {
+    const raw = window.localStorage.getItem(storedSessionKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Session;
+    if (!parsed?.token || !parsed?.user?.role) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function storeSession(session: Session) {
+  window.localStorage.setItem(storedSessionKey, JSON.stringify(session));
+}
+
+function clearStoredSession() {
+  window.localStorage.removeItem(storedSessionKey);
+}
+
 const roleLabels: Record<string, string> = {
   admin: "管理员",
   user: "用户"
@@ -3395,7 +3449,7 @@ function SettingsPage({ token }: { token: string }) {
 }
 
 function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => void }) {
-  const [view, setView] = useState<ViewKey>("products");
+  const [view, setView] = useState<ViewKey>(() => readHashView(session.user.role));
   const menuItems = [
     { key: "products", label: "产品" },
     { key: "preprocess", label: "预处理" },
@@ -3404,11 +3458,31 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
     ...(session.user.role === "admin" ? [{ key: "settings", label: "设置" }] : [])
   ];
 
+  useEffect(() => {
+    const syncViewFromHash = () => {
+      const nextView = readHashView(session.user.role);
+      setView(nextView);
+      if (window.location.hash !== `#/${nextView}`) {
+        writeHashView(nextView);
+      }
+    };
+
+    syncViewFromHash();
+    window.addEventListener("hashchange", syncViewFromHash);
+    return () => window.removeEventListener("hashchange", syncViewFromHash);
+  }, [session.user.role]);
+
+  const navigateView = (next: ViewKey) => {
+    const normalized = normalizeViewForRole(next, session.user.role);
+    setView(normalized);
+    writeHashView(normalized);
+  };
+
   return (
     <Layout className="app-shell" data-testid="console-app">
       <Layout.Sider width={220} theme="light">
         <div className="brand">AICut</div>
-        <Menu selectedKeys={[view]} items={menuItems} onClick={(item) => setView(item.key as ViewKey)} />
+        <Menu selectedKeys={[view]} items={menuItems} onClick={(item) => navigateView(item.key as ViewKey)} />
       </Layout.Sider>
       <Layout>
         <Layout.Header className="topbar">
@@ -3433,12 +3507,24 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
 }
 
 function App() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(() => readStoredSession());
+
+  const handleLogin = (nextSession: Session) => {
+    storeSession(nextSession);
+    setSession(nextSession);
+    const nextView = readHashView(nextSession.user.role);
+    writeHashView(nextView);
+  };
+
+  const handleLogout = () => {
+    clearStoredSession();
+    setSession(null);
+  };
 
   return session ? (
-    <ConsoleApp session={session} onLogout={() => setSession(null)} />
+    <ConsoleApp session={session} onLogout={handleLogout} />
   ) : (
-    <LoginPage onLogin={setSession} />
+    <LoginPage onLogin={handleLogin} />
   );
 }
 
