@@ -307,6 +307,14 @@ function getWorkspacePreviewUrl(item: WorkspaceItem) {
   return item.frame_snapshots[0]?.image_url;
 }
 
+function sourceIdentityKey(item: WorkspaceItem) {
+  const sourceURL = item.source_url.split("?")[0];
+  const durationMs = item.probe.duration_ms || 0;
+  const fps = item.probe.fps || 0;
+  const sourceMode = item.interpret_fps_enabled ? "interpreted" : "source";
+  return `${item.id}:${sourceURL}:${durationMs}:${fps}:${sourceMode}`;
+}
+
 function createImportThumbnail(objectUrl: string): Promise<{ thumbnailUrl?: string; durationMs?: number }> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
@@ -485,7 +493,7 @@ export function PreprocessPage({ token }: { token: string }) {
       initializedEditorItemIDRef.current = null;
       return;
     }
-    const editorSyncKey = `${selectedItem.id}:${selectedItem.source_url}:${selectedItem.updated_at}`;
+    const editorSyncKey = sourceIdentityKey(selectedItem);
     if (initializedEditorItemIDRef.current === editorSyncKey) {
       return;
     }
@@ -506,7 +514,7 @@ export function PreprocessPage({ token }: { token: string }) {
     });
     setSubmitProductID(selectedItem.product_id ?? "");
     setSubmitSellingPointIDs([]);
-  }, [form, selectedItem?.id, selectedItem?.source_url, selectedItem?.updated_at]);
+  }, [form, selectedItem]);
 
   useEffect(() => {
     const root = preprocessWorkbenchRef.current;
