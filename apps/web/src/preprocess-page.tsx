@@ -187,9 +187,21 @@ const workspaceStatusLabels: Record<WorkspaceItem["status"], string> = {
   submitted: "已入库"
 };
 
+const workspaceStatusColors: Record<WorkspaceItem["status"], string> = {
+  pending: "default",
+  saved: "blue",
+  ready_to_submit: "orange",
+  submitted: "green"
+};
+
 const sourceTypeLabels: Record<string, string> = {
   visual_only: "纯画面",
   talking_head: "口播"
+};
+
+const sourceTypeColors: Record<string, string> = {
+  visual_only: "cyan",
+  talking_head: "purple"
 };
 
 const shotSizeLabels: Record<string, string> = {
@@ -976,8 +988,12 @@ export function PreprocessPage({ token }: { token: string }) {
                     ) : (
                       <video src={item.source_url} muted preload="metadata" />
                     )}
-                    <Tag className="preprocess-asset-status">{workspaceStatusLabels[item.status]}</Tag>
-                    <Tag className="preprocess-asset-type">{sourceTypeLabels[item.source_type || "visual_only"] ?? "-"}</Tag>
+                    <Tag color={workspaceStatusColors[item.status]} className="preprocess-asset-status">
+                      {workspaceStatusLabels[item.status]}
+                    </Tag>
+                    <Tag color={sourceTypeColors[item.source_type || "visual_only"] ?? "default"} className="preprocess-asset-type">
+                      {sourceTypeLabels[item.source_type || "visual_only"] ?? "-"}
+                    </Tag>
                   </div>
                   <div className="preprocess-asset-meta">
                     <Typography.Text className="preprocess-asset-name">
