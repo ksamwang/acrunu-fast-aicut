@@ -48,7 +48,7 @@ func (s *Server) handlePreprocessVLMLabel(c *gin.Context) {
 		})
 	}
 
-	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfig(s.systemConfigService, s.cfg), nil)
+	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(c.Request.Context(), s.systemConfigService, s.modelProviderService, s.cfg), nil)
 	result, err := analyzer.AnalyzeAsset(c.Request.Context(), modelgateway.AnalyzeAssetInput{
 		AssetID:        c.PostForm("asset_id"),
 		SourceType:     c.PostForm("source_type"),

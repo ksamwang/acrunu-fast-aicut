@@ -48,6 +48,18 @@ type ModelDiscoveryResult struct {
 	Models []ModelOption `json:"models"`
 }
 
+type ModelCapabilitySetting struct {
+	Capability string `json:"capability"`
+	ProviderID string `json:"provider_id"`
+	Model      string `json:"model"`
+}
+
+type ModelCapabilitySettings struct {
+	LLM       ModelCapabilitySetting `json:"llm"`
+	VLM       ModelCapabilitySetting `json:"vlm"`
+	Embedding ModelCapabilitySetting `json:"embedding"`
+}
+
 type RuntimeSettings struct {
 	LLMMaxConcurrency     int `json:"llm_max_concurrency"`
 	VLMMaxConcurrency     int `json:"vlm_max_concurrency"`
@@ -233,6 +245,10 @@ func FetchOpenAICompatibleModels(ctx context.Context, service *SystemConfigServi
 		return ModelDiscoveryResult{}, err
 	}
 
+	return FetchOpenAICompatibleModelsWithAccess(ctx, baseURL, apiKey)
+}
+
+func FetchOpenAICompatibleModelsWithAccess(ctx context.Context, baseURL string, apiKey string) (ModelDiscoveryResult, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, joinOpenAICompatibleURL(baseURL, "/v1/models"), nil)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
@@ -290,6 +306,156 @@ func FetchOpenAICompatibleModels(ctx context.Context, service *SystemConfigServi
 		result.Models = append(result.Models, ModelOption{ID: modelID})
 	}
 	return result, nil
+}
+
+func FetchModelsFromProvider(ctx context.Context, providerService *ModelProviderService, providerID string) (ModelDiscoveryResult, error) {
+	access, err := providerService.GetAccess(ctx, providerID)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
+	}
+	if !access.Enabled {
+		return ModelDiscoveryResult{}, fmt.Errorf("model provider is disabled")
+	}
+	if access.ProviderType != ModelProviderTypeOpenAICompatible {
+		return ModelDiscoveryResult{}, fmt.Errorf("provider_type only supports openai_compatible")
+	}
+	return FetchOpenAICompatibleModelsWithAccess(ctx, access.BaseURL, access.APIKey)
+}
+
+func TestModelProviderConnection(ctx context.Context, providerService *ModelProviderService, providerID string) (int, error) {
+	result, err := FetchModelsFromProvider(ctx, providerService, providerID)
+	if err != nil {
+		return 0, err
+	}
+	return len(result.Models), nil
+}
+
+func EnsureLegacyOpenAICompatibleProvider(ctx context.Context, systemConfigService *SystemConfigService, providerService *ModelProviderService) error {
+	if systemConfigService == nil || providerService == nil {
+		return nil
+	}
+	providers, err := providerService.List(ctx)
+	if err != nil {
+		return err
+	}
+	if len(providers) > 0 {
+		return nil
+	}
+	settings, err := GetOpenAICompatibleSettings(systemConfigService)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(settings.BaseURL) == "" {
+		return nil
+	}
+	apiKey := ""
+	if config, err := systemConfigService.Get(openAIAPIKeyKey); err == nil {
+		apiKey = configStringValue(config.Value)
+	}
+	provider, err := providerService.Create(ctx, ModelProviderInput{
+		Name:         "默认 OpenAI Compatible",
+		ProviderType: ModelProviderTypeOpenAICompatible,
+		BaseURL:      settings.BaseURL,
+		APIKey:       apiKey,
+		Enabled:      true,
+	})
+	if err != nil {
+		return err
+	}
+	for _, item := range []struct {
+		capability string
+		model      string
+	}{
+		{capability: "llm", model: settings.LLMModel},
+		{capability: "vlm", model: settings.VLMModel},
+		{capability: "embedding", model: settings.EmbeddingModel},
+	} {
+		if strings.TrimSpace(item.model) == "" {
+			continue
+		}
+		if _, err := systemConfigService.Upsert(SystemConfig{
+			Key:         item.capability + ".provider_id",
+			Value:       provider.ID,
+			Type:        "string",
+			Description: "Default " + strings.ToUpper(item.capability) + " model provider ID",
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func GetModelCapabilitySettings(service *SystemConfigService) (ModelCapabilitySettings, error) {
+	if service == nil {
+		return ModelCapabilitySettings{}, fmt.Errorf("system config service is nil")
+	}
+	return ModelCapabilitySettings{
+		LLM:       getModelCapabilitySetting(service, "llm"),
+		VLM:       getModelCapabilitySetting(service, "vlm"),
+		Embedding: getModelCapabilitySetting(service, "embedding"),
+	}, nil
+}
+
+func UpdateModelCapabilitySettings(service *SystemConfigService, input ModelCapabilitySettings) (ModelCapabilitySettings, error) {
+	if service == nil {
+		return ModelCapabilitySettings{}, fmt.Errorf("system config service is nil")
+	}
+	for _, setting := range []ModelCapabilitySetting{
+		normalizeCapabilityInput("llm", input.LLM),
+		normalizeCapabilityInput("vlm", input.VLM),
+		normalizeCapabilityInput("embedding", input.Embedding),
+	} {
+		if strings.TrimSpace(setting.ProviderID) == "" {
+			return ModelCapabilitySettings{}, fmt.Errorf("%s.provider_id is required", setting.Capability)
+		}
+		if strings.TrimSpace(setting.Model) == "" {
+			return ModelCapabilitySettings{}, fmt.Errorf("%s.model is required", setting.Capability)
+		}
+		if _, err := service.Upsert(SystemConfig{
+			Key:         setting.Capability + ".provider_id",
+			Value:       strings.TrimSpace(setting.ProviderID),
+			Type:        "string",
+			Description: "Default " + strings.ToUpper(setting.Capability) + " model provider ID",
+		}); err != nil {
+			return ModelCapabilitySettings{}, err
+		}
+		if _, err := service.Upsert(SystemConfig{
+			Key:         setting.Capability + ".provider",
+			Value:       ModelProviderTypeOpenAICompatible,
+			Type:        "string",
+			Description: "Default " + strings.ToUpper(setting.Capability) + " provider type",
+		}); err != nil {
+			return ModelCapabilitySettings{}, err
+		}
+		if _, err := service.Upsert(SystemConfig{
+			Key:         setting.Capability + ".model",
+			Value:       strings.TrimSpace(setting.Model),
+			Type:        "string",
+			Description: "Default " + strings.ToUpper(setting.Capability) + " model",
+		}); err != nil {
+			return ModelCapabilitySettings{}, err
+		}
+	}
+	return GetModelCapabilitySettings(service)
+}
+
+func getModelCapabilitySetting(service *SystemConfigService, capability string) ModelCapabilitySetting {
+	setting := ModelCapabilitySetting{Capability: capability}
+	if config, err := service.Get(capability + ".provider_id"); err == nil {
+		setting.ProviderID = configStringValue(config.Value)
+	}
+	if config, err := service.Get(capability + ".model"); err == nil {
+		setting.Model = configStringValue(config.Value)
+	}
+	return setting
+}
+
+func normalizeCapabilityInput(capability string, input ModelCapabilitySetting) ModelCapabilitySetting {
+	return ModelCapabilitySetting{
+		Capability: capability,
+		ProviderID: strings.TrimSpace(input.ProviderID),
+		Model:      strings.TrimSpace(input.Model),
+	}
 }
 
 func joinOpenAICompatibleURL(base string, suffix string) string {

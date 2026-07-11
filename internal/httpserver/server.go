@@ -11,24 +11,26 @@ import (
 )
 
 type Options struct {
-	Config              config.Config
-	Logger              *slog.Logger
-	TaskService         *services.TaskService
-	SystemConfigService *services.SystemConfigService
-	ProductAssetService *services.ProductAssetService
+	Config               config.Config
+	Logger               *slog.Logger
+	TaskService          *services.TaskService
+	SystemConfigService  *services.SystemConfigService
+	ModelProviderService *services.ModelProviderService
+	ProductAssetService  *services.ProductAssetService
 }
 
 type Server struct {
-	cfg                 config.Config
-	logger              *slog.Logger
-	engine              *gin.Engine
-	userService         *services.UserService
-	systemConfigService *services.SystemConfigService
-	productAssetService *services.ProductAssetService
-	uploadTokenService  *services.UploadTokenService
-	localStore          *storage.LocalStore
-	taskService         *services.TaskService
-	queueClient         *queue.Client
+	cfg                  config.Config
+	logger               *slog.Logger
+	engine               *gin.Engine
+	userService          *services.UserService
+	systemConfigService  *services.SystemConfigService
+	modelProviderService *services.ModelProviderService
+	productAssetService  *services.ProductAssetService
+	uploadTokenService   *services.UploadTokenService
+	localStore           *storage.LocalStore
+	taskService          *services.TaskService
+	queueClient          *queue.Client
 }
 
 func New(opts Options) *Server {
@@ -45,6 +47,10 @@ func New(opts Options) *Server {
 	if systemConfigService == nil {
 		systemConfigService = services.NewSystemConfigService()
 	}
+	modelProviderService := opts.ModelProviderService
+	if modelProviderService == nil {
+		modelProviderService = services.NewModelProviderService()
+	}
 
 	productAssetService := opts.ProductAssetService
 	if productAssetService == nil {
@@ -52,16 +58,17 @@ func New(opts Options) *Server {
 	}
 
 	server := &Server{
-		cfg:                 opts.Config,
-		logger:              opts.Logger,
-		engine:              gin.New(),
-		userService:         services.NewUserService(opts.Config),
-		systemConfigService: systemConfigService,
-		productAssetService: productAssetService,
-		uploadTokenService:  services.NewUploadTokenService(),
-		localStore:          storage.NewLocalStore(opts.Config.StorageRoot),
-		taskService:         taskService,
-		queueClient:         queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
+		cfg:                  opts.Config,
+		logger:               opts.Logger,
+		engine:               gin.New(),
+		userService:          services.NewUserService(opts.Config),
+		systemConfigService:  systemConfigService,
+		modelProviderService: modelProviderService,
+		productAssetService:  productAssetService,
+		uploadTokenService:   services.NewUploadTokenService(),
+		localStore:           storage.NewLocalStore(opts.Config.StorageRoot),
+		taskService:          taskService,
+		queueClient:          queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
 	}
 
 	server.routes()
@@ -105,6 +112,18 @@ func (s *Server) routes() {
 	modelAccess.PUT("", s.handleUpdateOpenAICompatibleSettings)
 	modelAccess.POST("/test", s.handleTestOpenAICompatibleConnection)
 	modelAccess.POST("/models", s.handleListOpenAICompatibleModels)
+
+	modelProviders := adminGroup.Group("/model-providers")
+	modelProviders.GET("", s.handleListModelProviders)
+	modelProviders.POST("", s.handleCreateModelProvider)
+	modelProviders.PUT("/:providerID", s.handleUpdateModelProvider)
+	modelProviders.DELETE("/:providerID", s.handleDeleteModelProvider)
+	modelProviders.POST("/:providerID/test", s.handleTestModelProvider)
+	modelProviders.POST("/:providerID/models", s.handleListModelProviderModels)
+
+	modelSettings := adminGroup.Group("/model-settings")
+	modelSettings.GET("", s.handleGetModelCapabilitySettings)
+	modelSettings.PUT("", s.handleUpdateModelCapabilitySettings)
 
 	runtimeSettings := adminGroup.Group("/runtime-settings")
 	runtimeSettings.GET("", s.handleGetRuntimeSettings)

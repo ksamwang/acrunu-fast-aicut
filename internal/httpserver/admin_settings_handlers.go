@@ -35,6 +35,12 @@ type updateRuntimeSettingsRequest struct {
 	VLMMaxRetries         int `json:"vlm_max_retries"`
 }
 
+type updateModelCapabilitySettingsRequest struct {
+	LLM       services.ModelCapabilitySetting `json:"llm"`
+	VLM       services.ModelCapabilitySetting `json:"vlm"`
+	Embedding services.ModelCapabilitySetting `json:"embedding"`
+}
+
 func (s *Server) handleGetOpenAICompatibleSettings(c *gin.Context) {
 	settings, err := services.GetOpenAICompatibleSettings(s.systemConfigService)
 	if err != nil {
@@ -125,6 +131,104 @@ func (s *Server) handleListOpenAICompatibleModels(c *gin.Context) {
 	OK(c, models)
 }
 
+func (s *Server) handleListModelProviders(c *gin.Context) {
+	if err := services.EnsureLegacyOpenAICompatibleProvider(c.Request.Context(), s.systemConfigService, s.modelProviderService); err != nil {
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to migrate legacy model provider settings")
+		return
+	}
+	providers, err := s.modelProviderService.List(c.Request.Context())
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to list model providers")
+		return
+	}
+	OK(c, providers)
+}
+
+func (s *Server) handleCreateModelProvider(c *gin.Context) {
+	var req services.ModelProviderInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "bad_request", "invalid model provider payload")
+		return
+	}
+	provider, err := s.modelProviderService.Create(c.Request.Context(), req)
+	if err != nil {
+		Fail(c, statusForModelProviderError(err), codeForModelProviderError(err), err.Error())
+		return
+	}
+	OK(c, provider)
+}
+
+func (s *Server) handleUpdateModelProvider(c *gin.Context) {
+	var req services.ModelProviderInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "bad_request", "invalid model provider payload")
+		return
+	}
+	provider, err := s.modelProviderService.Update(c.Request.Context(), c.Param("providerID"), req)
+	if err != nil {
+		Fail(c, statusForModelProviderError(err), codeForModelProviderError(err), err.Error())
+		return
+	}
+	OK(c, provider)
+}
+
+func (s *Server) handleDeleteModelProvider(c *gin.Context) {
+	if err := s.modelProviderService.Delete(c.Request.Context(), c.Param("providerID")); err != nil {
+		Fail(c, statusForModelProviderError(err), codeForModelProviderError(err), err.Error())
+		return
+	}
+	OK(c, gin.H{"deleted": true})
+}
+
+func (s *Server) handleTestModelProvider(c *gin.Context) {
+	count, err := services.TestModelProviderConnection(c.Request.Context(), s.modelProviderService, c.Param("providerID"))
+	if err != nil {
+		Fail(c, statusForModelProviderError(err), codeForModelProviderError(err), err.Error())
+		return
+	}
+	OK(c, gin.H{"reachable": true, "model_count": count})
+}
+
+func (s *Server) handleListModelProviderModels(c *gin.Context) {
+	models, err := services.FetchModelsFromProvider(c.Request.Context(), s.modelProviderService, c.Param("providerID"))
+	if err != nil {
+		Fail(c, statusForModelProviderError(err), codeForModelProviderError(err), err.Error())
+		return
+	}
+	OK(c, models)
+}
+
+func (s *Server) handleGetModelCapabilitySettings(c *gin.Context) {
+	if err := services.EnsureLegacyOpenAICompatibleProvider(c.Request.Context(), s.systemConfigService, s.modelProviderService); err != nil {
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to migrate legacy model provider settings")
+		return
+	}
+	settings, err := services.GetModelCapabilitySettings(s.systemConfigService)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to load model settings")
+		return
+	}
+	OK(c, settings)
+}
+
+func (s *Server) handleUpdateModelCapabilitySettings(c *gin.Context) {
+	var req updateModelCapabilitySettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "bad_request", "invalid model settings payload")
+		return
+	}
+	settings, err := services.UpdateModelCapabilitySettings(s.systemConfigService, services.ModelCapabilitySettings{
+		LLM:       req.LLM,
+		VLM:       req.VLM,
+		Embedding: req.Embedding,
+	})
+	if err != nil {
+		Fail(c, statusForModelProviderError(err), codeForModelProviderError(err), err.Error())
+		return
+	}
+	OK(c, settings)
+}
+
 func (s *Server) handleGetRuntimeSettings(c *gin.Context) {
 	settings, err := services.GetRuntimeSettings(s.systemConfigService)
 	if err != nil {
@@ -190,6 +294,29 @@ func isAdminSettingsBadRequest(err error) bool {
 		"failed to request model list",
 		"failed to read model list",
 	)
+}
+
+func statusForModelProviderError(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+	if errors.Is(err, services.ErrModelProviderNotFound) {
+		return http.StatusNotFound
+	}
+	if isAdminSettingsBadRequest(err) || containsAny(err.Error(), "provider name", "provider_type", "provider_id", ".model", "disabled") {
+		return http.StatusBadRequest
+	}
+	return http.StatusBadGateway
+}
+
+func codeForModelProviderError(err error) string {
+	if errors.Is(err, services.ErrModelProviderNotFound) {
+		return "not_found"
+	}
+	if isAdminSettingsBadRequest(err) || containsAny(err.Error(), "provider name", "provider_type", "provider_id", ".model", "disabled") {
+		return "bad_request"
+	}
+	return "provider_error"
 }
 
 func containsAny(value string, needles ...string) bool {

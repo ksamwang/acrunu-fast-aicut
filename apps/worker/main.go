@@ -19,11 +19,13 @@ func main() {
 	defer taskService.Close()
 	systemConfigService := services.NewConfiguredSystemConfigService(context.Background(), cfg, logger)
 	defer systemConfigService.Close()
+	modelProviderService := services.NewConfiguredModelProviderService(context.Background(), cfg, logger)
+	defer modelProviderService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
-	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfig(systemConfigService.Service, cfg), nil)
+	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(context.Background(), systemConfigService.Service, modelProviderService.Service, cfg), nil)
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
 		services.NewAssetProcessingService(

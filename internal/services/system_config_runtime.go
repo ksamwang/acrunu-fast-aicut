@@ -1,9 +1,11 @@
 package services
 
 import (
+	"context"
+	"time"
+
 	appconfig "github.com/ksamwang/acrunu-fast-aicut/internal/config"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
-	"time"
 )
 
 func ResolveVLMAnalyzerConfig(service *SystemConfigService, fallback appconfig.Config) modelgateway.Config {
@@ -50,6 +52,29 @@ func ResolveVLMAnalyzerConfig(service *SystemConfigService, fallback appconfig.C
 		}
 	}
 
+	return resolved
+}
+
+func ResolveVLMAnalyzerConfigWithProviders(ctx context.Context, service *SystemConfigService, providerService *ModelProviderService, fallback appconfig.Config) modelgateway.Config {
+	resolved := ResolveVLMAnalyzerConfig(service, fallback)
+	if service == nil || providerService == nil {
+		return resolved
+	}
+	config, err := service.Get("vlm.provider_id")
+	if err != nil {
+		return resolved
+	}
+	providerID := configStringValue(config.Value)
+	if providerID == "" {
+		return resolved
+	}
+	access, err := providerService.GetAccess(ctx, providerID)
+	if err != nil || !access.Enabled {
+		return resolved
+	}
+	resolved.Provider = access.ProviderType
+	resolved.BaseURL = access.BaseURL
+	resolved.APIKey = access.APIKey
 	return resolved
 }
 

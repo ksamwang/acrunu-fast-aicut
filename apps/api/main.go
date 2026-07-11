@@ -17,15 +17,18 @@ func main() {
 	defer taskService.Close()
 	systemConfigService := services.NewConfiguredSystemConfigService(context.Background(), cfg, logger)
 	defer systemConfigService.Close()
+	modelProviderService := services.NewConfiguredModelProviderService(context.Background(), cfg, logger)
+	defer modelProviderService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
 
 	server := httpserver.New(httpserver.Options{
-		Config:              cfg,
-		Logger:              logger,
-		TaskService:         taskService.Service,
-		SystemConfigService: systemConfigService.Service,
-		ProductAssetService: productAssetService.Service,
+		Config:               cfg,
+		Logger:               logger,
+		TaskService:          taskService.Service,
+		SystemConfigService:  systemConfigService.Service,
+		ModelProviderService: modelProviderService.Service,
+		ProductAssetService:  productAssetService.Service,
 	})
 
 	if err := server.Run(); err != nil {
