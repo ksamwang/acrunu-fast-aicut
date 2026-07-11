@@ -15,6 +15,7 @@ import {
   Layout,
   Menu,
   Modal,
+  Pagination,
   Popconfirm,
   Select,
   Space,
@@ -1343,6 +1344,7 @@ function AssetsPage({ token }: { token: string }) {
     excludeDiscarded: "",
     sortBy: ""
   });
+  const [assetFiltersExpanded, setAssetFiltersExpanded] = useState(false);
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(20);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
@@ -1629,24 +1631,32 @@ function AssetsPage({ token }: { token: string }) {
     }
   };
 
+  const assetItems = assets.data?.items ?? [];
+  const assetTotal = assets.data?.total ?? 0;
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
   return (
-    <div data-testid="assets-page">
-      <Space direction="vertical" size="middle" className="page-stack">
-        <Typography.Title level={3}>素材库</Typography.Title>
-        <Card title="本地代理入口">
-          <Space direction="vertical" className="wide-space">
-            <Input defaultValue="http://127.0.0.1:58721" />
-            <Button type="primary">打开本地代理</Button>
-          </Space>
-        </Card>
-        <Card title="筛选条件">
-          <Space wrap>
+    <div data-testid="assets-page" className="asset-library-page">
+      <Space direction="vertical" size="middle" className="page-stack asset-library-stack">
+        <Card className="asset-filter-card" bodyStyle={{ padding: 12 }}>
+          <div className="asset-filter-toolbar">
+            <Input
+              data-testid="asset-filter-keyword"
+              value={filters.keyword}
+              allowClear
+              placeholder="搜索画面描述、文件名或标签"
+              className="asset-filter-search"
+              onChange={(event) => {
+                setAssetPage(1);
+                setFilters((current) => ({ ...current, keyword: event.target.value }));
+              }}
+            />
             <Select
               data-testid="asset-filter-product"
               value={filters.productID || undefined}
               placeholder="产品"
               allowClear
-              style={{ minWidth: 180 }}
+              className="asset-filter-select"
               options={(products.data ?? []).map((product) => ({ value: product.id, label: product.name }))}
               onChange={(value) => {
                 const nextValue = value ?? "";
@@ -1655,183 +1665,9 @@ function AssetsPage({ token }: { token: string }) {
                 setProductForSellingPoints(nextValue);
               }}
             />
-            <Select
-              data-testid="asset-filter-selling-point"
-              value={filters.sellingPointID || undefined}
-              placeholder="卖点"
-              allowClear
-              style={{ minWidth: 180 }}
-              disabled={!filters.productID}
-              options={(sellingPoints.data ?? []).map((item) => ({ value: item.id, label: item.title }))}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, sellingPointID: value ?? "" }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-source-type"
-              value={filters.sourceType || undefined}
-              placeholder="素材类型"
-              allowClear
-              style={{ minWidth: 160 }}
-              options={[
-                { value: "visual_only", label: "纯画面" },
-                { value: "talking_head", label: "口播" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, sourceType: value ?? "" }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-status"
-              value={filters.status || undefined}
-              placeholder="状态"
-              allowClear
-              style={{ minWidth: 160 }}
-              options={[
-                { value: "ready", label: "已完成" },
-                { value: "failed", label: "失败" },
-                { value: "uploaded", label: "已上传" },
-                { value: "archived", label: "已归档" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, status: value ?? "" }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-usability-status"
-              value={filters.usabilityStatus || undefined}
-              placeholder="可用状态"
-              allowClear
-              style={{ minWidth: 160 }}
-              options={[
-                { value: "usable", label: "可用" },
-                { value: "needs_review", label: "待复核" },
-                { value: "discarded", label: "废弃" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, usabilityStatus: value ?? "" }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-shot-size"
-              value={filters.shotSize || undefined}
-              placeholder="景别"
-              allowClear
-              style={{ minWidth: 160 }}
-              options={[
-                { value: "close_up", label: "特写" },
-                { value: "medium_close_up", label: "近景" },
-                { value: "medium_shot", label: "中景" },
-                { value: "wide_shot", label: "远景" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, shotSize: value ?? "" }));
-              }}
-            />
-            <Input
-              data-testid="asset-filter-tag"
-              value={filters.tag}
-              placeholder="标签"
-              style={{ width: 180 }}
-              onChange={(event) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, tag: event.target.value }));
-              }}
-            />
-            <Input
-              data-testid="asset-filter-keyword"
-              value={filters.keyword}
-              placeholder="画面关键词"
-              style={{ width: 180 }}
-              onChange={(event) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, keyword: event.target.value }));
-              }}
-            />
-            <Input
-              data-testid="asset-filter-min-duration"
-              value={filters.minDurationMs}
-              placeholder="最小时长毫秒"
-              style={{ width: 120 }}
-              onChange={(event) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, minDurationMs: event.target.value }));
-              }}
-            />
-            <Input
-              data-testid="asset-filter-max-duration"
-              value={filters.maxDurationMs}
-              placeholder="最大时长毫秒"
-              style={{ width: 120 }}
-              onChange={(event) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, maxDurationMs: event.target.value }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-has-audio"
-              value={filters.hasAudio || undefined}
-              placeholder="是否含音频"
-              allowClear
-              style={{ minWidth: 140 }}
-              options={[
-                { value: "true", label: "是" },
-                { value: "false", label: "否" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, hasAudio: value ?? "" }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-likely-has-speech"
-              value={filters.likelyHasSpeech || undefined}
-              placeholder="是否有人声"
-              allowClear
-              style={{ minWidth: 160 }}
-              options={[
-                { value: "true", label: "有人声" },
-                { value: "false", label: "无人声" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, likelyHasSpeech: value ?? "" }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-exclude-discarded"
-              value={filters.excludeDiscarded || undefined}
-              placeholder="可用性"
-              allowClear
-              style={{ minWidth: 160 }}
-              options={[
-                { value: "true", label: "排除废弃" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, excludeDiscarded: value ?? "" }));
-              }}
-            />
-            <Select
-              data-testid="asset-filter-sort"
-              value={filters.sortBy || undefined}
-              placeholder="排序"
-              allowClear
-              style={{ minWidth: 180 }}
-              options={[
-                { value: "updated_at_desc", label: "最近更新时间" },
-                { value: "analyzed_at_desc", label: "最近分析时间" }
-              ]}
-              onChange={(value) => {
-                setAssetPage(1);
-                setFilters((current) => ({ ...current, sortBy: value ?? "" }));
-              }}
-            />
+            <Button onClick={() => setAssetFiltersExpanded((current) => !current)}>
+              {assetFiltersExpanded ? "收起筛选" : `更多筛选${activeFilterCount > 0 ? `(${activeFilterCount})` : ""}`}
+            </Button>
             <Button
               data-testid="asset-filter-reset"
               onClick={() => {
@@ -1858,76 +1694,249 @@ function AssetsPage({ token }: { token: string }) {
             >
               重置
             </Button>
-            <Button data-testid="asset-filter-refresh" onClick={assets.reload}>刷新</Button>
-          </Space>
+            <Button data-testid="asset-filter-refresh" onClick={assets.reload} loading={assets.loading}>刷新</Button>
+          </div>
+          {assetFiltersExpanded ? (
+            <div className="asset-filter-advanced">
+              <Select
+                data-testid="asset-filter-selling-point"
+                value={filters.sellingPointID || undefined}
+                placeholder="卖点"
+                allowClear
+                className="asset-filter-select"
+                disabled={!filters.productID}
+                options={(sellingPoints.data ?? []).map((item) => ({ value: item.id, label: item.title }))}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, sellingPointID: value ?? "" }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-source-type"
+                value={filters.sourceType || undefined}
+                placeholder="素材类型"
+                allowClear
+                className="asset-filter-select"
+                options={[
+                  { value: "visual_only", label: "纯画面" },
+                  { value: "talking_head", label: "口播" }
+                ]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, sourceType: value ?? "" }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-status"
+                value={filters.status || undefined}
+                placeholder="状态"
+                allowClear
+                className="asset-filter-select"
+                options={[
+                  { value: "ready", label: "已完成" },
+                  { value: "failed", label: "失败" },
+                  { value: "uploaded", label: "已上传" },
+                  { value: "archived", label: "已归档" }
+                ]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, status: value ?? "" }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-usability-status"
+                value={filters.usabilityStatus || undefined}
+                placeholder="可用状态"
+                allowClear
+                className="asset-filter-select"
+                options={[
+                  { value: "usable", label: "可用" },
+                  { value: "needs_review", label: "待复核" },
+                  { value: "discarded", label: "废弃" }
+                ]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, usabilityStatus: value ?? "" }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-shot-size"
+                value={filters.shotSize || undefined}
+                placeholder="景别"
+                allowClear
+                className="asset-filter-select"
+                options={[
+                  { value: "close_up", label: "特写" },
+                  { value: "medium_close_up", label: "近景" },
+                  { value: "medium_shot", label: "中景" },
+                  { value: "wide_shot", label: "远景" }
+                ]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, shotSize: value ?? "" }));
+                }}
+              />
+              <Input
+                data-testid="asset-filter-tag"
+                value={filters.tag}
+                placeholder="标签"
+                className="asset-filter-compact"
+                onChange={(event) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, tag: event.target.value }));
+                }}
+              />
+              <Input
+                data-testid="asset-filter-min-duration"
+                value={filters.minDurationMs}
+                placeholder="最小时长 ms"
+                className="asset-filter-duration"
+                onChange={(event) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, minDurationMs: event.target.value }));
+                }}
+              />
+              <Input
+                data-testid="asset-filter-max-duration"
+                value={filters.maxDurationMs}
+                placeholder="最大时长 ms"
+                className="asset-filter-duration"
+                onChange={(event) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, maxDurationMs: event.target.value }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-has-audio"
+                value={filters.hasAudio || undefined}
+                placeholder="音频"
+                allowClear
+                className="asset-filter-select"
+                options={[
+                  { value: "true", label: "包含音频" },
+                  { value: "false", label: "无音频" }
+                ]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, hasAudio: value ?? "" }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-likely-has-speech"
+                value={filters.likelyHasSpeech || undefined}
+                placeholder="人声"
+                allowClear
+                className="asset-filter-select"
+                options={[
+                  { value: "true", label: "有人声" },
+                  { value: "false", label: "无人声" }
+                ]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, likelyHasSpeech: value ?? "" }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-exclude-discarded"
+                value={filters.excludeDiscarded || undefined}
+                placeholder="可用性过滤"
+                allowClear
+                className="asset-filter-select"
+                options={[{ value: "true", label: "排除废弃" }]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, excludeDiscarded: value ?? "" }));
+                }}
+              />
+              <Select
+                data-testid="asset-filter-sort"
+                value={filters.sortBy || undefined}
+                placeholder="排序"
+                allowClear
+                className="asset-filter-select"
+                options={[
+                  { value: "updated_at_desc", label: "最近更新时间" },
+                  { value: "analyzed_at_desc", label: "最近分析时间" }
+                ]}
+                onChange={(value) => {
+                  setAssetPage(1);
+                  setFilters((current) => ({ ...current, sortBy: value ?? "" }));
+                }}
+              />
+            </div>
+          ) : null}
         </Card>
-        <Card title="素材列表">
-          <Table<Asset>
-            rowKey="id"
-            loading={assets.loading}
-            dataSource={assets.data?.items ?? []}
-            pagination={{
-              current: assets.data?.page ?? assetPage,
-              pageSize: assets.data?.page_size ?? assetPageSize,
-              total: assets.data?.total ?? 0,
-              showSizeChanger: true,
-              pageSizeOptions: ["10", "20", "50"],
-              onChange: (page, pageSize) => {
+
+        <Card
+          className="asset-grid-card"
+          title="素材列表"
+          extra={
+            <Typography.Text type="secondary">
+              第 {assets.data?.page ?? assetPage} 页 / 共 {assetTotal} 条
+            </Typography.Text>
+          }
+          loading={assets.loading}
+        >
+          {assetItems.length === 0 ? (
+            <Empty description="暂无匹配素材" />
+          ) : (
+            <div className="asset-card-grid">
+              {assetItems.map((asset) => {
+                const title = asset.asset_name || asset.file_name;
+                const tags = [...(asset.scene_tags ?? []), ...(asset.subjects ?? [])].slice(0, 4);
+                return (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    className="asset-library-card"
+                    onClick={() => setSelectedAsset(asset)}
+                    aria-label={title}
+                  >
+                    <div className="asset-card-media">
+                      <video src={assetVideoURL(asset)} muted preload="metadata" />
+                      <div className="asset-card-scrim" />
+                      <Tag className="asset-card-status">{translateValue(asset.status, assetStatusLabels)}</Tag>
+                      <Tag className="asset-card-type">{translateValue(asset.source_type, sourceTypeLabels)}</Tag>
+                      <span className="asset-card-duration">{formatDuration(asset.duration_ms)}</span>
+                    </div>
+                    <div className="asset-card-body">
+                      <Typography.Text className="asset-card-title">{title}</Typography.Text>
+                      <Typography.Text className="asset-card-file">{asset.file_name}</Typography.Text>
+                      <div className="asset-card-meta">
+                        <span>{productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"}</span>
+                        <span>{asset.width && asset.height ? asset.width + "x" + asset.height : "未知分辨率"}</span>
+                        <span>{asset.fps ? asset.fps.toFixed(0) + "fps" : "未知帧率"}</span>
+                      </div>
+                      <div className="asset-card-labels">
+                        {asset.shot_size ? <Tag>{translateValue(asset.shot_size, shotSizeLabels)}</Tag> : null}
+                        {asset.camera_movement ? <Tag>{translateValue(asset.camera_movement, cameraMovementLabels)}</Tag> : null}
+                        {asset.analysis_status ? <Tag color="blue">{translateValue(asset.analysis_status, analysisStatusLabels)}</Tag> : null}
+                      </div>
+                      <Typography.Text className="asset-card-description">
+                        {asset.scene_description || "暂无画面描述"}
+                      </Typography.Text>
+                      <div className="asset-card-tags">
+                        {tags.length > 0 ? tags.map((tag) => <span key={tag}>{tag}</span>) : <span>暂无标签</span>}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="asset-pagination">
+            <Pagination
+              current={assets.data?.page ?? assetPage}
+              pageSize={assets.data?.page_size ?? assetPageSize}
+              total={assetTotal}
+              showSizeChanger
+              pageSizeOptions={["10", "20", "50"]}
+              onChange={(page, pageSize) => {
                 setAssetPage(page);
                 setAssetPageSize(pageSize);
-              }
-            }}
-            onRow={(record) => ({ onClick: () => setSelectedAsset(record) })}
-            columns={[
-              {
-                title: "素材",
-                render: (_, asset) => (
-                  <Button type="link" className="table-link-button" onClick={() => setSelectedAsset(asset)}>
-                    {asset.asset_name || asset.file_name}
-                  </Button>
-                )
-              },
-              { title: "文件", dataIndex: "file_name" },
-              {
-                title: "产品",
-                render: (_, asset) => productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"
-              },
-              { title: "类型", dataIndex: "source_type", render: (value) => translateValue(value, sourceTypeLabels) },
-              { title: "状态", dataIndex: "status", render: (status) => <Tag>{translateValue(status, assetStatusLabels)}</Tag> },
-              {
-                title: "分析状态",
-                dataIndex: "analysis_status",
-                render: (status) => (status ? <Tag color="blue">{translateValue(status, analysisStatusLabels)}</Tag> : "-")
-              },
-              { title: "时长", render: (_, asset) => formatDuration(asset.duration_ms) },
-              {
-                title: "景别",
-                dataIndex: "shot_size",
-                render: (value) => translateValue(value, shotSizeLabels)
-              },
-              {
-                title: "运镜",
-                dataIndex: "camera_movement",
-                render: (value) => translateValue(value, cameraMovementLabels)
-              },
-              {
-                title: "标签",
-                render: (_, asset) => (
-                  <Typography.Text className="summary-text">
-                    {asset.scene_tags && asset.scene_tags.length > 0
-                      ? asset.scene_tags.slice(0, 3).join(", ")
-                      : asset.subjects && asset.subjects.length > 0
-                        ? asset.subjects.slice(0, 3).join(", ")
-                        : "-"}
-                  </Typography.Text>
-                )
-              },
-              {
-                title: "分辨率",
-                render: (_, asset) => (asset.width && asset.height ? `${asset.width}x${asset.height}` : "-")
-              }
-            ]}
-          />
+              }}
+            />
+          </div>
         </Card>
       </Space>
 
@@ -1935,11 +1944,24 @@ function AssetsPage({ token }: { token: string }) {
         title={selectedAsset ? `素材详情：${selectedAsset.asset_name || selectedAsset.file_name}` : "素材详情"}
         open={selectedAsset !== null}
         footer={null}
-        width={960}
+        width="86vw"
+        className="asset-detail-modal"
         onCancel={() => setSelectedAsset(null)}
       >
         {selectedAsset ? (
           <Space direction="vertical" size="large" className="wide-space" data-testid="asset-detail-modal">
+            <div className="asset-detail-hero">
+              <video src={assetVideoURL(selectedAsset)} controls preload="metadata" />
+              <div className="asset-detail-hero-meta">
+                <Typography.Title level={4}>{selectedAsset.asset_name || selectedAsset.file_name}</Typography.Title>
+                <Typography.Text type="secondary">{selectedAsset.file_name}</Typography.Text>
+                <Space wrap>
+                  <Tag>{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Tag>
+                  <Tag>{translateValue(selectedAsset.status, assetStatusLabels)}</Tag>
+                  {selectedAsset.analysis_status ? <Tag color="blue">{translateValue(selectedAsset.analysis_status, analysisStatusLabels)}</Tag> : null}
+                </Space>
+              </div>
+            </div>
             <Descriptions bordered column={2} size="small">
               <Descriptions.Item label="文件">{selectedAsset.file_name}</Descriptions.Item>
               <Descriptions.Item label="素材类型">{translateValue(selectedAsset.source_type, sourceTypeLabels)}</Descriptions.Item>
