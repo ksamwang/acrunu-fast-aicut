@@ -448,6 +448,8 @@ test("logs in and synchronizes Hash routes for core pages", async ({ page }) => 
     window.location.hash = "#/tasks";
   });
   await expect(page.getByTestId("tasks-page")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("tasks-page")).toBeVisible();
   await expect(page.getByText("task-1")).toBeVisible();
   await expect(page.getByText("task-extract-1")).toBeVisible();
   await expect(page.getByText("task-asset-analyze")).toBeVisible();

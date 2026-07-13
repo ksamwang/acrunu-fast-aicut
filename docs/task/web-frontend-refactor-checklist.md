@@ -33,8 +33,8 @@
 - [x] 提取 `App` 到 `src/app/App.tsx`
 - [x] 提取应用壳到 `src/app/AppShell.tsx`
 - [x] 提取 Hash 路由解析、路由常量和跳转逻辑到 `src/app/routes.ts`
-- [ ] 保持刷新后仍能恢复当前 Hash 页面
-- [ ] 保持刷新后仍能恢复有效登录态
+- [x] 保持刷新后仍能恢复当前 Hash 页面
+- [x] 保持刷新后仍能恢复有效登录态
 - [ ] 保持登录失效时回到登录页的现有行为
 - [ ] 保持左侧菜单与当前 Hash 路由同步
 
@@ -170,7 +170,7 @@
 - [ ] 服务端 API 与 Local Agent API 均有独立、可复用的调用层
 - [ ] 前端共享领域类型只有一个权威定义位置
 - [ ] 已确认无引用的 `LegacyProductsPage` 与 `LegacySettingsPage` 已删除
-- [ ] 现有 `npm.cmd run build` 通过
-- [ ] 核心用户路径的 Playwright 回归通过
+- [x] 现有 `npm.cmd run build` 通过
+- [x] 核心用户路径的 Playwright 回归通过
 - [ ] 手工验证桌面视口下无 body 滚动、无内容溢出、无卡片布局回归
 - [ ] 所有任务仅在有代码与验证证据后勾选
