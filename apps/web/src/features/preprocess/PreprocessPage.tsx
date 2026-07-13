@@ -1390,7 +1390,7 @@ export function PreprocessPage({ token }: { token: string }) {
         okText="保存"
         cancelText="取消"
         destroyOnClose={false}
-        className="preprocess-text-modal"
+        className="preprocess-text-modal preprocess-transcript-modal"
       >
         <div className="preprocess-transcript-modal-content">
           <div className="preprocess-transcript-actions">
