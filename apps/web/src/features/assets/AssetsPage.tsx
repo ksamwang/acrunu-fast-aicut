@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Descriptions, Divider, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
-import { apiRequest } from "../../shared/api/server-api";
 import { useResource } from "../../shared/hooks/use-resource";
 import { assetDisplayTitle, assetFileDisplayName, assetVideoURL } from "../../shared/lib/asset-display";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
@@ -8,6 +7,7 @@ import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, manualCl
 import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { AssetCard } from "./AssetCard";
+import { createAssetEmbeddings, getAssetEmbeddings, getAssetFrames, getAssetSellingPoints, getSemanticPreview, getSpeechSegments, listAssets, listProducts, listSellingPoints, saveAssetReview, saveAssetSellingPoints as persistAssetSellingPoints, updateAssetArchiveState as persistAssetArchiveState } from "./api";
 import "./styles.css";
 
 function renderTagList(items?: string[], emptyText = "-") {
@@ -25,18 +25,20 @@ function renderTagList(items?: string[], emptyText = "-") {
 }
 
 export function AssetsPage({ token }: { token: string }) {
-  const products = useResource<Product[]>("/api/products", token);
+  const products = useResource<Product[]>("/api/products", token, [], listProducts);
   const [productForSellingPoints, setProductForSellingPoints] = useState<string>("");
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const sellingPoints = useResource<SellingPoint[]>(
     productForSellingPoints ? `/api/products/${productForSellingPoints}/selling-points` : null,
     token,
-    [productForSellingPoints]
+    [productForSellingPoints],
+    listSellingPoints
   );
   const assetDetailSellingPoints = useResource<SellingPoint[]>(
     selectedAsset ? `/api/products/${selectedAsset.product_id}/selling-points` : null,
     token,
-    [selectedAsset?.product_id]
+    [selectedAsset?.product_id],
+    listSellingPoints
   );
   const [filters, setFilters] = useState({
     productID: "",
@@ -124,7 +126,7 @@ export function AssetsPage({ token }: { token: string }) {
     return query ? `/api/assets?${query}` : "/api/assets";
   }, [assetPage, assetPageSize, filters]);
 
-  const assets = useResource<AssetListResponse>(assetPath, token, [assetPath]);
+  const assets = useResource<AssetListResponse>(assetPath, token, [assetPath], listAssets);
   const productNameByID = useMemo(() => {
     const map = new Map<string, string>();
     for (const product of products.data ?? []) {
@@ -146,7 +148,7 @@ export function AssetsPage({ token }: { token: string }) {
     const loadFrames = async () => {
       setFramesLoading(true);
       try {
-        const response = await apiRequest<AssetFrameResponse>(`/api/assets/${selectedAsset.id}/frames`, {}, token);
+        const response = await getAssetFrames(selectedAsset.id, token);
         setFrames(response.frames);
       } catch (error) {
         setFrames([]);
@@ -161,7 +163,7 @@ export function AssetsPage({ token }: { token: string }) {
     const loadSemanticPreview = async () => {
       setSemanticPreviewLoading(true);
       try {
-        const response = await apiRequest<AssetSemanticPreview>(`/api/assets/${selectedAsset.id}/semantic-preview`, {}, token);
+        const response = await getSemanticPreview(selectedAsset.id, token);
         setSemanticPreview(response);
       } catch (error) {
         setSemanticPreview(null);
@@ -176,7 +178,7 @@ export function AssetsPage({ token }: { token: string }) {
     const loadAssetEmbeddings = async () => {
       setAssetEmbeddingsLoading(true);
       try {
-        const response = await apiRequest<AssetEmbeddingListResponse>(`/api/assets/${selectedAsset.id}/embeddings`, {}, token);
+        const response = await getAssetEmbeddings(selectedAsset.id, token);
         setAssetEmbeddings(response.items);
       } catch {
         setAssetEmbeddings([]);
@@ -196,7 +198,7 @@ export function AssetsPage({ token }: { token: string }) {
 
       setSpeechSegmentsLoading(true);
       try {
-        const response = await apiRequest<AssetSpeechSegment[]>(`/api/assets/${selectedAsset.id}/speech-segments`, {}, token);
+        const response = await getSpeechSegments(selectedAsset.id, token);
         setSpeechSegments(response);
       } catch (error) {
         setSpeechSegments([]);
@@ -210,7 +212,7 @@ export function AssetsPage({ token }: { token: string }) {
 
     const loadAssetSellingPoints = async () => {
       try {
-        const response = await apiRequest<SellingPoint[]>(`/api/assets/${selectedAsset.id}/selling-points`, {}, token);
+        const response = await getAssetSellingPoints(selectedAsset.id, token);
         setAssetSellingPoints(response);
         sellingPointForm.setFieldsValue({
           selling_point_ids: response.map((item) => item.id)
@@ -258,14 +260,7 @@ export function AssetsPage({ token }: { token: string }) {
     const values = await reviewForm.validateFields();
     setSavingAnalysis(true);
     try {
-      const updated = await apiRequest<Asset>(
-        `/api/assets/${selectedAsset.id}/review`,
-        {
-          method: "PUT",
-          body: JSON.stringify(values)
-        },
-        token
-      );
+      const updated = await saveAssetReview(selectedAsset.id, values, token);
       setSelectedAsset(updated);
       setEditingAnalysis(false);
       await assets.reload();
@@ -280,11 +275,7 @@ export function AssetsPage({ token }: { token: string }) {
   const updateAssetArchiveState = async (asset: Asset, action: "archive" | "restore") => {
     setUpdatingArchive(true);
     try {
-      const updated = await apiRequest<Asset>(
-        `/api/assets/${asset.id}/${action}`,
-        { method: "POST" },
-        token
-      );
+      const updated = await persistAssetArchiveState(asset.id, action, token);
       setSelectedAsset(updated);
       await assets.reload();
       message.success(action === "archive" ? "素材已归档" : "素材已恢复");
@@ -303,14 +294,7 @@ export function AssetsPage({ token }: { token: string }) {
     const values = await sellingPointForm.validateFields();
     setSavingSellingPoints(true);
     try {
-      const updated = await apiRequest<SellingPoint[]>(
-        `/api/assets/${selectedAsset.id}/selling-points`,
-        {
-          method: "PUT",
-          body: JSON.stringify(values)
-        },
-        token
-      );
+      const updated = await persistAssetSellingPoints(selectedAsset.id, values, token);
       setAssetSellingPoints(updated);
       message.success("素材卖点关联已更新");
     } catch (error) {
@@ -326,11 +310,7 @@ export function AssetsPage({ token }: { token: string }) {
     }
     setVectorizingAsset(true);
     try {
-      const result = await apiRequest<AssetEmbeddingRunResult>(
-        `/api/assets/${selectedAsset.id}/embeddings`,
-        { method: "POST" },
-        token
-      );
+      const result = await createAssetEmbeddings(selectedAsset.id, token);
       setAssetEmbeddings(result.objects);
       message.success(`已生成 ${result.objects.length} 个向量对象`);
     } catch (error) {
