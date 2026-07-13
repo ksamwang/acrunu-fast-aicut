@@ -13,6 +13,7 @@ ARG https_proxy
 ARG NO_PROXY
 ARG no_proxy
 ARG APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/ubuntu
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 RUN sed -i "s#http://archive.ubuntu.com/ubuntu#${APT_MIRROR}#g; s#http://security.ubuntu.com/ubuntu#${APT_MIRROR}#g" /etc/apt/sources.list \
     && apt-get update \
@@ -25,11 +26,11 @@ RUN sed -i "s#http://archive.ubuntu.com/ubuntu#${APT_MIRROR}#g; s#http://securit
         python3-wheel \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir --upgrade pip \
-    && python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu124 \
+RUN python3 -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" --upgrade pip \
+    && python3 -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" \
         "torch==2.5.1" \
         "torchaudio==2.5.1" \
-    && python3 -m pip install --no-cache-dir \
+    && python3 -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" \
     "fastapi==0.115.6" \
     "uvicorn[standard]==0.34.0" \
     "python-multipart==0.0.20" \
