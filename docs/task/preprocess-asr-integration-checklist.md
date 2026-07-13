@@ -13,6 +13,7 @@
 - [x] FunASR 容器健康检查为 `GET /healthz`
 - [x] FunASR 原始推理接口为 `POST /v1/transcriptions`，文件字段为 `file`
 - [x] FunASR 当前返回 `text`、`timestamp` 和 `sentence_info`
+- [x] FunASR 推理明确启用 `sentence_timestamp=True`，优先返回句子级时间段
 - [x] ASR 服务仅绑定服务器 `127.0.0.1:10096`，客户端不能直接访问
 - [x] 未入库素材只允许上传当前 I/O 选区的临时音频，不允许服务端读取本地原始视频
 - [x] ASR 请求不创建 `asset`、任务、素材库预览、检索记录或 SRT 文件

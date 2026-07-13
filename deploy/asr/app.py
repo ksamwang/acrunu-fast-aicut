@@ -48,7 +48,12 @@ async def transcribe(file: UploadFile = File(...)):
 
     try:
         async with model_lock:
-            result = await asyncio.to_thread(model.generate, input=temporary_path, batch_size_s=300)
+            result = await asyncio.to_thread(
+                model.generate,
+                input=temporary_path,
+                batch_size_s=300,
+                sentence_timestamp=True,
+            )
     finally:
         os.unlink(temporary_path)
 
