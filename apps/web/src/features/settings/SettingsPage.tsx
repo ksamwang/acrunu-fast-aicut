@@ -192,7 +192,7 @@ export function SettingsPage({ token }: { token: string }) {
   ];
 
   return (
-    <Space direction="vertical" size="middle" className="page-stack settings-page-stack">
+    <div className="page-stack settings-page-stack">
       <Tabs
         className="settings-top-tabs"
         activeKey={settingsTab}
@@ -441,6 +441,6 @@ export function SettingsPage({ token }: { token: string }) {
           </Form>
         </Space>
       </Card>
-    </Space>
+    </div>
   );
 }

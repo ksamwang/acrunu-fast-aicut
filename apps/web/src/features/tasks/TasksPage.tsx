@@ -5,6 +5,7 @@ import { formatDateTime } from "../../shared/lib/format";
 import { taskStatusLabels, taskTypeLabels, translateValue } from "../../shared/lib/labels";
 import type { Task } from "../../shared/types/task";
 import { createTestTask, getTask, listTasks } from "./api";
+import "./styles.css";
 
 export function TasksPage({ token }: { token: string }) {
   const [taskFilters, setTaskFilters] = useState({
@@ -56,9 +57,9 @@ export function TasksPage({ token }: { token: string }) {
   };
 
   return (
-    <div data-testid="tasks-page">
-      <Space direction="vertical" size="middle" className="page-stack">
-        <Card title="任务筛选">
+    <div data-testid="tasks-page" className="tasks-page">
+      <div className="page-stack tasks-page-stack">
+        <Card title="任务筛选" className="task-filter-card">
           <Space wrap>
             <Select
               data-testid="task-filter-type"
@@ -92,7 +93,7 @@ export function TasksPage({ token }: { token: string }) {
             <Button data-testid="task-filter-refresh" onClick={tasks.reload}>刷新</Button>
           </Space>
         </Card>
-        <Card title="批量剪辑任务" extra={<Button type="primary" loading={creating} onClick={createTask}>创建测试任务</Button>}>
+        <Card className="task-list-card" title="批量剪辑任务" extra={<Button type="primary" loading={creating} onClick={createTask}>创建测试任务</Button>}>
           <Table<Task>
             rowKey="id"
             loading={tasks.loading}
@@ -117,7 +118,7 @@ export function TasksPage({ token }: { token: string }) {
             ]}
           />
         </Card>
-      </Space>
+      </div>
 
       <Modal
         title={selectedTask ? `任务详情：${selectedTask.id}` : "任务详情"}
