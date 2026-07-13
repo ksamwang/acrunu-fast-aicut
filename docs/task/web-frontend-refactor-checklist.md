@@ -17,7 +17,7 @@
 - [x] 建立 `src/shared/types/`，承载跨功能域使用的领域类型
 - [x] 建立 `src/shared/lib/`，承载格式化、浏览器存储和无业务归属的工具函数
 - [ ] 建立 `src/shared/components/`，仅放置跨两个及以上功能域复用的展示组件
-- [ ] 建立 `src/features/auth/`
+- [x] 建立 `src/features/auth/`
 - [ ] 建立 `src/features/products/`
 - [ ] 建立 `src/features/assets/`
 - [ ] 建立 `src/features/preprocess/`
@@ -165,7 +165,7 @@
 ## 10. 完成标准
 
 - [ ] `main.tsx` 仅保留 React 挂载，或被替换为最小入口文件
-- [ ] 不存在承载多个业务页面的单一 TSX 文件
+- [x] 不存在承载多个业务页面的单一 TSX 文件
 - [ ] 不存在混合所有功能域页面样式的单一业务样式文件
 - [ ] 服务端 API 与 Local Agent API 均有独立、可复用的调用层
 - [ ] 前端共享领域类型只有一个权威定义位置
