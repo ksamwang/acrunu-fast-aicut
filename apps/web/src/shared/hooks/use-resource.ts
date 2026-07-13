@@ -2,7 +2,14 @@ import { message } from "antd";
 import { useEffect, useState, type DependencyList } from "react";
 import { apiRequest } from "../api/server-api";
 
-export function useResource<T>(path: string | null, token: string, deps: DependencyList = []) {
+type ResourceLoader<T> = (path: string, token: string) => Promise<T>;
+
+export function useResource<T>(
+  path: string | null,
+  token: string,
+  deps: DependencyList = [],
+  load: ResourceLoader<T> = (resourcePath, authToken) => apiRequest<T>(resourcePath, {}, authToken)
+) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -14,7 +21,7 @@ export function useResource<T>(path: string | null, token: string, deps: Depende
     }
     setLoading(true);
     try {
-      setData(await apiRequest<T>(path, {}, token));
+      setData(await load(path, token));
     } catch (error) {
       message.error(error instanceof Error ? error.message : "加载失败");
     } finally {

@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { Button, Card, Descriptions, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
-import { apiRequest } from "../../shared/api/server-api";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDateTime } from "../../shared/lib/format";
 import { taskStatusLabels, taskTypeLabels, translateValue } from "../../shared/lib/labels";
 import type { Task } from "../../shared/types/task";
+import { createTestTask, getTask, listTasks } from "./api";
 
 export function TasksPage({ token }: { token: string }) {
   const [taskFilters, setTaskFilters] = useState({
@@ -22,7 +22,7 @@ export function TasksPage({ token }: { token: string }) {
     const query = params.toString();
     return query ? `/api/tasks?${query}` : "/api/tasks";
   }, [taskFilters]);
-  const tasks = useResource<Task[]>(taskPath, token, [taskPath]);
+  const tasks = useResource<Task[]>(taskPath, token, [taskPath], listTasks);
   const [creating, setCreating] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -34,7 +34,7 @@ export function TasksPage({ token }: { token: string }) {
   const createTask = async () => {
     setCreating(true);
     try {
-      await apiRequest<Task>("/api/tasks/test", { method: "POST" }, token);
+      await createTestTask(token);
       await tasks.reload();
     } catch (error) {
       message.error(error instanceof Error ? error.message : "创建任务失败");
@@ -46,7 +46,7 @@ export function TasksPage({ token }: { token: string }) {
   const openTaskDetail = async (taskID: string) => {
     setDetailLoading(true);
     try {
-      const task = await apiRequest<Task>(`/api/tasks/${taskID}`, {}, token);
+      const task = await getTask(taskID, token);
       setSelectedTask(task);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "加载任务失败");
@@ -156,4 +156,3 @@ export function TasksPage({ token }: { token: string }) {
     </div>
   );
 }
-
