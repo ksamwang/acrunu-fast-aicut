@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -256,20 +257,35 @@ func workspaceASRDraftFromResponse(response asrServerResponse, input WorkspaceAS
 	durationMs := input.SourceOutMs - input.SourceInMs
 	segments := make([]WorkspaceTranscriptSegment, 0, len(response.Segments))
 	for _, segment := range response.Segments {
-		segment.Text = strings.TrimSpace(segment.Text)
-		if segment.Text == "" || segment.StartMs < 0 || segment.EndMs <= segment.StartMs || segment.EndMs > durationMs {
+		segment.Text = cleanASRText(segment.Text)
+		if segment.Text == "" {
+			continue
+		}
+		if segment.StartMs < 0 || segment.EndMs <= segment.StartMs || segment.EndMs > durationMs {
 			return WorkspaceASRDraft{}, fmt.Errorf("server ASR returned an invalid transcript segment")
 		}
 		segments = append(segments, segment)
 	}
 	return WorkspaceASRDraft{
-		Text:        strings.TrimSpace(response.Text),
+		Text:        cleanASRText(response.Text),
 		Segments:    segments,
 		SourceInMs:  input.SourceInMs,
 		SourceOutMs: input.SourceOutMs,
 		TimeBase:    response.TimeBase,
 		GeneratedAt: time.Now(),
 	}, nil
+}
+
+func cleanASRText(value string) string {
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for _, character := range value {
+		if unicode.IsPunct(character) {
+			continue
+		}
+		builder.WriteRune(character)
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func (w *Workspace) recordASRFailure(itemID string, snapshot WorkspaceItem, failure error) {

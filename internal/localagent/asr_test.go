@@ -165,6 +165,28 @@ func TestWorkspaceTranscribeItemPersistsSelectionRelativeDraftWithoutOverwriting
 	}
 }
 
+func TestWorkspaceASRDraftCleansPunctuationBeforeStorage(t *testing.T) {
+	draft, err := workspaceASRDraftFromResponse(asrServerResponse{
+		Text: "Hello, world. Test!",
+		Segments: []WorkspaceTranscriptSegment{
+			{StartMs: 100, EndMs: 800, Text: "Hello, world."},
+			{StartMs: 900, EndMs: 1500, Text: "Test!"},
+		},
+		SourceInMs:  0,
+		SourceOutMs: 2000,
+		TimeBase:    asrDraftTimeBase,
+	}, WorkspaceASRTranscribeInput{SourceInMs: 0, SourceOutMs: 2000})
+	if err != nil {
+		t.Fatalf("build ASR draft: %v", err)
+	}
+	if draft.Text != "Hello world Test" {
+		t.Fatalf("unexpected cleaned text %q", draft.Text)
+	}
+	if draft.Segments[0].Text != "Hello world" || draft.Segments[1].Text != "Test" {
+		t.Fatalf("unexpected cleaned segments %#v", draft.Segments)
+	}
+}
+
 func TestWorkspaceTranscribeItemRejectsInvalidWorkspaceStateBeforeExtraction(t *testing.T) {
 	tests := []struct {
 		name   string
