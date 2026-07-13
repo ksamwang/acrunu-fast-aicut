@@ -931,3 +931,61 @@
   font-size: 12px;
 }
 
+
+@media (max-width: 1200px) {
+  .preprocess-modal-header,
+  .preprocess-header-fields,
+  .preprocess-main-stage,
+  .preprocess-timeline-inputs {
+    grid-template-columns: 1fr;
+  }
+
+  .preprocess-header-actions {
+    justify-content: flex-start;
+  }
+
+  .preprocess-header-submit {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .video-trim-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .video-trim-right-tools {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .preprocess-modal .ant-modal {
+    max-width: calc(100vw - 16px);
+  }
+
+  .preprocess-modal .ant-modal-content {
+    padding: 14px;
+    max-height: calc(100vh - 16px);
+    overflow: auto;
+  }
+
+  .preprocess-workbench {
+    height: auto;
+  }
+
+  .preprocess-modal-header,
+  .preprocess-video-stage .ant-card-body {
+    padding: 14px;
+  }
+
+  .preprocess-video-large {
+    min-height: 220px;
+    max-height: 36vh;
+  }
+
+  .preprocess-analysis-overlay {
+    position: static;
+    width: 100%;
+    margin-top: 12px;
+  }
+}

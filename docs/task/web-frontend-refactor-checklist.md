@@ -110,7 +110,7 @@
 - [ ] 保持三帧基于选区入点、中点、出点的抽样规则不变
 - [ ] 保持解释帧率/慢放后源视频、时间轴、I/O 与提交元数据一致
 - [ ] 保持正式提交必须选择产品及记住上次产品选择的约束
-- [ ] 将预处理样式迁移到 `src/features/preprocess/styles.css`
+- [x] 将预处理样式迁移到 `src/features/preprocess/styles.css`
 
 ## 7. 设置与任务功能域
 
@@ -136,9 +136,9 @@
 
 ## 8. 样式与依赖治理
 
-- [ ] 将 `src/styles.css` 缩减为 reset、应用壳、全局高度与基础 Ant Design 覆盖
+- [x] 将 `src/styles.css` 缩减为 reset、应用壳、全局高度与基础 Ant Design 覆盖
 - [ ] 保持 `html`、`body`、`#root` 禁止滚动的全局约束
-- [ ] 将功能域样式按 `assets`、`preprocess`、`products`、`settings`、`tasks` 迁移
+- [x] 将功能域样式按 `assets`、`preprocess`、`products`、`settings`、`tasks` 迁移
 - [ ] 保留现有 CSS 类名前缀，避免迁移期间发生选择器冲突
 - [ ] 每迁移一个功能域，清除原全局文件中对应的重复规则
 - [ ] 检查不同页面的滚动容器只有一个预期滚动源
@@ -166,7 +166,7 @@
 
 - [ ] `main.tsx` 仅保留 React 挂载，或被替换为最小入口文件
 - [x] 不存在承载多个业务页面的单一 TSX 文件
-- [ ] 不存在混合所有功能域页面样式的单一业务样式文件
+- [x] 不存在混合所有功能域页面样式的单一业务样式文件
 - [ ] 服务端 API 与 Local Agent API 均有独立、可复用的调用层
 - [ ] 前端共享领域类型只有一个权威定义位置
 - [ ] 已确认无引用的 `LegacyProductsPage` 与 `LegacySettingsPage` 已删除

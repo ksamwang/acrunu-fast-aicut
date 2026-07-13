@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Card, Form, Input, message } from "antd";
 import { apiRequest } from "../../shared/api/server-api";
 import type { Session } from "../../shared/types/auth";
+import "./styles.css";
 
 export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
   const [loading, setLoading] = useState(false);
@@ -41,4 +42,3 @@ export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) 
     </div>
   );
 }
-
