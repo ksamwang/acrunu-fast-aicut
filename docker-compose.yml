@@ -48,6 +48,8 @@ services:
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       STORAGE_LOCAL_ROOT: ${STORAGE_LOCAL_ROOT:-/app/storage}
       MODEL_GATEWAY_TIMEOUT_SECONDS: ${MODEL_GATEWAY_TIMEOUT_SECONDS:-120}
+      ASR_BASE_URL: ${ASR_BASE_URL:-http://asr:10096}
+      ASR_REQUEST_TIMEOUT_SECONDS: ${ASR_REQUEST_TIMEOUT_SECONDS:-300}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
@@ -113,7 +115,7 @@ services:
       - asr-models:/models
     gpus: all
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10096/healthz', timeout=3).read()"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10096/healthz', timeout=3).read()"]
       interval: 30s
       timeout: 5s
       retries: 20

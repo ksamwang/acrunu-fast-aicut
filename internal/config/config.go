@@ -17,6 +17,8 @@ type Config struct {
 	AdminUsername       string
 	AdminPassword       string
 	StorageRoot         string
+	ASRBaseURL          string
+	ASRRequestTimeout   time.Duration
 	VLMProvider         string
 	VLMModel            string
 	VLMBaseURL          string
@@ -38,6 +40,8 @@ func Load() Config {
 		AdminUsername:       env("ADMIN_USERNAME", "admin"),
 		AdminPassword:       env("ADMIN_PASSWORD", "admin"),
 		StorageRoot:         env("STORAGE_LOCAL_ROOT", "./storage"),
+		ASRBaseURL:          env("ASR_BASE_URL", "http://127.0.0.1:10096"),
+		ASRRequestTimeout:   time.Duration(envInt("ASR_REQUEST_TIMEOUT_SECONDS", 300)) * time.Second,
 		VLMProvider:         env("VLM_PROVIDER", "mock"),
 		VLMModel:            env("VLM_MODEL", ""),
 		VLMBaseURL:          env("VLM_BASE_URL", env("OPENAI_COMPATIBLE_BASE_URL", "")),

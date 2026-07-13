@@ -155,6 +155,7 @@ func (s *Server) routes() {
 	protected.DELETE("/selling-points/:sellingPointID", s.handleDeleteSellingPoint)
 	protected.POST("/selling-points/:sellingPointID/archive", s.handleArchiveSellingPoint)
 	protected.POST("/uploads/tokens", s.handleCreateUploadToken)
+	protected.POST("/preprocess/asr-transcribe", s.handlePreprocessASRTranscribe)
 	protected.POST("/preprocess/vlm-label", s.handlePreprocessVLMLabel)
 	protected.GET("/assets", s.handleListAssets)
 	protected.GET("/assets/:assetID", s.handleGetAsset)

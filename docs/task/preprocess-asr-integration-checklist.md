@@ -32,29 +32,29 @@
 
 ### 1.1 配置与客户端
 
-- [ ] 在服务端配置中增加 `ASR_BASE_URL`，Docker Compose 默认值为 `http://asr:10096`
-- [ ] 增加独立的 ASR 请求超时配置，并保证请求取消能够传递到上游 FunASR
-- [ ] API 服务启动不强依赖 ASR 已健康；ASR 尚未就绪时返回明确的可恢复错误
-- [ ] 实现 FunASR HTTP 客户端，使用 multipart 将音频字段 `file` 转发到 `/v1/transcriptions`
-- [ ] 为 FunASR 响应定义明确类型，不在业务代码中传递无约束的 `map[string]any`
-- [ ] 服务端代理不进入任务队列，也不额外增加业务并发上限
-- [ ] 记录请求耗时、结果状态和错误类型，但日志不得写入音频内容、完整转写正文或认证信息
+- [x] 在服务端配置中增加 `ASR_BASE_URL`，Docker Compose 默认值为 `http://asr:10096`
+- [x] 增加独立的 ASR 请求超时配置，并保证请求取消能够传递到上游 FunASR
+- [x] API 服务启动不强依赖 ASR 已健康；ASR 尚未就绪时返回明确的可恢复错误
+- [x] 实现 FunASR HTTP 客户端，使用 multipart 将音频字段 `file` 转发到 `/v1/transcriptions`
+- [x] 为 FunASR 响应定义明确类型，不在业务代码中传递无约束的 `map[string]any`
+- [x] 服务端代理不进入任务队列，也不额外增加业务并发上限
+- [x] 记录请求耗时、结果状态和错误类型，但日志不得写入音频内容、完整转写正文或认证信息
 
 ### 1.2 预处理接口协议
 
-- [ ] 新增受登录认证保护的 `POST /api/preprocess/asr-transcribe`
-- [ ] 请求使用 multipart，至少包含 `file`、`source_in_ms`、`source_out_ms`
-- [ ] 不要求 `asset_id`、`product_id` 或服务端素材记录，因为此时素材尚未入库
-- [ ] 校验只上传一个音频文件
-- [ ] 校验 `source_in_ms >= 0` 且 `source_out_ms > source_in_ms`
-- [ ] 设置合理的请求体大小上限，并对超限请求返回稳定的业务错误码
-- [ ] 拒绝空文件、无法识别的音频和缺失时间范围的请求
-- [ ] 将 FunASR 的 `text`、`timestamp`、`sentence_info` 归一化为服务端稳定响应
-- [ ] 标准响应至少包含 `text`、`segments`、`source_in_ms`、`source_out_ms` 和 `time_base`
-- [ ] 每个 `segments` 元素至少包含 `start_ms`、`end_ms`、`text`
-- [ ] `time_base` 固定返回 `selection_relative_ms`
-- [ ] 校验归一化后的句段满足 `0 <= start_ms < end_ms <= source_out_ms - source_in_ms`
-- [ ] FunASR 未返回有效 `sentence_info` 时，保留完整 `text`，并采用明确的降级规则生成或省略句段
+- [x] 新增受登录认证保护的 `POST /api/preprocess/asr-transcribe`
+- [x] 请求使用 multipart，至少包含 `file`、`source_in_ms`、`source_out_ms`
+- [x] 不要求 `asset_id`、`product_id` 或服务端素材记录，因为此时素材尚未入库
+- [x] 校验只上传一个音频文件
+- [x] 校验 `source_in_ms >= 0` 且 `source_out_ms > source_in_ms`
+- [x] 设置合理的请求体大小上限，并对超限请求返回稳定的业务错误码
+- [x] 拒绝空文件、无法识别的音频和缺失时间范围的请求
+- [x] 将 FunASR 的 `text`、`timestamp`、`sentence_info` 归一化为服务端稳定响应
+- [x] 标准响应至少包含 `text`、`segments`、`source_in_ms`、`source_out_ms` 和 `time_base`
+- [x] 每个 `segments` 元素至少包含 `start_ms`、`end_ms`、`text`
+- [x] `time_base` 固定返回 `selection_relative_ms`
+- [x] 校验归一化后的句段满足 `0 <= start_ms < end_ms <= source_out_ms - source_in_ms`
+- [x] FunASR 未返回有效 `sentence_info` 时，保留完整 `text`，并采用明确的降级规则生成或省略句段
 
 建议响应结构：
 
@@ -78,33 +78,42 @@
 
 ### 1.3 临时文件与错误处理
 
-- [ ] 服务端 API 不持久化上传音频；必须落盘时使用独立临时目录并在成功、失败、超时后统一清理
-- [ ] 确认 FunASR 容器自身的临时上传文件在推理结束后删除
-- [ ] 将参数错误映射为 `400`
-- [ ] 将 ASR 尚未就绪或不可用映射为稳定的 `503` 业务错误
-- [ ] 将上游超时映射为 `504`
-- [ ] 将上游异常响应或无法解析的 JSON 映射为 `502`
-- [ ] 错误响应保留可供前端展示的中文信息，同时保留稳定的机器错误码
-- [ ] 任何失败都不得创建数据库记录、素材处理任务或遗留临时文件
+- [x] 服务端 API 不持久化上传音频；必须落盘时使用独立临时目录并在成功、失败、超时后统一清理
+- [x] 确认 FunASR 容器自身的临时上传文件在推理结束后删除
+- [x] 将参数错误映射为 `400`
+- [x] 将 ASR 尚未就绪或不可用映射为稳定的 `503` 业务错误
+- [x] 将上游超时映射为 `504`
+- [x] 将上游异常响应或无法解析的 JSON 映射为 `502`
+- [x] 错误响应保留可供前端展示的中文信息，同时保留稳定的机器错误码
+- [x] 任何失败都不得创建数据库记录、素材处理任务或遗留临时文件
 
 ### 1.4 服务端测试
 
-- [ ] 使用 `httptest.Server` 模拟 FunASR，验证 multipart 文件和字段转发正确
-- [ ] 覆盖正常文本与多个句段的归一化
-- [ ] 覆盖空 `sentence_info` 的降级行为
-- [ ] 覆盖非法时间范围、空文件和请求体超限
-- [ ] 覆盖 FunASR `503`、超时、非 JSON 响应和连接失败
-- [ ] 验证未登录请求不能访问预处理 ASR 接口
-- [ ] 验证调用前后 `asset`、任务和检索记录数量不变
-- [ ] 验证服务端临时目录在成功和失败后都为空
+- [x] 使用 `httptest.Server` 模拟 FunASR，验证 multipart 文件和字段转发正确
+- [x] 覆盖正常文本与多个句段的归一化
+- [x] 覆盖空 `sentence_info` 的降级行为
+- [x] 覆盖非法时间范围、空文件和请求体超限
+- [x] 覆盖 FunASR `503`、超时、非 JSON 响应和连接失败
+- [x] 验证未登录请求不能访问预处理 ASR 接口
+- [x] 验证调用前后 `asset`、任务和检索记录数量不变
+- [x] 验证服务端临时目录在成功和失败后都为空
 
 ### 1.5 第 1 阶段完成标准
 
-- [ ] API 服务可以通过内部 Docker 网络调用 `http://asr:10096/v1/transcriptions`
-- [ ] 客户端只能通过受认证的 `/api/preprocess/asr-transcribe` 使用 FunASR
-- [ ] 服务端返回稳定的毫秒级结构化句段，不向调用方暴露 FunASR 原始结构差异
-- [ ] 服务端不保存预处理音频、转写草稿或任何未入库素材记录
-- [ ] 服务端单元测试和 HTTP 集成测试通过
+- [x] API 服务可以通过内部 Docker 网络调用 `http://asr:10096/v1/transcriptions`
+- [x] 客户端只能通过受认证的 `/api/preprocess/asr-transcribe` 使用 FunASR
+- [x] 服务端返回稳定的毫秒级结构化句段，不向调用方暴露 FunASR 原始结构差异
+- [x] 服务端不保存预处理音频、转写草稿或任何未入库素材记录
+- [x] 服务端单元测试和 HTTP 集成测试通过
+
+阶段 1 验证记录（2026-07-13）：
+
+- 本地执行 `go test ./...` 与 `go vet ./...` 通过
+- 服务器执行 `docker compose config --quiet` 通过，API 容器使用 `ASR_BASE_URL=http://asr:10096`
+- 修正 ASR 健康检查使用不存在的 `python` 后，容器状态恢复为 `healthy`
+- 指定真实视频导出的 `19.017s` WAV 经服务端代理得到可读中文转写，句段范围为 `130ms..18655ms`
+- 无效音频经真实 FunASR 调用返回 `502 / asr_invalid_response`
+- API 与 ASR 容器检查均无 multipart 或推理临时文件残留
 
 ## 2. local-agent 按当前 I/O 选区提取并转写
 
