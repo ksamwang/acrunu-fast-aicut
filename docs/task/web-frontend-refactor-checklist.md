@@ -75,7 +75,7 @@
 - [x] 提取素材库页面到 `src/features/assets/AssetsPage.tsx`
 - [ ] 提取筛选工具栏到 `AssetFilterToolbar.tsx`
 - [ ] 提取素材卡片网格到 `AssetGrid.tsx`
-- [ ] 提取单个素材预览卡片到 `AssetCard.tsx`
+- [x] 提取单个素材预览卡片到 `AssetCard.tsx`
 - [ ] 提取素材详情弹窗到 `AssetDetailModal.tsx`
 - [ ] 提取素材详情中的基础信息、抽帧预览、VLM 信息、语义预览和人工编辑面板
 - [ ] 将素材列表、详情、抽帧、语义预览和向量请求收敛到 `src/features/assets/api.ts`

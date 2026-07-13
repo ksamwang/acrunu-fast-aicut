@@ -7,6 +7,7 @@ import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/li
 import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, manualCleanStatusLabels, shotSizeLabels, sourceTypeLabels, translateValue, usabilityStatusLabels } from "../../shared/lib/labels";
 import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
+import { AssetCard } from "./AssetCard";
 import "./styles.css";
 
 function renderTagList(items?: string[], emptyText = "-") {
@@ -590,47 +591,14 @@ export function AssetsPage({ token }: { token: string }) {
             <Empty description="暂无匹配素材" />
           ) : (
             <div className="asset-card-grid">
-              {assetItems.map((asset) => {
-                const title = assetDisplayTitle(asset);
-                const fileName = assetFileDisplayName(asset);
-                const tags = [...(asset.scene_tags ?? []), ...(asset.subjects ?? [])].slice(0, 4);
-                return (
-                  <button
-                    key={asset.id}
-                    type="button"
-                    className="asset-library-card"
-                    onClick={() => setSelectedAsset(asset)}
-                    aria-label={title}
-                  >
-                    <div className="asset-card-media">
-                      <video src={assetVideoURL(asset)} muted preload="metadata" />
-                      <div className="asset-card-scrim" />
-                      <Tag className="asset-card-status">{translateValue(asset.status, assetStatusLabels)}</Tag>
-                      <Tag className="asset-card-type">{translateValue(asset.source_type, sourceTypeLabels)}</Tag>
-                      <span className="asset-card-duration">{formatDuration(asset.duration_ms)}</span>
-                    </div>
-                    <div className="asset-card-body">
-                      <Typography.Text className="asset-card-title">{title}</Typography.Text>
-                      <Typography.Text className="asset-card-file">{fileName}</Typography.Text>
-                      <div className="asset-card-meta">
-                        <span>{productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"}</span>
-                        <span>{asset.width && asset.height ? asset.width + "x" + asset.height : "未知分辨率"}</span>
-                      </div>
-                      <div className="asset-card-labels">
-                        {asset.shot_size ? <Tag>{translateValue(asset.shot_size, shotSizeLabels)}</Tag> : null}
-                        {asset.camera_movement ? <Tag>{translateValue(asset.camera_movement, cameraMovementLabels)}</Tag> : null}
-                        {asset.analysis_status ? <Tag color="blue">{translateValue(asset.analysis_status, analysisStatusLabels)}</Tag> : null}
-                      </div>
-                      <Typography.Text className="asset-card-description">
-                        {asset.scene_description || "暂无画面描述"}
-                      </Typography.Text>
-                      <div className="asset-card-tags">
-                        {tags.length > 0 ? tags.map((tag) => <span key={tag}>{tag}</span>) : <span>暂无标签</span>}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+              {assetItems.map((asset) => (
+                <AssetCard
+                  key={asset.id}
+                  asset={asset}
+                  productName={productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"}
+                  onSelect={setSelectedAsset}
+                />
+              ))}
             </div>
           )}
           <div className="asset-pagination">
