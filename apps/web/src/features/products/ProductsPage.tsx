@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Button, Card, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag, Typography, message } from "antd";
-import { apiRequest } from "../../shared/api/server-api";
 import { useResource } from "../../shared/hooks/use-resource";
 import { assetDisplayTitle, assetVideoURL } from "../../shared/lib/asset-display";
 import { formatDuration } from "../../shared/lib/format";
@@ -8,10 +7,11 @@ import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, productS
 import type { Asset } from "../../shared/types/asset";
 import type { Product, ProductStats, SellingPoint } from "../../shared/types/product";
 import { productReferenceImage, readImageFileAsDataURL } from "./product-reference";
+import { deleteProduct as removeProduct, deleteSellingPoint as removeSellingPoint, getProductStats, listProducts, listSellingPointAssets, listSellingPoints, saveProduct as persistProduct, saveSellingPoint as persistSellingPoint } from "./api";
 import "./styles.css";
 
 export function ProductManagementPage({ token }: { token: string }) {
-  const products = useResource<Product[]>("/api/products", token);
+  const products = useResource<Product[]>("/api/products", token, [], listProducts);
   const [selectedProductID, setSelectedProductID] = useState<string | null>(null);
   const [selectedSellingPointID, setSelectedSellingPointID] = useState<string | null>(null);
   const [productStatsMap, setProductStatsMap] = useState<Record<string, ProductStats>>({});
@@ -28,12 +28,14 @@ export function ProductManagementPage({ token }: { token: string }) {
   const sellingPoints = useResource<SellingPoint[]>(
     selectedProductID ? `/api/products/${selectedProductID}/selling-points` : null,
     token,
-    [selectedProductID]
+    [selectedProductID],
+    listSellingPoints
   );
   const sellingPointAssets = useResource<Asset[]>(
     selectedSellingPointID ? `/api/selling-points/${selectedSellingPointID}/assets` : null,
     token,
-    [selectedSellingPointID]
+    [selectedSellingPointID],
+    listSellingPointAssets
   );
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function ProductManagementPage({ token }: { token: string }) {
     setProductStatsLoading(true);
     void Promise.all(
       productList.map(async (product) => {
-        const stats = await apiRequest<ProductStats>(`/api/products/${product.id}/stats`, {}, token);
+        const stats = await getProductStats(product.id, token);
         return [product.id, stats] as const;
       })
     )
@@ -103,17 +105,7 @@ export function ProductManagementPage({ token }: { token: string }) {
     } else {
       delete metadata.reference_image;
     }
-    await apiRequest<Product>(
-      editingProduct ? `/api/products/${editingProduct.id}` : "/api/products",
-      {
-        method: editingProduct ? "PUT" : "POST",
-        body: JSON.stringify({
-          ...productValues,
-          metadata
-        })
-      },
-      token
-    );
+    await persistProduct(editingProduct?.id, { ...productValues, metadata }, token);
     setProductOpen(false);
     setEditingProduct(null);
     productForm.resetFields();
@@ -126,7 +118,7 @@ export function ProductManagementPage({ token }: { token: string }) {
       message.warning("该产品已关联素材，不允许删除");
       return;
     }
-    await apiRequest(`/api/products/${product.id}`, { method: "DELETE" }, token);
+    await removeProduct(product.id, token);
     if (selectedProductID === product.id) {
       setSelectedProductID(null);
       setSelectedSellingPointID(null);
@@ -163,14 +155,7 @@ export function ProductManagementPage({ token }: { token: string }) {
       return;
     }
     const values = await sellingPointForm.validateFields();
-    await apiRequest<SellingPoint>(
-      editingSellingPoint ? `/api/selling-points/${editingSellingPoint.id}` : `/api/products/${selectedProductID}/selling-points`,
-      {
-        method: editingSellingPoint ? "PUT" : "POST",
-        body: JSON.stringify(values)
-      },
-      token
-    );
+    await persistSellingPoint(editingSellingPoint?.id, selectedProductID, values, token);
     setSellingPointOpen(false);
     setEditingSellingPoint(null);
     sellingPointForm.resetFields();
@@ -183,7 +168,7 @@ export function ProductManagementPage({ token }: { token: string }) {
       message.warning("该卖点已关联素材，不允许删除");
       return;
     }
-    await apiRequest(`/api/selling-points/${sellingPoint.id}`, { method: "DELETE" }, token);
+    await removeSellingPoint(sellingPoint.id, token);
     if (selectedSellingPointID === sellingPoint.id) {
       setSelectedSellingPointID(null);
     }

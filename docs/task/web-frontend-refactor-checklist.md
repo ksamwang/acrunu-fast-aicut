@@ -65,7 +65,7 @@
 - [ ] 提取产品白底参考图上传与预览组件
 - [ ] 提取卖点编辑、新建弹窗到 `SellingPointModal.tsx`
 - [ ] 提取关联素材预览弹窗到 `LinkedAssetsModal.tsx`
-- [ ] 将产品与卖点请求收敛到 `src/features/products/api.ts`
+- [x] 将产品与卖点请求收敛到 `src/features/products/api.ts`
 - [x] 将产品功能域样式迁移到 `src/features/products/styles.css`
 - [ ] 保持产品编辑、删除约束、卖点编辑和关联素材预览行为不变
 - [x] 确认无引用后删除 `LegacyProductsPage`
