@@ -129,7 +129,7 @@
 
 ### 7.2 任务
 
-- [ ] 提取任务页面到 `src/features/tasks/TasksPage.tsx`
+- [x] 提取任务页面到 `src/features/tasks/TasksPage.tsx`
 - [ ] 将任务查询与操作请求收敛到 `src/features/tasks/api.ts`
 - [ ] 将任务功能域样式迁移到 `src/features/tasks/styles.css`
 - [ ] 保持现有任务列表、筛选和状态展示行为不变
