@@ -116,7 +116,7 @@
 
 ### 7.1 系统设置
 
-- [ ] 提取设置页到 `src/features/settings/SettingsPage.tsx`
+- [x] 提取设置页到 `src/features/settings/SettingsPage.tsx`
 - [ ] 提取模型供应商 Tab 到 `ProviderSettingsTab.tsx`
 - [ ] 提取默认模型 Tab 到 `ModelSettingsTab.tsx`
 - [ ] 提取运行控制 Tab 到 `RuntimeSettingsTab.tsx`
@@ -125,7 +125,7 @@
 - [ ] 将设置请求收敛到 `src/features/settings/api.ts`
 - [ ] 将设置页滚动限制在页面内容区域，禁止 body 滚动
 - [ ] 将设置样式迁移到 `src/features/settings/styles.css`
-- [ ] 确认无引用后删除 `LegacySettingsPage`
+- [x] 确认无引用后删除 `LegacySettingsPage`
 
 ### 7.2 任务
 
