@@ -55,7 +55,7 @@
 - [x] 提取预处理工作区、探测结果、VLM 标注类型到 `src/shared/types/workspace.ts`
 - [x] 提取供应商、模型和运行控制类型到 `src/shared/types/settings.ts`
 - [ ] 统一跨页面重复的时长、分辨率、帧率和状态文案格式化函数
-- [ ] 提取 Local Storage 键及读写逻辑，包含上次正式提交产品选择
+- [x] 提取 Local Storage 键及读写逻辑，包含上次正式提交产品选择
 - [ ] 清理重复或语义不一致的前端类型定义
 
 ## 4. 产品与卖点功能域
