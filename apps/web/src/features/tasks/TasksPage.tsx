@@ -58,7 +58,6 @@ export function TasksPage({ token }: { token: string }) {
   return (
     <div data-testid="tasks-page">
       <Space direction="vertical" size="middle" className="page-stack">
-        <Typography.Title level={3}>任务</Typography.Title>
         <Card title="任务筛选">
           <Space wrap>
             <Select

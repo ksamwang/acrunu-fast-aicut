@@ -185,7 +185,6 @@ export function ProductManagementPage({ token }: { token: string }) {
 
   return (
     <Space direction="vertical" size="middle" className="page-stack">
-      <Typography.Title level={3}>产品</Typography.Title>
       <Card title="产品列表" extra={<Button type="primary" onClick={openCreateProduct}>新建产品</Button>}>
         <Table<(Product & { stats?: ProductStats })>
           rowKey="id"
