@@ -8,6 +8,7 @@ import type { Asset } from "../../shared/types/asset";
 import type { Product, ProductStats, SellingPoint } from "../../shared/types/product";
 import { productReferenceImage, readImageFileAsDataURL } from "./product-reference";
 import { deleteProduct as removeProduct, deleteSellingPoint as removeSellingPoint, getProductStats, listProducts, listSellingPointAssets, listSellingPoints, saveProduct as persistProduct, saveSellingPoint as persistSellingPoint } from "./api";
+import { ProductEditorModal } from "./ProductEditorModal";
 import "./styles.css";
 
 export function ProductManagementPage({ token }: { token: string }) {
@@ -236,66 +237,18 @@ export function ProductManagementPage({ token }: { token: string }) {
         />
       </Card>
 
-      <Modal
-        title={editingProduct ? "编辑产品" : "新建产品"}
+      <ProductEditorModal
         open={productOpen}
-        onOk={saveProduct}
+        editingProduct={editingProduct}
+        form={productForm}
+        onSave={() => void saveProduct()}
         onCancel={() => {
           setProductOpen(false);
           setEditingProduct(null);
           productForm.resetFields();
         }}
-        okText="确认"
-        cancelText="取消"
-      >
-        <Form form={productForm} layout="vertical">
-          <Form.Item name="name" label="产品名称" rules={[{ required: true, message: "请输入产品名称" }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="category" label="分类">
-            <Input />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Form.Item name="reference_image" label="产品白底参考图">
-            <Input type="hidden" />
-          </Form.Item>
-          <Form.Item shouldUpdate noStyle>
-            {() => {
-              const referenceImage = productForm.getFieldValue("reference_image");
-              return (
-                <Space direction="vertical" className="wide-space">
-                  {referenceImage ? (
-                    <img className="product-reference-preview" src={referenceImage} alt="产品白底参考图预览" />
-                  ) : (
-                    <Typography.Text type="secondary">可上传一张白底产品图，用于 VLM 标注时辅助识别产品。</Typography.Text>
-                  )}
-                  <Space wrap>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        event.currentTarget.value = "";
-                        if (!file) {
-                          return;
-                        }
-                        void readImageFileAsDataURL(file)
-                          .then((dataURL) => productForm.setFieldValue("reference_image", dataURL))
-                          .catch((error) => message.error(error instanceof Error ? error.message : "读取参考图失败"));
-                      }}
-                    />
-                    <Button size="small" disabled={!referenceImage} onClick={() => productForm.setFieldValue("reference_image", "")}>
-                      移除参考图
-                    </Button>
-                  </Space>
-                </Space>
-              );
-            }}
-          </Form.Item>
-        </Form>
-      </Modal>
+        onError={message.error}
+      />
 
       <Modal
         title={selectedProduct ? `卖点管理：${selectedProduct.name}` : "卖点管理"}
