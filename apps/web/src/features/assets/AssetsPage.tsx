@@ -6,7 +6,7 @@ import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/li
 import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, manualCleanStatusLabels, shotSizeLabels, sourceTypeLabels, translateValue, usabilityStatusLabels } from "../../shared/lib/labels";
 import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
-import { AssetCard } from "./AssetCard";
+import { AssetGrid } from "./AssetGrid";
 import { createAssetEmbeddings, getAssetEmbeddings, getAssetFrames, getAssetSellingPoints, getSemanticPreview, getSpeechSegments, listAssets, listProducts, listSellingPoints, saveAssetReview, saveAssetSellingPoints as persistAssetSellingPoints, updateAssetArchiveState as persistAssetArchiveState } from "./api";
 import "./styles.css";
 
@@ -557,44 +557,19 @@ export function AssetsPage({ token }: { token: string }) {
           ) : null}
         </Card>
 
-        <Card
-          className="asset-grid-card"
-          title="素材列表"
-          extra={
-            <Typography.Text type="secondary">
-              第 {assets.data?.page ?? assetPage} 页 / 共 {assetTotal} 条
-            </Typography.Text>
-          }
+        <AssetGrid
+          assets={assetItems}
+          result={assets.data}
           loading={assets.loading}
-        >
-          {assetItems.length === 0 ? (
-            <Empty description="暂无匹配素材" />
-          ) : (
-            <div className="asset-card-grid">
-              {assetItems.map((asset) => (
-                <AssetCard
-                  key={asset.id}
-                  asset={asset}
-                  productName={productNameByID.get(asset.product_id) ?? asset.product_id ?? "-"}
-                  onSelect={setSelectedAsset}
-                />
-              ))}
-            </div>
-          )}
-          <div className="asset-pagination">
-            <Pagination
-              current={assets.data?.page ?? assetPage}
-              pageSize={assets.data?.page_size ?? assetPageSize}
-              total={assetTotal}
-              showSizeChanger
-              pageSizeOptions={["10", "20", "50"]}
-              onChange={(page, pageSize) => {
-                setAssetPage(page);
-                setAssetPageSize(pageSize);
-              }}
-            />
-          </div>
-        </Card>
+          page={assetPage}
+          pageSize={assetPageSize}
+          productNameByID={productNameByID}
+          onSelect={setSelectedAsset}
+          onPageChange={(page, pageSize) => {
+            setAssetPage(page);
+            setAssetPageSize(pageSize);
+          }}
+        />
       </Space>
 
       <Modal
