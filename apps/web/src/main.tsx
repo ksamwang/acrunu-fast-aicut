@@ -12,8 +12,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Layout,
-  Menu,
   Modal,
   Pagination,
   Popconfirm,
@@ -26,136 +24,18 @@ import {
   message
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import { AppShell } from "./app/AppShell";
+import { normalizeViewForRole, readHashView, writeHashView, type ViewKey } from "./app/routes";
 import { PreprocessPage } from "./preprocess-page";
+import { apiRequest } from "./shared/api/server-api";
+import { formatDateTime, formatDuration, formatTimestamp } from "./shared/lib/format";
+import { clearStoredSession, readStoredSession, storeSession } from "./shared/lib/session-storage";
+import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "./shared/types/asset";
+import type { Session, User } from "./shared/types/auth";
+import type { Product, ProductStats, SellingPoint } from "./shared/types/product";
+import type { ModelCapabilitySettings, ModelDiscoveryResult, ModelProvider, ModelSelectOption, OpenAICompatibleSettings, RuntimeSettings, SystemConfig } from "./shared/types/settings";
+import type { Task } from "./shared/types/task";
 import "./styles.css";
-
-type User = {
-  id: string;
-  username: string;
-  display_name: string;
-  role: "admin" | "user";
-};
-
-type Session = {
-  token: string;
-  user: User;
-};
-
-type Product = {
-  id: string;
-  name: string;
-  description?: string;
-  category?: string;
-  status: string;
-  metadata?: Record<string, unknown>;
-};
-
-type SellingPoint = {
-  id: string;
-  product_id: string;
-  title: string;
-  description?: string;
-  priority: number;
-  status: string;
-  asset_count?: number;
-};
-
-type ProductStats = {
-  product_id: string;
-  asset_count: number;
-  usable_asset_count: number;
-  pending_analysis_count: number;
-};
-
-type Asset = {
-  id: string;
-  product_id: string;
-  asset_name?: string;
-  storage_key: string;
-  file_name: string;
-  source_original_name?: string;
-  source_type: string;
-  status: string;
-  analysis_status?: string;
-  usability_status?: string;
-  manual_clean_status?: string;
-  duration_ms?: number;
-  width?: number;
-  height?: number;
-  fps?: number;
-  codec?: string;
-  has_audio?: boolean;
-  audio_codec?: string;
-  bitrate_kbps?: number;
-  reviewer_notes?: string;
-  scene_description?: string;
-  shot_size?: string;
-  camera_movement?: string;
-  subjects?: string[];
-  scene_tags?: string[];
-  quality_tags?: string[];
-  model_labels?: Record<string, unknown>;
-  model_result?: Record<string, unknown>;
-  review_overrides?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-  analysis_error?: string;
-  updated_at?: string;
-  analyzed_at?: string;
-};
-
-type AssetSellingPointPayload = {
-  selling_point_ids: string[];
-};
-
-type AssetListResponse = {
-  items: Asset[];
-  total: number;
-  page: number;
-  page_size: number;
-};
-
-type AssetFrameSnapshot = {
-  id: string;
-  asset_id: string;
-  frame_index: number;
-  timestamp_ms: number;
-  storage_key: string;
-  width?: number;
-  height?: number;
-  created_at: string;
-};
-
-type AssetFrameResponse = {
-  asset_id: string;
-  frames: AssetFrameSnapshot[];
-};
-
-type AssetSpeechSegment = {
-  id: string;
-  asset_id: string;
-  start_ms: number;
-  end_ms: number;
-  transcript: string;
-  confidence?: number;
-  source: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type AssetEmbeddingTarget = {
-  object_type: string;
-  object_id: string;
-  asset_id: string;
-  text: string;
-  metadata?: Record<string, unknown>;
-};
-
-type AssetSemanticPreview = {
-  asset_id: string;
-  open_semantic_description: string;
-  embedding_targets: AssetEmbeddingTarget[];
-};
 
 function productReferenceImage(product?: Product | null) {
   const image = product?.metadata?.reference_image;
@@ -177,182 +57,6 @@ function readImageFileAsDataURL(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("读取图片失败"));
     reader.readAsDataURL(file);
   });
-}
-
-type AssetEmbeddingObject = {
-  id: string;
-  asset_id: string;
-  object_type: string;
-  object_id: string;
-  text: string;
-  text_hash: string;
-  provider_id: string;
-  model: string;
-  dimension: number;
-  metadata?: Record<string, unknown>;
-  status: string;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type AssetEmbeddingListResponse = {
-  asset_id: string;
-  items: AssetEmbeddingObject[];
-};
-
-type AssetEmbeddingRunResult = {
-  asset_id: string;
-  provider_id: string;
-  model: string;
-  dimension: number;
-  objects: AssetEmbeddingObject[];
-};
-
-type AssetReviewPayload = {
-  scene_description: string;
-  shot_size: string;
-  camera_movement: string;
-  subjects: string[];
-  scene_tags: string[];
-  quality_tags: string[];
-  usability_status: string;
-  reviewer_notes: string;
-};
-
-type Task = {
-  id: string;
-  product_id?: string;
-  created_by_user_id?: string;
-  task_type: string;
-  status: string;
-  payload_summary?: Record<string, unknown>;
-  asset_id?: string;
-  duration_ms?: number;
-  error_message?: string;
-  retry_count: number;
-  created_at: string;
-  updated_at?: string;
-  started_at?: string;
-  finished_at?: string;
-};
-
-type SystemConfig = {
-  key: string;
-  value: unknown;
-  type: string;
-  is_secret: boolean;
-  description?: string;
-};
-
-type OpenAICompatibleSettings = {
-  provider: string;
-  base_url: string;
-  api_key_configured: boolean;
-  llm_model: string;
-  vlm_model: string;
-  embedding_model: string;
-};
-
-type RuntimeSettings = {
-  llm_max_concurrency: number;
-  vlm_max_concurrency: number;
-  asr_max_concurrency: number;
-  tts_max_concurrency: number;
-  render_max_concurrency: number;
-  task_max_queued_per_user: number;
-  task_max_running_per_user: number;
-  vlm_timeout_seconds: number;
-  vlm_max_retries: number;
-};
-
-type ModelDiscoveryResult = {
-  models: Array<{
-    id: string;
-  }>;
-};
-
-type ModelSelectOption = {
-  value: string;
-  label: string;
-};
-
-type ModelProvider = {
-  id: string;
-  name: string;
-  provider_type: string;
-  base_url: string;
-  api_key_configured: boolean;
-  enabled: boolean;
-};
-
-type ModelCapabilitySetting = {
-  capability: string;
-  provider_id: string;
-  model: string;
-  dimension?: number;
-};
-
-type ModelCapabilitySettings = {
-  llm: ModelCapabilitySetting;
-  vlm: ModelCapabilitySetting;
-  embedding: ModelCapabilitySetting;
-};
-
-type ViewKey = "products" | "preprocess" | "assets" | "tasks" | "settings";
-
-const defaultView: ViewKey = "products";
-const viewKeys: ViewKey[] = ["products", "preprocess", "assets", "tasks", "settings"];
-const storedSessionKey = "aicut.session";
-
-function isViewKey(value: string): value is ViewKey {
-  return viewKeys.includes(value as ViewKey);
-}
-
-function normalizeViewForRole(view: ViewKey, role?: User["role"]): ViewKey {
-  if (view === "settings" && role !== "admin") {
-    return defaultView;
-  }
-  return view;
-}
-
-function readHashView(role?: User["role"]): ViewKey {
-  const raw = window.location.hash.replace(/^#\/?/, "").split(/[/?&]/)[0];
-  if (!isViewKey(raw)) {
-    return defaultView;
-  }
-  return normalizeViewForRole(raw, role);
-}
-
-function writeHashView(view: ViewKey) {
-  const nextHash = `#/${view}`;
-  if (window.location.hash !== nextHash) {
-    window.location.hash = nextHash;
-  }
-}
-
-function readStoredSession(): Session | null {
-  try {
-    const raw = window.localStorage.getItem(storedSessionKey);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Session;
-    if (!parsed?.token || !parsed?.user?.role) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function storeSession(session: Session) {
-  window.localStorage.setItem(storedSessionKey, JSON.stringify(session));
-}
-
-function clearStoredSession() {
-  window.localStorage.removeItem(storedSessionKey);
 }
 
 const roleLabels: Record<string, string> = {
@@ -441,23 +145,6 @@ function translateValue(value: string | undefined | null, labels: Record<string,
   return labels[value] ?? value;
 }
 
-async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers
-    }
-  });
-
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "请求失败");
-  }
-  return payload.data as T;
-}
-
 function useResource<T>(path: string | null, token: string, deps: React.DependencyList = []) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
@@ -485,24 +172,6 @@ function useResource<T>(path: string | null, token: string, deps: React.Dependen
   return { data, loading, reload };
 }
 
-function formatDuration(durationMs?: number) {
-  if (!durationMs) {
-    return "-";
-  }
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function formatTimestamp(durationMs: number) {
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  const milliseconds = durationMs % 1000;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
-}
-
 function assetVideoURL(asset: Asset) {
   return `/storage/${encodeURI(asset.storage_key)}`;
 }
@@ -516,17 +185,6 @@ function assetFileDisplayName(asset: Asset) {
 
 function assetDisplayTitle(asset: Asset) {
   return asset.asset_name || assetFileDisplayName(asset);
-}
-
-function formatDateTime(value?: string) {
-  if (!value) {
-    return "-";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function renderTagList(items?: string[], emptyText = "-") {
@@ -3563,13 +3221,6 @@ function SettingsPage({ token }: { token: string }) {
 
 function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [view, setView] = useState<ViewKey>(() => readHashView(session.user.role));
-  const menuItems = [
-    { key: "products", label: "产品" },
-    { key: "preprocess", label: "预处理" },
-    { key: "assets", label: "素材" },
-    { key: "tasks", label: "任务" },
-    ...(session.user.role === "admin" ? [{ key: "settings", label: "设置" }] : [])
-  ];
 
   useEffect(() => {
     const syncViewFromHash = () => {
@@ -3592,30 +3243,19 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
   };
 
   return (
-    <Layout className="app-shell" data-testid="console-app">
-      <Layout.Sider width={220} theme="light">
-        <div className="brand">AICut</div>
-        <Menu selectedKeys={[view]} items={menuItems} onClick={(item) => navigateView(item.key as ViewKey)} />
-      </Layout.Sider>
-      <Layout>
-        <Layout.Header className="topbar">
-          <Space>
-            <Tag color={session.user.role === "admin" ? "blue" : "default"}>
-              {translateValue(session.user.role, roleLabels)}
-            </Tag>
-            <Typography.Text>{session.user.display_name}</Typography.Text>
-            <Button onClick={onLogout}>退出登录</Button>
-          </Space>
-        </Layout.Header>
-        <Layout.Content className="content">
-          {view === "products" && <ProductManagementPage token={session.token} />}
-          {view === "preprocess" && <PreprocessPage token={session.token} />}
-          {view === "assets" && <AssetsPage token={session.token} />}
-          {view === "tasks" && <TasksPage token={session.token} />}
-          {view === "settings" && session.user.role === "admin" && <SettingsPage token={session.token} />}
-        </Layout.Content>
-      </Layout>
-    </Layout>
+    <AppShell
+      user={session.user}
+      view={view}
+      roleLabel={translateValue(session.user.role, roleLabels)}
+      onNavigate={navigateView}
+      onLogout={onLogout}
+    >
+      {view === "products" && <ProductManagementPage token={session.token} />}
+      {view === "preprocess" && <PreprocessPage token={session.token} />}
+      {view === "assets" && <AssetsPage token={session.token} />}
+      {view === "tasks" && <TasksPage token={session.token} />}
+      {view === "settings" && session.user.role === "admin" && <SettingsPage token={session.token} />}
+    </AppShell>
   );
 }
 

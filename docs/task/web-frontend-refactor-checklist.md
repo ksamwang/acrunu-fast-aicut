@@ -12,10 +12,10 @@
 
 ## 2. 目录与模块边界
 
-- [ ] 建立 `src/app/`，承载应用入口、会话恢复、Hash 路由与应用壳
-- [ ] 建立 `src/shared/api/`，承载通用 HTTP 请求、服务端 API 和 Local Agent API
-- [ ] 建立 `src/shared/types/`，承载跨功能域使用的领域类型
-- [ ] 建立 `src/shared/lib/`，承载格式化、浏览器存储和无业务归属的工具函数
+- [x] 建立 `src/app/`，承载应用入口、会话恢复、Hash 路由与应用壳
+- [x] 建立 `src/shared/api/`，承载通用 HTTP 请求、服务端 API 和 Local Agent API
+- [x] 建立 `src/shared/types/`，承载跨功能域使用的领域类型
+- [x] 建立 `src/shared/lib/`，承载格式化、浏览器存储和无业务归属的工具函数
 - [ ] 建立 `src/shared/components/`，仅放置跨两个及以上功能域复用的展示组件
 - [ ] 建立 `src/features/auth/`
 - [ ] 建立 `src/features/products/`
@@ -31,8 +31,8 @@
 ### 3.1 应用入口与路由
 
 - [ ] 提取 `App` 到 `src/app/App.tsx`
-- [ ] 提取应用壳到 `src/app/AppShell.tsx`
-- [ ] 提取 Hash 路由解析、路由常量和跳转逻辑到 `src/app/routes.ts`
+- [x] 提取应用壳到 `src/app/AppShell.tsx`
+- [x] 提取 Hash 路由解析、路由常量和跳转逻辑到 `src/app/routes.ts`
 - [ ] 保持刷新后仍能恢复当前 Hash 页面
 - [ ] 保持刷新后仍能恢复有效登录态
 - [ ] 保持登录失效时回到登录页的现有行为
@@ -40,20 +40,20 @@
 
 ### 3.2 共享 API 层
 
-- [ ] 提取通用 `apiRequest`、认证头和统一错误处理到 `src/shared/api/http.ts`
-- [ ] 建立 `src/shared/api/server-api.ts`，集中服务端请求入口
-- [ ] 建立 `src/shared/api/local-agent-api.ts`，集中 `127.0.0.1:58721` 请求入口
-- [ ] 将 Local Agent 地址和超时策略移出页面组件
+- [x] 提取通用 `apiRequest`、认证头和统一错误处理到 `src/shared/api/http.ts`
+- [x] 建立 `src/shared/api/server-api.ts`，集中服务端请求入口
+- [x] 建立 `src/shared/api/local-agent-api.ts`，集中 `127.0.0.1:58721` 请求入口
+- [x] 将 Local Agent 地址和超时策略移出页面组件
 - [ ] 保持服务端 API 的请求路径、方法、请求体与错误展示行为不变
 - [ ] 保持 Local Agent API 的请求路径、方法、请求体与错误展示行为不变
 
 ### 3.3 共享类型与工具
 
-- [ ] 提取认证会话、用户类型到 `src/shared/types/auth.ts`
-- [ ] 提取产品、卖点和产品统计类型到 `src/shared/types/product.ts`
-- [ ] 提取素材、抽帧、语义预览、向量对象类型到 `src/shared/types/asset.ts`
-- [ ] 提取预处理工作区、探测结果、VLM 标注类型到 `src/shared/types/workspace.ts`
-- [ ] 提取供应商、模型和运行控制类型到 `src/shared/types/settings.ts`
+- [x] 提取认证会话、用户类型到 `src/shared/types/auth.ts`
+- [x] 提取产品、卖点和产品统计类型到 `src/shared/types/product.ts`
+- [x] 提取素材、抽帧、语义预览、向量对象类型到 `src/shared/types/asset.ts`
+- [x] 提取预处理工作区、探测结果、VLM 标注类型到 `src/shared/types/workspace.ts`
+- [x] 提取供应商、模型和运行控制类型到 `src/shared/types/settings.ts`
 - [ ] 统一跨页面重复的时长、分辨率、帧率和状态文案格式化函数
 - [ ] 提取 Local Storage 键及读写逻辑，包含上次正式提交产品选择
 - [ ] 清理重复或语义不一致的前端类型定义

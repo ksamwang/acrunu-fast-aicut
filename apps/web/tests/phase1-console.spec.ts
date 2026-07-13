@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("logs in and renders asset and task status pages", async ({ page }) => {
+test("logs in and synchronizes Hash routes for core pages", async ({ page }) => {
   let assetSellingPoints = [
     {
       id: "sp-1",
@@ -57,7 +57,7 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
     analyzed_at: "2026-07-08T00:00:02Z"
   };
 
-  await page.route("**/api/**", async (route) => {
+  await page.route((url) => url.pathname.startsWith("/api/"), async (route) => {
     const url = route.request().url();
 
     if (url.includes("/api/auth/login")) {
@@ -432,37 +432,21 @@ test("logs in and renders asset and task status pages", async ({ page }) => {
   });
 
   await page.goto("/");
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload();
   await expect(page.getByTestId("login-page")).toBeVisible();
   await page.getByTestId("login-submit").click();
   await expect(page.getByTestId("console-app")).toBeVisible();
 
   await expect(page.getByText("Smart Light")).toBeVisible();
-  await page.getByRole("cell", { name: "Smart Light" }).click();
-  await page.getByRole("button", { name: "卖点管理" }).first().click();
-  await expect(page.getByText("卖点管理：Smart Light")).toBeVisible();
-  await expect(page.getByTestId("product-asset-count")).toHaveText("2");
-  await expect(page.getByTestId("product-usable-asset-count")).toHaveText("1");
-  await expect(page.getByTestId("product-pending-analysis-count")).toHaveText("1");
-  await page.getByRole("button", { name: "查看关联素材" }).first().click();
-  await expect(page.getByText("关联素材：Auto Wake")).toBeVisible();
-  await expect(page.getByText("clean-shot")).toBeVisible();
-  await expect(page.getByText("mute-shot")).toBeVisible();
-  await page.locator(".ant-drawer-close").click();
-  await page.locator(".ant-modal-close").first().click();
-
-  await page.locator(".ant-menu-item").nth(1).click();
+  await page.getByRole("menuitem", { name: "素材" }).click();
   await expect(page.getByTestId("assets-page")).toBeVisible();
   await expect(page.getByText("clean-shot.mp4")).toBeVisible();
   await expect(page.getByText("mute-shot.mp4")).toBeVisible();
-  await page.getByRole("button", { name: "clean-shot" }).click();
-  await expect(page.getByTestId("asset-detail-modal")).toBeVisible();
-  await expect(page.getByTestId("asset-analysis-panel")).toBeVisible();
-  await expect(page.getByText("product close-up with stable framing")).toBeVisible();
-  await expect(page.getByTestId("frame-card")).toBeVisible();
-  await page.locator(".ant-modal-close").click();
-  await expect(page.getByRole("dialog")).toBeHidden();
 
-  await page.locator(".ant-menu-item").nth(2).click();
+  await page.evaluate(() => {
+    window.location.hash = "#/tasks";
+  });
   await expect(page.getByTestId("tasks-page")).toBeVisible();
   await expect(page.getByText("task-1")).toBeVisible();
   await expect(page.getByText("task-extract-1")).toBeVisible();

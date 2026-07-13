@@ -8,7 +8,7 @@ export default defineConfig({
     trace: "on-first-retry"
   },
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 15173",
+    command: "npm exec vite -- --host 127.0.0.1 --port 15173",
     url: "http://127.0.0.1:15173",
     reuseExistingServer: false,
     timeout: 60_000

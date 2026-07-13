@@ -18,8 +18,12 @@ import {
   message
 } from "antd";
 import { VideoTrimEditor } from "./video-trim-editor";
+import { localAgentRequest } from "./shared/api/local-agent-api";
+import { authenticatedApiRequest } from "./shared/api/server-api";
+import { formatDateTime, formatDuration, formatTimestamp } from "./shared/lib/format";
+import type { Product, SellingPoint } from "./shared/types/product";
+import type { UploadToken, WorkspaceItem, WorkspaceItemResponse, WorkspaceListResponse, WorkspaceProbe } from "./shared/types/workspace";
 
-const LOCAL_AGENT_BASE_URL = "http://127.0.0.1:58721";
 const LAST_SUBMIT_PRODUCT_STORAGE_KEY = "aicut.preprocess.last_submit_product_id";
 
 function loadLastSubmitProductID() {
@@ -43,93 +47,6 @@ function persistLastSubmitProductID(productID: string) {
     // A blocked storage API should not prevent preprocessing or submission.
   }
 }
-
-type Product = {
-  id: string;
-  name: string;
-  metadata?: Record<string, unknown>;
-};
-
-type SellingPoint = {
-  id: string;
-  title: string;
-};
-
-type UploadToken = {
-  token: string;
-  product_id: string;
-};
-
-type WorkspaceProbe = {
-  duration_ms?: number;
-  width?: number;
-  height?: number;
-  fps?: number;
-  codec?: string;
-  has_audio?: boolean;
-  audio_codec?: string;
-  bitrate_kbps?: number;
-};
-
-type WorkspaceFrameSnapshot = {
-  frame_index: number;
-  timestamp_ms: number;
-  image_url: string;
-};
-
-type WorkspaceAnalysis = {
-  scene_description?: string;
-  shot_size?: string;
-  camera_movement?: string;
-  visual_tags?: string[];
-  quality_tags?: string[];
-  visible_product?: boolean;
-  product_position?: string;
-  scene_context?: string;
-  action_description?: string;
-  people_presence?: boolean;
-  face_visible?: boolean;
-  lighting_condition?: string;
-};
-
-type WorkspaceItem = {
-  id: string;
-  status: "pending" | "saved" | "ready_to_submit" | "submitted";
-  product_id?: string;
-  submitted_asset_id?: string;
-  asset_name?: string;
-  source_type?: "visual_only" | "talking_head";
-  original_file_name: string;
-  original_probe?: WorkspaceProbe;
-  source_in_ms: number;
-  source_out_ms: number;
-  interpret_fps_enabled?: boolean;
-  playback_fps?: number;
-  speed_ratio?: number;
-  transcript?: string;
-  reviewer_notes?: string;
-  probe: WorkspaceProbe;
-  preview_in_ms?: number;
-  preview_out_ms?: number;
-  preview_frame_snapshots: WorkspaceFrameSnapshot[];
-  analysis?: WorkspaceAnalysis;
-  vlm_status?: "idle" | "queued" | "running" | "ready" | "failed";
-  vlm_error?: string;
-  frame_snapshots: WorkspaceFrameSnapshot[];
-  source_url: string;
-  clean_shot_url?: string;
-  checksum?: string;
-  last_error?: string;
-  updated_at: string;
-};
-
-type WorkspaceListResponse = {
-  items: WorkspaceItem[];
-};
-
-type WorkspaceItemResponse = {
-  item: WorkspaceItem;
-};
 
 type ImportPreview = {
   id: string;
@@ -258,41 +175,6 @@ const cameraMovementLabels: Record<string, string> = {
   slow_push_in: "推进"
 };
 
-async function localAgentRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${LOCAL_AGENT_BASE_URL}${path}`, options);
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload?.error ?? "本地 Agent 请求失败");
-  }
-  return payload as T;
-}
-
-async function apiRequest<T>(path: string, token: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      Authorization: `Bearer ${token}`,
-      ...options.headers
-    }
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "服务端请求失败");
-  }
-  return payload.data as T;
-}
-
-function formatDuration(durationMs?: number) {
-  if (durationMs === undefined || durationMs === null) {
-    return "-";
-  }
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
 function formatProbeDuration(durationMs?: number) {
   if (durationMs === undefined || durationMs === null) {
     return "待读取";
@@ -315,25 +197,6 @@ function formatProbeFPS(fps?: number) {
     return "待读取";
   }
   return `${fps.toFixed(3)} fps`;
-}
-
-function formatTimestamp(durationMs: number) {
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  const milliseconds = durationMs % 1000;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
-}
-
-function formatDateTime(value?: string) {
-  if (!value) {
-    return "-";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function formatFileSize(size: number) {
@@ -510,7 +373,7 @@ export function PreprocessPage({ token }: { token: string }) {
   useEffect(() => {
     void (async () => {
       try {
-        const result = await apiRequest<Product[]>("/api/products", token);
+        const result = await authenticatedApiRequest<Product[]>("/api/products", token);
         setProducts(result ?? []);
       } catch (error) {
         message.error(error instanceof Error ? error.message : "加载产品列表失败");
@@ -609,7 +472,7 @@ export function PreprocessPage({ token }: { token: string }) {
 
     void (async () => {
       try {
-        const result = await apiRequest<SellingPoint[]>(`/api/products/${submitProductID}/selling-points`, token);
+        const result = await authenticatedApiRequest<SellingPoint[]>(`/api/products/${submitProductID}/selling-points`, token);
         setSellingPoints(result ?? []);
         setSubmitSellingPointIDs((current) =>
           current.filter((item) => (result ?? []).some((sellingPoint) => sellingPoint.id === item))
@@ -881,7 +744,7 @@ export function PreprocessPage({ token }: { token: string }) {
 
     setSubmitting(true);
     try {
-      const uploadToken = await apiRequest<UploadToken>("/api/uploads/tokens", token, {
+      const uploadToken = await authenticatedApiRequest<UploadToken>("/api/uploads/tokens", token, {
         method: "POST",
         body: JSON.stringify({ product_id: submitProductID })
       });
