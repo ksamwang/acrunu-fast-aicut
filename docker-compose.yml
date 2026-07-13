@@ -83,6 +83,32 @@ services:
       redis:
         condition: service_healthy
 
+  asr:
+    build:
+      context: .
+      dockerfile: deploy/asr/Dockerfile
+    container_name: aicut-asr
+    restart: unless-stopped
+    environment:
+      ASR_MODEL: ${ASR_MODEL:-paraformer-zh}
+      ASR_VAD_MODEL: ${ASR_VAD_MODEL:-fsmn-vad}
+      ASR_PUNC_MODEL: ${ASR_PUNC_MODEL:-ct-punc-c}
+      MODELSCOPE_CACHE: /models
+      HTTP_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+      HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+      NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker
+    ports:
+      - "${ASR_BIND_ADDR:-127.0.0.1}:${ASR_PORT:-10096}:10096"
+    volumes:
+      - asr-models:/models
+    gpus: all
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10096/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 10m
+
   prometheus:
     image: prom/prometheus:v3.3.1
     container_name: aicut-prometheus
@@ -147,3 +173,4 @@ volumes:
   redis-data:
   prometheus-data:
   grafana-data:
+  asr-models:
