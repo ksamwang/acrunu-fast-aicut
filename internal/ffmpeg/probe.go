@@ -9,15 +9,16 @@ import (
 )
 
 type ProbeResult struct {
-	DurationMs    int     `json:"duration_ms"`
-	Width         int     `json:"width"`
-	Height        int     `json:"height"`
-	FPS           float64 `json:"fps"`
-	Codec         string  `json:"codec"`
-	HasAudio      bool    `json:"has_audio"`
-	AudioCodec    string  `json:"audio_codec"`
-	AudioChannels int     `json:"audio_channels"`
-	BitrateKbps   int     `json:"bitrate_kbps"`
+	DurationMs      int     `json:"duration_ms"`
+	Width           int     `json:"width"`
+	Height          int     `json:"height"`
+	FPS             float64 `json:"fps"`
+	Codec           string  `json:"codec"`
+	HasAudio        bool    `json:"has_audio"`
+	AudioCodec      string  `json:"audio_codec"`
+	AudioChannels   int     `json:"audio_channels"`
+	AudioSampleRate int     `json:"audio_sample_rate"`
+	BitrateKbps     int     `json:"bitrate_kbps"`
 }
 
 type probeOutput struct {
@@ -27,6 +28,7 @@ type probeOutput struct {
 		Width        int    `json:"width"`
 		Height       int    `json:"height"`
 		Channels     int    `json:"channels"`
+		SampleRate   string `json:"sample_rate"`
 		AvgFrameRate string `json:"avg_frame_rate"`
 		Duration     string `json:"duration"`
 	} `json:"streams"`
@@ -82,6 +84,7 @@ func Probe(ctx context.Context, filePath string) (ProbeResult, error) {
 			result.HasAudio = true
 			result.AudioCodec = stream.CodecName
 			result.AudioChannels = stream.Channels
+			result.AudioSampleRate = parsePositiveInt(stream.SampleRate)
 		}
 	}
 
@@ -127,4 +130,12 @@ func bitsPerSecondStringToKbps(value string) int {
 		return 0
 	}
 	return int(bitsPerSecond / 1000)
+}
+
+func parsePositiveInt(value string) int {
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0
+	}
+	return parsed
 }

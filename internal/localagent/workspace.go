@@ -63,6 +63,7 @@ type WorkspaceItem struct {
 	PlaybackFPS         float64                  `json:"playback_fps,omitempty"`
 	SpeedRatio          float64                  `json:"speed_ratio,omitempty"`
 	Transcript          string                   `json:"transcript,omitempty"`
+	ASRDraft            *WorkspaceASRDraft       `json:"asr_draft,omitempty"`
 	ReviewerNotes       string                   `json:"reviewer_notes,omitempty"`
 	Probe               ffmpeg.ProbeResult       `json:"probe"`
 	PreviewInMs         int                      `json:"preview_in_ms,omitempty"`
@@ -242,6 +243,7 @@ func (w *Workspace) SaveItem(ctx context.Context, itemID string, input Workspace
 	if err := w.applyWorkingSourceLocked(ctx, &item, input); err != nil {
 		return WorkspaceItem{}, err
 	}
+	invalidateASRDraft(&item)
 	item.Transcript = strings.TrimSpace(input.Transcript)
 	item.ReviewerNotes = strings.TrimSpace(input.ReviewerNotes)
 	if item.Status == workspaceStatusReadyToSubmit {
@@ -386,6 +388,7 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 	item.SourceType = sourceType
 	item.SourceInMs = sourceInMs
 	item.SourceOutMs = sourceOutMs
+	invalidateASRDraft(&item)
 	item.VLMStatus = vlmStatusQueued
 	item.VLMError = ""
 	item.VLMStartedAt = nil
@@ -562,6 +565,7 @@ func normalizeWorkspaceItem(item WorkspaceItem) WorkspaceItem {
 			item.Probe = effectiveOriginalProbe(item)
 		}
 	}
+	invalidateASRDraft(&item)
 	return item
 }
 
@@ -713,6 +717,7 @@ func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, er
 		PlaybackFPS:         source.PlaybackFPS,
 		SpeedRatio:          source.SpeedRatio,
 		Transcript:          source.Transcript,
+		ASRDraft:            cloneASRDraft(source.ASRDraft),
 		ReviewerNotes:       source.ReviewerNotes,
 		Probe:               source.Probe,
 		CreatedAt:           now,
@@ -829,6 +834,9 @@ func mergeProbeForInterpretFPS(current ffmpeg.ProbeResult, refreshed ffmpeg.Prob
 		current.HasAudio = refreshed.HasAudio
 		current.AudioCodec = refreshed.AudioCodec
 		current.AudioChannels = refreshed.AudioChannels
+		current.AudioSampleRate = refreshed.AudioSampleRate
+	} else if current.AudioSampleRate == 0 {
+		current.AudioSampleRate = refreshed.AudioSampleRate
 	}
 	if current.BitrateKbps == 0 {
 		current.BitrateKbps = refreshed.BitrateKbps

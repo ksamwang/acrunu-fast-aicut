@@ -3,6 +3,7 @@ package localagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -158,6 +159,12 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 			return
 		}
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+	case "transcribe":
+		if r.Method != http.MethodPost || len(parts) != 2 {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemTranscribe(w, r, itemID)
 	case "vlm-label":
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
@@ -238,6 +245,24 @@ func (s *Server) handleWorkspaceItemPreviewFrames(w http.ResponseWriter, r *http
 	}
 	item, err := s.workspace.PreviewFrames(r.Context(), itemID, input)
 	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": s.enrichItem(r, item)})
+}
+
+func (s *Server) handleWorkspaceItemTranscribe(w http.ResponseWriter, r *http.Request, itemID string) {
+	var input WorkspaceASRTranscribeInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request"})
+		return
+	}
+	item, err := s.workspace.TranscribeItem(r.Context(), itemID, input)
+	if err != nil {
+		if errors.Is(err, ErrASRSelectionChanged) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
@@ -359,6 +384,7 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"playback_fps":          item.PlaybackFPS,
 		"speed_ratio":           item.SpeedRatio,
 		"transcript":            item.Transcript,
+		"asr_draft":             item.ASRDraft,
 		"reviewer_notes":        item.ReviewerNotes,
 		"probe":                 item.Probe,
 		"preview_in_ms":         item.PreviewInMs,

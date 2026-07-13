@@ -61,6 +61,10 @@ func (stubProcessor) InterpretFPS(_ context.Context, sourcePath string, outputPa
 	return os.WriteFile(outputPath, append([]byte("interpreted:"), data...), 0644)
 }
 
+func (stubProcessor) ExtractAudio(_ context.Context, _ string, outputPath string, _ int, _ int) error {
+	return os.WriteFile(outputPath, append(make([]byte, 44), []byte("audio")...), 0644)
+}
+
 func (stubProcessor) Probe(_ context.Context, _ string) (ffmpeg.ProbeResult, error) {
 	return ffmpeg.ProbeResult{
 		DurationMs: 6000,

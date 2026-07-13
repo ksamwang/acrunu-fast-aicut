@@ -8,6 +8,7 @@ export type WorkspaceProbe = {
   codec?: string;
   has_audio?: boolean;
   audio_codec?: string;
+  audio_sample_rate?: number;
   bitrate_kbps?: number;
 };
 
@@ -32,6 +33,21 @@ export type WorkspaceAnalysis = {
   lighting_condition?: string;
 };
 
+export type WorkspaceTranscriptSegment = {
+  start_ms: number;
+  end_ms: number;
+  text: string;
+};
+
+export type WorkspaceASRDraft = {
+  text: string;
+  segments: WorkspaceTranscriptSegment[];
+  source_in_ms: number;
+  source_out_ms: number;
+  time_base: "selection_relative_ms";
+  generated_at: string;
+};
+
 export type WorkspaceItem = {
   id: string;
   status: "pending" | "saved" | "ready_to_submit" | "submitted";
@@ -47,6 +63,7 @@ export type WorkspaceItem = {
   playback_fps?: number;
   speed_ratio?: number;
   transcript?: string;
+  asr_draft?: WorkspaceASRDraft;
   reviewer_notes?: string;
   probe: WorkspaceProbe;
   preview_in_ms?: number;
