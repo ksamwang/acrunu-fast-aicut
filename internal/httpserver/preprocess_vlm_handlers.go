@@ -26,8 +26,12 @@ func (s *Server) handlePreprocessVLMLabel(c *gin.Context) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	frames := make([]modelgateway.FrameReference, 0, 3)
-	for index := 0; index < 3; index++ {
+	frameCount := formInt(c, "frame_count")
+	if frameCount <= 0 {
+		frameCount = 3
+	}
+	frames := make([]modelgateway.FrameReference, 0, frameCount)
+	for index := 0; index < frameCount; index++ {
 		formKey := fmt.Sprintf("frame_%d", index)
 		file, err := c.FormFile(formKey)
 		if err != nil {

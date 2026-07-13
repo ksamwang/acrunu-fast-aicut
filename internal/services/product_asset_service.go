@@ -2188,6 +2188,8 @@ func shotSizeDisplay(value string) string {
 		return "近景"
 	case "medium_shot":
 		return "中景"
+	case "full_shot":
+		return "全景"
 	case "wide_shot":
 		return "远景"
 	default:
@@ -2199,12 +2201,26 @@ func cameraMovementDisplay(value string) string {
 	switch value {
 	case "static":
 		return "固定机位"
-	case "slow_push_in":
-		return "缓慢推进"
 	case "pan":
-		return "平移"
+		return "水平摇镜"
+	case "tilt":
+		return "垂直摇镜"
+	case "push_in", "slow_push_in":
+		return "推进"
+	case "pull_out":
+		return "拉远"
+	case "tracking":
+		return "跟拍/平移"
+	case "orbit":
+		return "环绕"
+	case "zoom":
+		return "变焦"
 	case "handheld":
 		return "手持"
+	case "mixed":
+		return "复合运镜"
+	case "unknown":
+		return "无法判断"
 	default:
 		return value
 	}

@@ -27,8 +27,8 @@ func TestMockAssetAnalyzerAnalyzeAsset(t *testing.T) {
 	if result.SceneDescription == "" {
 		t.Fatalf("expected scene description")
 	}
-	if result.CameraMovement != "slow_push_in" {
-		t.Fatalf("expected slow_push_in, got %s", result.CameraMovement)
+	if result.CameraMovement != "push_in" {
+		t.Fatalf("expected push_in, got %s", result.CameraMovement)
 	}
 	if len(result.VisualTags) == 0 {
 		t.Fatalf("expected visual tags")

@@ -30,6 +30,7 @@ const (
 	workspaceStatusReadyToSubmit = "ready_to_submit"
 	workspaceStatusSubmitted     = "submitted"
 	interpretFPSVersion          = "input-trim-setpts-v3"
+	vlmFrameSampleCount          = 9
 
 	vlmStatusIdle    = "idle"
 	vlmStatusQueued  = "queued"
@@ -870,28 +871,45 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 		return modelgateway.AnalyzeAssetResult{}, nil, fmt.Errorf("auth_token is required")
 	}
 
-	frameTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
-	frameDir := filepath.Join(w.root, "items", item.ID, "vlm-frames")
-	frames, err := w.processor.ExtractFrames(ctx, item.SourcePath, frameDir, frameTimestamps)
+	previewTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
+	previewDir := filepath.Join(w.root, "items", item.ID, "preview-frames")
+	previewFrames, err := w.processor.ExtractFrames(ctx, item.SourcePath, previewDir, previewTimestamps)
 	if err != nil {
 		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
-	if err := validateExtractedFrames(frames, len(frameTimestamps)); err != nil {
+	if err := validateExtractedFrames(previewFrames, len(previewTimestamps)); err != nil {
 		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
 
-	frameSnapshots := make([]WorkspaceFrameSnapshot, 0, len(frames))
-	frameRefs := make([]modelgateway.FrameReference, 0, len(frames))
-	for _, frame := range frames {
+	vlmTimestamps := resolveVLMFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
+	vlmDir := filepath.Join(w.root, "items", item.ID, "vlm-frames")
+	vlmFrames, err := w.processor.ExtractFrames(ctx, item.SourcePath, vlmDir, vlmTimestamps)
+	if err != nil {
+		return modelgateway.AnalyzeAssetResult{}, nil, err
+	}
+	if err := validateExtractedFrames(vlmFrames, len(vlmTimestamps)); err != nil {
+		return modelgateway.AnalyzeAssetResult{}, nil, err
+	}
+
+	previewSnapshots := make([]WorkspaceFrameSnapshot, 0, len(previewFrames))
+	for _, frame := range previewFrames {
 		timestampMs := frame.TimestampMs
-		if frame.FrameIndex >= 0 && frame.FrameIndex < len(frameTimestamps) {
-			timestampMs = frameTimestamps[frame.FrameIndex]
+		if frame.FrameIndex >= 0 && frame.FrameIndex < len(previewTimestamps) {
+			timestampMs = previewTimestamps[frame.FrameIndex]
 		}
-		frameSnapshots = append(frameSnapshots, WorkspaceFrameSnapshot{
+		previewSnapshots = append(previewSnapshots, WorkspaceFrameSnapshot{
 			FrameIndex:  frame.FrameIndex,
 			TimestampMs: timestampMs,
 			ImagePath:   frame.OutputPath,
 		})
+	}
+
+	frameRefs := make([]modelgateway.FrameReference, 0, len(vlmFrames))
+	for _, frame := range vlmFrames {
+		timestampMs := frame.TimestampMs
+		if frame.FrameIndex >= 0 && frame.FrameIndex < len(vlmTimestamps) {
+			timestampMs = vlmTimestamps[frame.FrameIndex]
+		}
 		frameRefs = append(frameRefs, modelgateway.FrameReference{
 			FrameIndex:  frame.FrameIndex,
 			TimestampMs: timestampMs,
@@ -913,7 +931,7 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 	if err != nil {
 		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
-	return result, frameSnapshots, nil
+	return result, previewSnapshots, nil
 }
 
 func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken string, productReferenceImageDataURL string, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
@@ -924,6 +942,7 @@ func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken 
 		"asset_id":     input.AssetID,
 		"source_type":  input.SourceType,
 		"product_name": input.ProductName,
+		"frame_count":  fmt.Sprintf("%d", len(input.FrameSnapshots)),
 		"duration_ms":  fmt.Sprintf("%d", input.DurationMs),
 		"width":        fmt.Sprintf("%d", input.Width),
 		"height":       fmt.Sprintf("%d", input.Height),
@@ -1273,11 +1292,22 @@ func resolveThreeFrameTimestamps(durationMs int, fps float64) []int {
 }
 
 func resolveThreeFrameTimestampsInRange(sourceInMs int, sourceOutMs int, fps float64) []int {
+	return resolveEvenlySpacedFrameTimestampsInRange(sourceInMs, sourceOutMs, fps, 3)
+}
+
+func resolveVLMFrameTimestampsInRange(sourceInMs int, sourceOutMs int, fps float64) []int {
+	return resolveEvenlySpacedFrameTimestampsInRange(sourceInMs, sourceOutMs, fps, vlmFrameSampleCount)
+}
+
+func resolveEvenlySpacedFrameTimestampsInRange(sourceInMs int, sourceOutMs int, fps float64, count int) []int {
+	if count <= 0 {
+		return nil
+	}
 	if sourceOutMs <= sourceInMs {
-		return []int{sourceInMs, sourceInMs, sourceInMs}
+		return repeatTimestamp(sourceInMs, count)
 	}
 	if fps <= 0 {
-		return []int{sourceInMs, sourceInMs + (sourceOutMs-sourceInMs)/2, sourceOutMs}
+		return evenlySpacedUniqueTimestamps(sourceInMs, sourceOutMs, count)
 	}
 
 	inFrame := msToFrame(sourceInMs, fps)
@@ -1285,12 +1315,51 @@ func resolveThreeFrameTimestampsInRange(sourceInMs int, sourceOutMs int, fps flo
 	if outFrame < inFrame {
 		outFrame = inFrame
 	}
-	midFrame := inFrame + (outFrame-inFrame)/2
-	return []int{
-		frameToMs(inFrame, fps),
-		frameToMs(midFrame, fps),
-		frameToMs(outFrame, fps),
+	frameCount := outFrame - inFrame + 1
+	if frameCount < count {
+		count = frameCount
 	}
+	if count <= 1 {
+		return []int{frameToMs(inFrame, fps)}
+	}
+
+	result := make([]int, 0, count)
+	seen := make(map[int]struct{}, count)
+	for index := 0; index < count; index++ {
+		frame := inFrame + int(math.Round(float64(index*(outFrame-inFrame))/float64(count-1)))
+		timestampMs := frameToMs(frame, fps)
+		if _, ok := seen[timestampMs]; ok {
+			continue
+		}
+		seen[timestampMs] = struct{}{}
+		result = append(result, timestampMs)
+	}
+	return result
+}
+
+func repeatTimestamp(timestampMs int, count int) []int {
+	result := make([]int, count)
+	for index := range result {
+		result[index] = timestampMs
+	}
+	return result
+}
+
+func evenlySpacedUniqueTimestamps(sourceInMs int, sourceOutMs int, count int) []int {
+	if count <= 1 {
+		return []int{sourceInMs}
+	}
+	result := make([]int, 0, count)
+	seen := make(map[int]struct{}, count)
+	for index := 0; index < count; index++ {
+		timestampMs := sourceInMs + int(math.Round(float64(index*(sourceOutMs-sourceInMs))/float64(count-1)))
+		if _, ok := seen[timestampMs]; ok {
+			continue
+		}
+		seen[timestampMs] = struct{}{}
+		result = append(result, timestampMs)
+	}
+	return result
 }
 
 func msToFrame(timestampMs int, fps float64) int {

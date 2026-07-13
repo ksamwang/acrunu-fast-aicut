@@ -197,6 +197,19 @@ func TestWorkspacePreviewFramesUsesCurrentSourceRange(t *testing.T) {
 	}
 }
 
+func TestResolveVLMFrameTimestampsUsesNineEvenlySpacedFrames(t *testing.T) {
+	got := resolveVLMFrameTimestampsInRange(1000, 5000, 30)
+	want := []int{1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d VLM timestamps, got %d: %#v", len(want), len(got), got)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("expected VLM timestamp %d to be %d, got %d", index, want[index], got[index])
+		}
+	}
+}
+
 func TestWorkspaceSaveInterpretFPS(t *testing.T) {
 	root := t.TempDir()
 	workspace, err := NewWorkspace(root, stubProcessor{})
@@ -341,7 +354,10 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 		if r.FormValue("product_name") != "车载氛围灯" {
 			t.Fatalf("expected product_name to be forwarded, got %q", r.FormValue("product_name"))
 		}
-		for index := 0; index < 3; index++ {
+		if r.FormValue("frame_count") != "9" {
+			t.Fatalf("expected nine VLM frames, got %q", r.FormValue("frame_count"))
+		}
+		for index := 0; index < 9; index++ {
 			if _, _, err := r.FormFile(fmt.Sprintf("frame_%d", index)); err != nil {
 				t.Fatalf("expected frame_%d upload: %v", index, err)
 			}

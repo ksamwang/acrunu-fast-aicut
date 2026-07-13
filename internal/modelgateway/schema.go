@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const OutputSchemaVersion = "phase2.asset_analysis.v1"
+const OutputSchemaVersion = "phase2.asset_analysis.v2"
 
 var allowedShotSizes = map[string]struct{}{
 	"":                {},
@@ -13,14 +13,23 @@ var allowedShotSizes = map[string]struct{}{
 	"medium_close_up": {},
 	"medium_shot":     {},
 	"wide_shot":       {},
+	"full_shot":       {},
 }
 
 var allowedCameraMovements = map[string]struct{}{
 	"":             {},
 	"static":       {},
-	"slow_push_in": {},
 	"pan":          {},
+	"tilt":         {},
+	"push_in":      {},
+	"pull_out":     {},
+	"tracking":     {},
+	"orbit":        {},
+	"zoom":         {},
 	"handheld":     {},
+	"mixed":        {},
+	"unknown":      {},
+	"slow_push_in": {}, // Legacy value kept for previously stored/provider results.
 }
 
 func AnalyzeAssetOutputSchema() map[string]any {
@@ -48,11 +57,11 @@ func AnalyzeAssetOutputSchema() map[string]any {
 			},
 			"shot_size": map[string]any{
 				"type": "string",
-				"enum": []string{"close_up", "medium_close_up", "medium_shot", "wide_shot"},
+				"enum": []string{"wide_shot", "full_shot", "medium_shot", "medium_close_up", "close_up"},
 			},
 			"camera_movement": map[string]any{
 				"type": "string",
-				"enum": []string{"static", "slow_push_in", "pan", "handheld"},
+				"enum": []string{"static", "pan", "tilt", "push_in", "pull_out", "tracking", "orbit", "zoom", "handheld", "mixed", "unknown"},
 			},
 			"visual_tags": map[string]any{
 				"type":  "array",

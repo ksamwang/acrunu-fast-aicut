@@ -41,6 +41,15 @@ func TestBuildPromptBundleIncludesPromptSections(t *testing.T) {
 	if !strings.Contains(bundle.Prompts[0].User, "asset_id=asset-1") {
 		t.Fatalf("expected prompt context to include asset id, got %s", bundle.Prompts[0].User)
 	}
+	if !strings.Contains(bundle.Prompts[0].User, "frames are ordered chronologically") {
+		t.Fatalf("expected prompt to define chronological frame order, got %s", bundle.Prompts[0].User)
+	}
+	if !strings.Contains(bundle.Prompts[0].User, "frame_timestamps_ms=[500]") {
+		t.Fatalf("expected prompt to include frame timestamps, got %s", bundle.Prompts[0].User)
+	}
+	if !strings.Contains(bundle.Prompts[0].User, "push_in, pull_out, tracking") {
+		t.Fatalf("expected prompt to include revised camera movement values, got %s", bundle.Prompts[0].User)
+	}
 }
 
 func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {

@@ -81,7 +81,7 @@ func (a *MockAssetAnalyzer) AnalyzeAsset(_ context.Context, input AnalyzeAssetIn
 	}
 
 	if input.DurationMs >= 8000 {
-		cameraMovement = "slow_push_in"
+		cameraMovement = "push_in"
 	}
 	if len(input.FrameSnapshots) >= 3 && input.Width > input.Height {
 		shotSize = "medium_shot"
@@ -114,6 +114,7 @@ func (a *MockAssetAnalyzer) AnalyzeAsset(_ context.Context, input AnalyzeAssetIn
 			"prompt_version":              promptBundle.Version,
 			"schema_version":              OutputSchemaVersion,
 			"frame_count":                 len(input.FrameSnapshots),
+			"frame_sampling":              "uniform_trim_range",
 			"has_product_reference_image": input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != "",
 			"source_type":                 input.SourceType,
 			"prompt_overview":             promptBundle.Prompts,

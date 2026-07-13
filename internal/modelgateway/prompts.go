@@ -1,6 +1,9 @@
 package modelgateway
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type PromptSpec struct {
 	Name   string `json:"name"`
@@ -14,11 +17,15 @@ type PromptBundle struct {
 	Prompts []PromptSpec   `json:"prompts"`
 }
 
-const PromptVersion = "phase2-v1"
+const PromptVersion = "phase2-v2"
 
 func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
+	frameTimestamps := make([]string, 0, len(input.FrameSnapshots))
+	for _, frame := range input.FrameSnapshots {
+		frameTimestamps = append(frameTimestamps, fmt.Sprintf("%d", frame.TimestampMs))
+	}
 	contextLine := fmt.Sprintf(
-		"asset_id=%s source_type=%s duration_ms=%d resolution=%dx%d has_audio=%t frames=%d. Frame timestamps are in milliseconds.",
+		"asset_id=%s source_type=%s duration_ms=%d resolution=%dx%d has_audio=%t frames=%d frame_timestamps_ms=[%s]. Frame timestamps are in milliseconds and correspond to the images in upload order.",
 		input.AssetID,
 		input.SourceType,
 		input.DurationMs,
@@ -26,6 +33,7 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 		input.Height,
 		input.HasAudio,
 		len(input.FrameSnapshots),
+		strings.Join(frameTimestamps, ","),
 	)
 	productContext := ""
 	if input.SourceType == "visual_only" && input.ProductName != "" {
@@ -52,7 +60,11 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 				System: "You label short-video material for retrieval and automatic editing. Return only one valid JSON object. Do not include markdown.",
 				User: "Analyze the provided frames for the current trim range. " +
 					"Return JSON with exactly these keys: scene_description, shot_size, camera_movement, visual_tags, quality_tags, visible_product, product_position, scene_context, action_description, people_presence, face_visible, lighting_condition. " +
-					"shot_size enum: close_up, medium_close_up, medium_shot, wide_shot. camera_movement enum: static, slow_push_in, pan, handheld. " +
+					"The video frames are ordered chronologically from the trim in-point to the trim out-point. Use the frame sequence and timestamps to infer shot size and camera movement. " +
+					"shot_size enum: wide_shot (far shot), full_shot (full shot), medium_shot (medium shot), medium_close_up (close shot), close_up (extreme close-up). " +
+					"Judge shot_size by the target subject or target product, not by the surrounding environment or carrier object. " +
+					"camera_movement enum: static, pan, tilt, push_in, pull_out, tracking, orbit, zoom, handheld, mixed, unknown. " +
+					"Judge camera movement only from camera motion, not subject motion. If the camera is fixed while a person or product moves, return static. Use unknown when the sampled frames are insufficient to infer movement reliably. Do not use slow_push_in; speed is not part of this field. " +
 					"Use concise Chinese values for descriptions/tags where possible. " + contextLine + productContext + referenceContext + targetProductRules,
 			},
 		},

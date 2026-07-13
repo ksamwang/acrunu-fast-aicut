@@ -216,14 +216,23 @@ const shotSizeLabels: Record<string, string> = {
   close_up: "特写",
   medium_close_up: "近景",
   medium_shot: "中景",
+  full_shot: "全景",
   wide_shot: "远景"
 };
 
 const cameraMovementLabels: Record<string, string> = {
   static: "固定机位",
-  slow_push_in: "缓慢推进",
-  pan: "平移",
-  handheld: "手持"
+  pan: "水平摇镜",
+  tilt: "垂直摇镜",
+  push_in: "推进",
+  pull_out: "拉远",
+  tracking: "跟拍/平移",
+  orbit: "环绕",
+  zoom: "变焦",
+  handheld: "手持",
+  mixed: "复合运镜",
+  unknown: "无法判断",
+  slow_push_in: "推进"
 };
 
 async function localAgentRequest<T>(path: string, options: RequestInit = {}): Promise<T> {

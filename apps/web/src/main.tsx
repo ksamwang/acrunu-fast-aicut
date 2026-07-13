@@ -401,14 +401,23 @@ const shotSizeLabels: Record<string, string> = {
   close_up: "特写",
   medium_close_up: "近景",
   medium_shot: "中景",
+  full_shot: "全景",
   wide_shot: "远景"
 };
 
 const cameraMovementLabels: Record<string, string> = {
   static: "固定机位",
-  slow_push_in: "缓慢推进",
-  pan: "平移",
-  handheld: "手持"
+  pan: "水平摇镜",
+  tilt: "垂直摇镜",
+  push_in: "推进",
+  pull_out: "拉远",
+  tracking: "跟拍/平移",
+  orbit: "环绕",
+  zoom: "变焦",
+  handheld: "手持",
+  mixed: "复合运镜",
+  unknown: "无法判断",
+  slow_push_in: "推进"
 };
 
 const taskStatusLabels: Record<string, string> = {
@@ -1962,6 +1971,7 @@ function AssetsPage({ token }: { token: string }) {
                   { value: "close_up", label: "特写" },
                   { value: "medium_close_up", label: "近景" },
                   { value: "medium_shot", label: "中景" },
+                  { value: "full_shot", label: "全景" },
                   { value: "wide_shot", label: "远景" }
                 ]}
                 onChange={(value) => {
@@ -2231,6 +2241,7 @@ function AssetsPage({ token }: { token: string }) {
                             { value: "close_up", label: "特写" },
                             { value: "medium_close_up", label: "近景" },
                             { value: "medium_shot", label: "中景" },
+                            { value: "full_shot", label: "全景" },
                             { value: "wide_shot", label: "远景" }
                           ]}
                         />
@@ -2240,9 +2251,16 @@ function AssetsPage({ token }: { token: string }) {
                           allowClear
                           options={[
                             { value: "static", label: "固定机位" },
-                            { value: "slow_push_in", label: "缓慢推进" },
-                            { value: "pan", label: "平移" },
-                            { value: "handheld", label: "手持" }
+                            { value: "pan", label: "水平摇镜" },
+                            { value: "tilt", label: "垂直摇镜" },
+                            { value: "push_in", label: "推进" },
+                            { value: "pull_out", label: "拉远" },
+                            { value: "tracking", label: "跟拍/平移" },
+                            { value: "orbit", label: "环绕" },
+                            { value: "zoom", label: "变焦" },
+                            { value: "handheld", label: "手持" },
+                            { value: "mixed", label: "复合运镜" },
+                            { value: "unknown", label: "无法判断" }
                           ]}
                         />
                       </Form.Item>

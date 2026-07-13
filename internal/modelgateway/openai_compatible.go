@@ -153,6 +153,8 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 	result.ModelResult["provider"] = "openai_compatible"
 	result.ModelResult["model"] = a.model
 	result.ModelResult["max_tokens"] = a.maxTokens
+	result.ModelResult["frame_count"] = len(input.FrameSnapshots)
+	result.ModelResult["frame_sampling"] = "uniform_trim_range"
 	result.ModelResult["has_product_reference_image"] = input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != ""
 	return result, nil
 }
