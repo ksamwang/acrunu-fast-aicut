@@ -1,47 +1,19 @@
-import { useMemo, useState } from "react";
-import { Button, Card, Descriptions, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { useState } from "react";
+import { Button, Card, Descriptions, Modal, Table, Tag, Typography, message } from "antd";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDateTime } from "../../shared/lib/format";
 import { taskStatusLabels, taskTypeLabels, translateValue } from "../../shared/lib/labels";
 import type { Task } from "../../shared/types/task";
-import { createTestTask, getTask, listTasks } from "./api";
+import { getTask, listTasks } from "./api";
 import "./styles.css";
 
 export function TasksPage({ token }: { token: string }) {
-  const [taskFilters, setTaskFilters] = useState({
-    taskType: "",
-    status: ""
-  });
-  const taskPath = useMemo(() => {
-    const params = new URLSearchParams();
-    if (taskFilters.taskType) {
-      params.set("task_type", taskFilters.taskType);
-    }
-    if (taskFilters.status) {
-      params.set("status", taskFilters.status);
-    }
-    const query = params.toString();
-    return query ? `/api/tasks?${query}` : "/api/tasks";
-  }, [taskFilters]);
-  const tasks = useResource<Task[]>(taskPath, token, [taskPath], listTasks);
-  const [creating, setCreating] = useState(false);
+  const tasks = useResource<Task[]>("/api/tasks", token, [], listTasks);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const taskTypeLabel = (taskType: string) => {
     return translateValue(taskType, taskTypeLabels);
-  };
-
-  const createTask = async () => {
-    setCreating(true);
-    try {
-      await createTestTask(token);
-      await tasks.reload();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "创建任务失败");
-    } finally {
-      setCreating(false);
-    }
   };
 
   const openTaskDetail = async (taskID: string) => {
@@ -59,41 +31,7 @@ export function TasksPage({ token }: { token: string }) {
   return (
     <div data-testid="tasks-page" className="tasks-page">
       <div className="page-stack tasks-page-stack">
-        <Card title="任务筛选" className="task-filter-card">
-          <Space wrap>
-            <Select
-              data-testid="task-filter-type"
-              value={taskFilters.taskType || undefined}
-              placeholder="任务类型"
-              allowClear
-              style={{ minWidth: 220 }}
-              options={[
-                { value: "asset_extract_frames", label: "素材抽帧" },
-                { value: "asset_analyze", label: "素材分析" },
-                { value: "asset_embedding", label: "素材向量化" },
-                { value: "test", label: "测试任务" }
-              ]}
-              onChange={(value) => setTaskFilters((current) => ({ ...current, taskType: value ?? "" }))}
-            />
-            <Select
-              data-testid="task-filter-status"
-              value={taskFilters.status || undefined}
-              placeholder="状态"
-              allowClear
-              style={{ minWidth: 160 }}
-              options={[
-                { value: "queued", label: "排队中" },
-                { value: "running", label: "执行中" },
-                { value: "completed", label: "已完成" },
-                { value: "failed", label: "失败" }
-              ]}
-              onChange={(value) => setTaskFilters((current) => ({ ...current, status: value ?? "" }))}
-            />
-            <Button data-testid="task-filter-reset" onClick={() => setTaskFilters({ taskType: "", status: "" })}>重置</Button>
-            <Button data-testid="task-filter-refresh" onClick={tasks.reload}>刷新</Button>
-          </Space>
-        </Card>
-        <Card className="task-list-card" title="批量剪辑任务" extra={<Button type="primary" loading={creating} onClick={createTask}>创建测试任务</Button>}>
+        <Card className="task-list-card" title="任务日志">
           <Table<Task>
             rowKey="id"
             loading={tasks.loading}
