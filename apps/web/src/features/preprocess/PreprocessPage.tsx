@@ -276,6 +276,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [clearing, setClearing] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [previewingFrames, setPreviewingFrames] = useState(false);
+  const [transcribingItemID, setTranscribingItemID] = useState<string | null>(null);
   const [startingVLMLabel, setStartingVLMLabel] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [applyingInterpretFPS, setApplyingInterpretFPS] = useState(false);
@@ -551,6 +552,80 @@ export function PreprocessPage({ token }: { token: string }) {
     }
   };
 
+  const syncASRSelection = async (item: WorkspaceItem) => {
+    const values = form.getFieldsValue([
+      "asset_name",
+      "source_type",
+      "source_in_ms",
+      "source_out_ms",
+      "interpret_fps_enabled",
+      "playback_fps",
+      "transcript",
+      "reviewer_notes"
+    ]);
+    const range = clampCurrentSourceRange(
+      Number(values.source_in_ms ?? item.source_in_ms ?? 0),
+      Number(values.source_out_ms ?? item.source_out_ms ?? item.probe.duration_ms ?? 0),
+      item
+    );
+    const sourceType = values.source_type || item.source_type || defaultSourceType;
+    if (sourceType !== "talking_head") {
+      throw new Error("仅口播素材支持转写");
+    }
+    if (!item.probe.has_audio) {
+      throw new Error("当前素材未检测到音频，无法转写");
+    }
+    if (range.sourceOutMs <= range.sourceInMs) {
+      throw new Error("请先设置有效的裁切入点和出点");
+    }
+
+    form.setFieldsValue({
+      source_type: sourceType,
+      source_in_ms: range.sourceInMs,
+      source_out_ms: range.sourceOutMs
+    });
+    const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${item.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...values,
+        source_type: sourceType,
+        source_in_ms: range.sourceInMs,
+        source_out_ms: range.sourceOutMs
+      })
+    });
+    setItems((current) => current.map((currentItem) => (currentItem.id === response.item.id ? response.item : currentItem)));
+    return response.item;
+  };
+
+  const startTranscription = async () => {
+    if (!selectedItem || transcribingItemID) {
+      return;
+    }
+
+    const itemID = selectedItem.id;
+    setTranscribingItemID(itemID);
+    try {
+      const syncedItem = await syncASRSelection(selectedItem);
+      const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${itemID}/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_in_ms: syncedItem.source_in_ms,
+          source_out_ms: syncedItem.source_out_ms,
+          server_base_url: window.location.origin,
+          auth_token: token
+        })
+      });
+      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      message.success("当前选区转写完成，请核对草稿后应用到编辑区");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "当前选区转写失败");
+    } finally {
+      setTranscribingItemID((current) => (current === itemID ? null : current));
+    }
+  };
+
   const prepareItem = async () => {
     if (!selectedItem) {
       return;
@@ -780,6 +855,13 @@ export function PreprocessPage({ token }: { token: string }) {
   const saveTranscriptDraft = () => {
     form.setFieldValue("transcript", transcriptDraft);
     setTranscriptModalOpen(false);
+  };
+
+  const applyASRDraft = () => {
+    if (!selectedItem?.asr_draft?.text) {
+      return;
+    }
+    setTranscriptDraft(selectedItem.asr_draft.text);
   };
 
   const openNotesModal = () => {
@@ -1310,12 +1392,56 @@ export function PreprocessPage({ token }: { token: string }) {
         destroyOnClose={false}
         className="preprocess-text-modal"
       >
-        <Input.TextArea
-          value={transcriptDraft}
-          onChange={(event) => setTranscriptDraft(event.target.value)}
-          rows={8}
-          placeholder="[00:00:03:00]-[00:00:05:00] 大家好。"
-        />
+        <div className="preprocess-transcript-modal-content">
+          <div className="preprocess-transcript-actions">
+            <Typography.Text type="secondary">识别范围：当前 I/O 选区</Typography.Text>
+            <Button
+              type="primary"
+              loading={transcribingItemID === selectedItem?.id}
+              disabled={!selectedItem || watchedSourceType !== "talking_head" || !selectedItem.probe.has_audio}
+              onClick={() => void startTranscription()}
+            >
+              识别当前选区
+            </Button>
+          </div>
+          <Input.TextArea
+            value={transcriptDraft}
+            onChange={(event) => setTranscriptDraft(event.target.value)}
+            rows={8}
+            placeholder="[00:00:03:00]-[00:00:05:00] 大家好。"
+          />
+          <div className="preprocess-asr-draft" aria-live="polite">
+            <div className="preprocess-asr-draft-header">
+              <div>
+                <Typography.Text strong>识别草稿</Typography.Text>
+                {selectedItem?.asr_draft ? (
+                  <Typography.Text type="secondary">
+                    当前选区 · {formatTimestamp(selectedItem.asr_draft.source_in_ms)} - {formatTimestamp(selectedItem.asr_draft.source_out_ms)}
+                  </Typography.Text>
+                ) : null}
+              </div>
+              <Button size="small" disabled={!selectedItem?.asr_draft?.text} onClick={applyASRDraft}>
+                应用草稿
+              </Button>
+            </div>
+            {selectedItem?.asr_draft?.segments.length ? (
+              <div className="preprocess-asr-segment-list">
+                {selectedItem.asr_draft.segments.map((segment, index) => (
+                  <div key={`${segment.start_ms}-${segment.end_ms}-${index}`} className="preprocess-asr-segment">
+                    <Typography.Text className="preprocess-asr-segment-time">
+                      +{formatTimestamp(segment.start_ms)} - +{formatTimestamp(segment.end_ms)}
+                    </Typography.Text>
+                    <Typography.Text>{segment.text}</Typography.Text>
+                  </div>
+                ))}
+              </div>
+            ) : selectedItem?.asr_draft?.text ? (
+              <Typography.Paragraph className="preprocess-asr-draft-text">{selectedItem.asr_draft.text}</Typography.Paragraph>
+            ) : (
+              <Typography.Text type="secondary">尚未识别当前选区。</Typography.Text>
+            )}
+          </div>
+        </div>
       </Modal>
 
       <Modal
