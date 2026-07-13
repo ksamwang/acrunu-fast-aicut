@@ -80,7 +80,7 @@
 - [ ] 提取素材详情中的基础信息、抽帧预览、VLM 信息、语义预览和人工编辑面板
 - [ ] 将素材列表、详情、抽帧、语义预览和向量请求收敛到 `src/features/assets/api.ts`
 - [ ] 将素材展示字段转换逻辑收敛到 `asset-formatters.ts`
-- [ ] 将素材库样式迁移到 `src/features/assets/styles.css`
+- [x] 将素材库样式迁移到 `src/features/assets/styles.css`
 - [ ] 保持素材卡片网格布局、列表卡片 body 滚动和固定分页行为不变
 - [ ] 保持素材详情内部滚动，禁止 body 滚动的现有约束
 

@@ -7,6 +7,7 @@ import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/li
 import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, manualCleanStatusLabels, shotSizeLabels, sourceTypeLabels, translateValue, usabilityStatusLabels } from "../../shared/lib/labels";
 import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
+import "./styles.css";
 
 function renderTagList(items?: string[], emptyText = "-") {
   if (!items || items.length === 0) {
