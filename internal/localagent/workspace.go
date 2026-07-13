@@ -1168,6 +1168,9 @@ func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, 
 		if err := writer.WriteField("model_result_json", mustJSONString(item.Analysis.ModelResult)); err != nil {
 			return "", err
 		}
+		if err := writer.WriteField("model_labels_json", mustJSONString(workspaceAnalysisModelLabels(item.Analysis))); err != nil {
+			return "", err
+		}
 	}
 
 	file, err := os.Open(item.CleanShotPath)
@@ -1538,6 +1541,28 @@ func workspaceAnalysisFromResult(result modelgateway.AnalyzeAssetResult) *Worksp
 		FaceVisible:       result.FaceVisible,
 		LightingCondition: result.LightingCondition,
 		ModelResult:       result.ModelResult,
+	}
+}
+
+func workspaceAnalysisModelLabels(analysis *WorkspaceAnalysis) map[string]any {
+	if analysis == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"scene_description":  analysis.SceneDescription,
+		"shot_size":          analysis.ShotSize,
+		"camera_movement":    analysis.CameraMovement,
+		"subjects":           []string{},
+		"visual_tags":        append([]string(nil), analysis.VisualTags...),
+		"scene_tags":         append([]string(nil), analysis.VisualTags...),
+		"quality_tags":       append([]string(nil), analysis.QualityTags...),
+		"visible_product":    analysis.VisibleProduct,
+		"product_position":   analysis.ProductPosition,
+		"scene_context":      analysis.SceneContext,
+		"action_description": analysis.ActionDescription,
+		"people_presence":    analysis.PeoplePresence,
+		"face_visible":       analysis.FaceVisible,
+		"lighting_condition": analysis.LightingCondition,
 	}
 }
 

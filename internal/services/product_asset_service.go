@@ -585,23 +585,24 @@ func (s *ProductAssetService) BuildAssetSemanticPreview(assetID string) (AssetSe
 		return AssetSemanticPreview{}, ErrAssetNotFound
 	}
 
-	openDescription := buildOpenSemanticDescription(asset)
+	productName := ""
+	if product, err := s.GetProduct(asset.ProductID); err == nil {
+		productName = product.Name
+	}
+	sellingPoints, err := s.ListAssetSellingPoints(assetID)
+	if err != nil {
+		return AssetSemanticPreview{}, err
+	}
+	sellingPointTexts := semanticSellingPointTexts(sellingPoints)
+	openDescription := buildOpenSemanticDescription(asset, productName, sellingPointTexts)
+	metadata := buildShotEmbeddingMetadata(asset, productName, sellingPointTexts)
 	targets := []EmbeddingTarget{
 		{
 			ObjectType: "shot",
 			ObjectID:   asset.ID,
 			AssetID:    asset.ID,
 			Text:       openDescription,
-			Metadata: map[string]any{
-				"source_type":       asset.SourceType,
-				"shot_size":         asset.ShotSize,
-				"camera_movement":   asset.CameraMovement,
-				"likely_has_speech": asset.LikelyHasSpeech,
-				"subjects":          append([]string(nil), asset.Subjects...),
-				"scene_tags":        append([]string(nil), asset.SceneTags...),
-				"quality_tags":      append([]string(nil), asset.QualityTags...),
-				"asset_metadata":    cloneObjectMap(asset.Metadata),
-			},
+			Metadata:   metadata,
 		},
 	}
 
@@ -2051,6 +2052,28 @@ func stringValueFromMap(values map[string]any, key string) string {
 	}
 }
 
+func boolValueFromMap(values map[string]any, key string) (bool, bool) {
+	if values == nil {
+		return false, false
+	}
+	value, ok := values[key]
+	if !ok {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "yes", "1":
+			return true, true
+		case "false", "no", "0":
+			return false, true
+		}
+	}
+	return false, false
+}
+
 func stringSliceValueFromMap(values map[string]any, key string) []string {
 	if values == nil {
 		return nil
@@ -2096,8 +2119,14 @@ func mustJSON(value any, fallback any) []byte {
 	return encoded
 }
 
-func buildOpenSemanticDescription(asset Asset) string {
-	parts := make([]string, 0, 8)
+func buildOpenSemanticDescription(asset Asset, productName string, sellingPointTexts []string) string {
+	parts := make([]string, 0, 18)
+	if productName != "" {
+		parts = append(parts, "产品："+productName)
+	}
+	if len(sellingPointTexts) > 0 {
+		parts = append(parts, "关联卖点："+strings.Join(sellingPointTexts, "、"))
+	}
 	if asset.SceneDescription != "" {
 		parts = append(parts, "画面描述："+asset.SceneDescription)
 	}
@@ -2117,6 +2146,27 @@ func buildOpenSemanticDescription(asset Asset) string {
 	if len(asset.QualityTags) > 0 {
 		parts = append(parts, "质量标签："+strings.Join(asset.QualityTags, "、"))
 	}
+	if sceneContext := stringValueFromMap(asset.ModelLabels, "scene_context"); sceneContext != "" {
+		parts = append(parts, "场景："+sceneContext)
+	}
+	if actionDescription := stringValueFromMap(asset.ModelLabels, "action_description"); actionDescription != "" {
+		parts = append(parts, "动作："+actionDescription)
+	}
+	if visibleProduct, ok := boolValueFromMap(asset.ModelLabels, "visible_product"); ok {
+		parts = append(parts, "目标产品可见："+boolDisplay(visibleProduct))
+	}
+	if productPosition := stringValueFromMap(asset.ModelLabels, "product_position"); productPosition != "" {
+		parts = append(parts, "产品位置："+productPosition)
+	}
+	if peoplePresence, ok := boolValueFromMap(asset.ModelLabels, "people_presence"); ok {
+		parts = append(parts, "画面人物："+boolDisplay(peoplePresence))
+	}
+	if faceVisible, ok := boolValueFromMap(asset.ModelLabels, "face_visible"); ok {
+		parts = append(parts, "人物露脸："+boolDisplay(faceVisible))
+	}
+	if lightingCondition := stringValueFromMap(asset.ModelLabels, "lighting_condition"); lightingCondition != "" {
+		parts = append(parts, "光线："+lightingCondition)
+	}
 	parts = append(parts, "是否有人声："+boolDisplay(asset.LikelyHasSpeech))
 	if curated, ok := asset.Metadata["is_curated"].(bool); ok && curated {
 		parts = append(parts, "精选素材：是")
@@ -2134,6 +2184,50 @@ func buildOpenSemanticDescription(asset Asset) string {
 		parts = append(parts, "复核备注："+asset.ReviewerNotes)
 	}
 	return strings.Join(parts, "；")
+}
+
+func buildShotEmbeddingMetadata(asset Asset, productName string, sellingPointTexts []string) map[string]any {
+	metadata := map[string]any{
+		"product_id":          asset.ProductID,
+		"product_name":        productName,
+		"selling_point_texts": append([]string(nil), sellingPointTexts...),
+		"source_type":         asset.SourceType,
+		"shot_size":           asset.ShotSize,
+		"camera_movement":     asset.CameraMovement,
+		"likely_has_speech":   asset.LikelyHasSpeech,
+		"subjects":            append([]string(nil), asset.Subjects...),
+		"scene_tags":          append([]string(nil), asset.SceneTags...),
+		"quality_tags":        append([]string(nil), asset.QualityTags...),
+		"asset_metadata":      cloneObjectMap(asset.Metadata),
+	}
+	for _, key := range []string{
+		"visible_product",
+		"product_position",
+		"scene_context",
+		"action_description",
+		"people_presence",
+		"face_visible",
+		"lighting_condition",
+	} {
+		if value, ok := asset.ModelLabels[key]; ok {
+			metadata[key] = value
+		}
+	}
+	return metadata
+}
+
+func semanticSellingPointTexts(items []SellingPoint) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(item.Title)
+		if description := strings.TrimSpace(item.Description); description != "" {
+			text += "：" + description
+		}
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
 }
 
 func buildSpeechSegmentSemanticText(segment SpeechSegment) string {

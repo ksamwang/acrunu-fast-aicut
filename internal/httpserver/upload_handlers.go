@@ -395,14 +395,17 @@ func applyPreprocessedAssetFields(c *gin.Context, input *services.CreateAssetInp
 	input.SceneTags = parseJSONStringArray(c.PostForm("scene_tags_json"))
 	input.QualityTags = parseJSONStringArray(c.PostForm("quality_tags_json"))
 	input.ModelResult = parseJSONObject(c.PostForm("model_result_json"))
-	input.ModelLabels = map[string]any{
-		"scene_description": input.SceneDescription,
-		"shot_size":         input.ShotSize,
-		"camera_movement":   input.CameraMovement,
-		"subjects":          append([]string(nil), input.Subjects...),
-		"scene_tags":        append([]string(nil), input.SceneTags...),
-		"quality_tags":      append([]string(nil), input.QualityTags...),
-		"usability_status":  input.UsabilityStatus,
+	input.ModelLabels = parseJSONObject(c.PostForm("model_labels_json"))
+	if len(input.ModelLabels) == 0 {
+		input.ModelLabels = map[string]any{
+			"scene_description": input.SceneDescription,
+			"shot_size":         input.ShotSize,
+			"camera_movement":   input.CameraMovement,
+			"subjects":          append([]string(nil), input.Subjects...),
+			"scene_tags":        append([]string(nil), input.SceneTags...),
+			"quality_tags":      append([]string(nil), input.QualityTags...),
+			"usability_status":  input.UsabilityStatus,
+		}
 	}
 	input.LikelyHasSpeech = sourceType == "talking_head" || (hasAudio != nil && *hasAudio)
 	return nil

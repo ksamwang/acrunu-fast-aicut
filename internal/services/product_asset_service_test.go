@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -549,6 +550,10 @@ func TestListSpeechSegmentsByAssetInMemory(t *testing.T) {
 func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	service := NewProductAssetService()
 	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	sellingPoint, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{Title: "easy installation"})
+	if err != nil {
+		t.Fatalf("CreateSellingPoint() error = %v", err)
+	}
 	asset, err := service.CreateAsset(CreateAssetInput{
 		ProductID:         product.ID,
 		FileName:          "talk.mp4",
@@ -565,7 +570,17 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 		SceneTags:         []string{"室内", "展示"},
 		QualityTags:       []string{"稳定"},
 		LikelyHasSpeech:   true,
-		ReviewerNotes:     "适合做卖点讲解",
+		ModelLabels: map[string]any{
+			"scene_context":      "indoor studio",
+			"action_description": "demonstrates product installation",
+			"visible_product":    true,
+			"product_position":   "center",
+			"people_presence":    true,
+			"face_visible":       true,
+			"lighting_condition": "soft indoor light",
+		},
+		SellingPointIDs: []string{sellingPoint.ID},
+		ReviewerNotes:   "适合做卖点讲解",
 	})
 	if err != nil {
 		t.Fatalf("create asset failed: %v", err)
@@ -592,11 +607,22 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	if preview.OpenSemanticDescription == "" {
 		t.Fatalf("expected open semantic description")
 	}
+	for _, expected := range []string{"P1", "easy installation", "demonstrates product installation", "indoor studio"} {
+		if !strings.Contains(preview.OpenSemanticDescription, expected) {
+			t.Fatalf("expected semantic text to contain %q, got %s", expected, preview.OpenSemanticDescription)
+		}
+	}
 	if len(preview.EmbeddingTargets) != 2 {
 		t.Fatalf("expected shot + speech_segment targets, got %d", len(preview.EmbeddingTargets))
 	}
 	if preview.EmbeddingTargets[0].ObjectType != "shot" {
 		t.Fatalf("expected first target to be shot, got %#v", preview.EmbeddingTargets[0])
+	}
+	if preview.EmbeddingTargets[0].Metadata["action_description"] != "demonstrates product installation" {
+		t.Fatalf("expected action description metadata, got %#v", preview.EmbeddingTargets[0].Metadata)
+	}
+	if preview.EmbeddingTargets[0].Metadata["visible_product"] != true {
+		t.Fatalf("expected visible product metadata, got %#v", preview.EmbeddingTargets[0].Metadata)
 	}
 	if preview.EmbeddingTargets[1].ObjectType != "speech_segment" {
 		t.Fatalf("expected second target to be speech_segment, got %#v", preview.EmbeddingTargets[1])
