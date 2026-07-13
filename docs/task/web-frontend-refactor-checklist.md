@@ -63,7 +63,7 @@
 - [x] 提取产品列表页面到 `src/features/products/ProductsPage.tsx`
 - [x] 提取产品编辑、新建弹窗到 `ProductEditorModal.tsx`
 - [x] 提取产品白底参考图上传与预览组件
-- [ ] 提取卖点编辑、新建弹窗到 `SellingPointModal.tsx`
+- [x] 提取卖点编辑、新建弹窗到 `SellingPointModal.tsx`
 - [ ] 提取关联素材预览弹窗到 `LinkedAssetsModal.tsx`
 - [x] 将产品与卖点请求收敛到 `src/features/products/api.ts`
 - [x] 将产品功能域样式迁移到 `src/features/products/styles.css`

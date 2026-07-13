@@ -9,6 +9,7 @@ import type { Product, ProductStats, SellingPoint } from "../../shared/types/pro
 import { productReferenceImage, readImageFileAsDataURL } from "./product-reference";
 import { deleteProduct as removeProduct, deleteSellingPoint as removeSellingPoint, getProductStats, listProducts, listSellingPointAssets, listSellingPoints, saveProduct as persistProduct, saveSellingPoint as persistSellingPoint } from "./api";
 import { ProductEditorModal } from "./ProductEditorModal";
+import { SellingPointModal } from "./SellingPointModal";
 import "./styles.css";
 
 export function ProductManagementPage({ token }: { token: string }) {
@@ -309,30 +310,18 @@ export function ProductManagementPage({ token }: { token: string }) {
         </Space>
       </Modal>
 
-      <Modal
-        title={editingSellingPoint ? "编辑卖点" : selectedProduct ? `新建卖点：${selectedProduct.name}` : "新建卖点"}
+      <SellingPointModal
         open={sellingPointOpen}
-        onOk={saveSellingPoint}
+        editingSellingPoint={editingSellingPoint}
+        selectedProduct={selectedProduct}
+        form={sellingPointForm}
+        onSave={() => void saveSellingPoint()}
         onCancel={() => {
           setSellingPointOpen(false);
           setEditingSellingPoint(null);
           sellingPointForm.resetFields();
         }}
-        okText="确认"
-        cancelText="取消"
-      >
-        <Form form={sellingPointForm} layout="vertical">
-          <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入卖点标题" }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="priority" label="优先级" initialValue={0}>
-            <InputNumber min={0} />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-        </Form>
-      </Modal>
+      />
 
       <Drawer
         title={selectedSellingPoint ? `关联素材：${selectedSellingPoint.title}` : "关联素材"}
