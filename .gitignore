@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-
+server_boot_info.txt
 # Go
 bin/
 coverage.out
