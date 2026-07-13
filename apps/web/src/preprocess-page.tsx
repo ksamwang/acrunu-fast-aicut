@@ -20,6 +20,29 @@ import {
 import { VideoTrimEditor } from "./video-trim-editor";
 
 const LOCAL_AGENT_BASE_URL = "http://127.0.0.1:58721";
+const LAST_SUBMIT_PRODUCT_STORAGE_KEY = "aicut.preprocess.last_submit_product_id";
+
+function loadLastSubmitProductID() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  try {
+    return window.localStorage.getItem(LAST_SUBMIT_PRODUCT_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function persistLastSubmitProductID(productID: string) {
+  if (typeof window === "undefined" || !productID) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(LAST_SUBMIT_PRODUCT_STORAGE_KEY, productID);
+  } catch {
+    // A blocked storage API should not prevent preprocessing or submission.
+  }
+}
 
 type Product = {
   id: string;
@@ -420,7 +443,8 @@ export function PreprocessPage({ token }: { token: string }) {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importPreviews, setImportPreviews] = useState<ImportPreview[]>([]);
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
-  const [submitProductID, setSubmitProductID] = useState<string>("");
+  const lastSubmitProductIDRef = useRef(loadLastSubmitProductID());
+  const [submitProductID, setSubmitProductID] = useState<string>(lastSubmitProductIDRef.current);
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
   const [useProductReferenceImage, setUseProductReferenceImage] = useState(true);
   const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
@@ -544,7 +568,7 @@ export function PreprocessPage({ token }: { token: string }) {
       transcript: selectedItem.transcript ?? "",
       reviewer_notes: selectedItem.reviewer_notes ?? ""
     });
-    setSubmitProductID(selectedItem.product_id ?? "");
+    setSubmitProductID(selectedItem.product_id || lastSubmitProductIDRef.current);
     setSubmitSellingPointIDs([]);
   }, [form, selectedItem]);
 
@@ -833,7 +857,6 @@ export function PreprocessPage({ token }: { token: string }) {
       await localAgentRequest("/workspace/clear", { method: "POST" });
       await loadItems();
       setSelectedItemID(null);
-      setSubmitProductID("");
       setSubmitSellingPointIDs([]);
       message.success("本地预处理工作区已清空");
     } catch (error) {
@@ -882,6 +905,13 @@ export function PreprocessPage({ token }: { token: string }) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const selectSubmitProduct = (productID: string) => {
+    setSubmitProductID(productID);
+    setSubmitSellingPointIDs([]);
+    lastSubmitProductIDRef.current = productID;
+    persistLastSubmitProductID(productID);
   };
 
   const openNeighbor = (offset: number) => {
@@ -1198,9 +1228,10 @@ export function PreprocessPage({ token }: { token: string }) {
                   <Typography.Text type="secondary">正式提交</Typography.Text>
                   <Select
                     popupClassName="preprocess-select-dropdown"
-                    placeholder="产品"
+                    placeholder="请选择产品"
+                    status={selectedItem.status === "ready_to_submit" && !submitProductID ? "error" : undefined}
                     value={submitProductID || undefined}
-                    onChange={(value) => setSubmitProductID(value)}
+                    onChange={selectSubmitProduct}
                     options={products.map((product) => ({ value: product.id, label: product.name }))}
                   />
                   <Select
@@ -1236,7 +1267,7 @@ export function PreprocessPage({ token }: { token: string }) {
                   <Button
                     type="primary"
                     loading={submitting}
-                    disabled={selectedItem.status !== "ready_to_submit"}
+                    disabled={selectedItem.status !== "ready_to_submit" || !submitProductID}
                     onClick={() => void submitItem()}
                   >
                     正式提交

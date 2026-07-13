@@ -54,6 +54,7 @@ type WorkspaceItem struct {
 	SourcePath          string                   `json:"source_path"`
 	CleanShotPath       string                   `json:"clean_shot_path,omitempty"`
 	CleanShotName       string                   `json:"clean_shot_name,omitempty"`
+	CleanShotProbe      ffmpeg.ProbeResult       `json:"clean_shot_probe,omitempty"`
 	Checksum            string                   `json:"checksum,omitempty"`
 	SourceInMs          int                      `json:"source_in_ms"`
 	SourceOutMs         int                      `json:"source_out_ms"`
@@ -243,7 +244,16 @@ func (w *Workspace) SaveItem(ctx context.Context, itemID string, input Workspace
 	}
 	item.Transcript = strings.TrimSpace(input.Transcript)
 	item.ReviewerNotes = strings.TrimSpace(input.ReviewerNotes)
-	if item.Status != workspaceStatusReadyToSubmit && item.Status != workspaceStatusSubmitted {
+	if item.Status == workspaceStatusReadyToSubmit {
+		clearPreparedOutput(&item)
+		item.PreviewFrames = nil
+		item.Analysis = nil
+		item.VLMStatus = vlmStatusIdle
+		item.VLMError = ""
+		item.VLMStartedAt = nil
+		item.VLMFinishedAt = nil
+		item.Status = workspaceStatusSaved
+	} else if item.Status != workspaceStatusSubmitted {
 		item.Status = workspaceStatusSaved
 	}
 	item.LastError = ""
@@ -369,6 +379,10 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 		return WorkspaceItem{}, fmt.Errorf("invalid source type")
 	}
 
+	if item.Status == workspaceStatusReadyToSubmit && (item.SourceType != sourceType || item.SourceInMs != sourceInMs || item.SourceOutMs != sourceOutMs) {
+		clearPreparedOutput(&item)
+		item.Status = workspaceStatusSaved
+	}
 	item.SourceType = sourceType
 	item.SourceInMs = sourceInMs
 	item.SourceOutMs = sourceOutMs
@@ -536,6 +550,18 @@ func normalizeWorkspaceItem(item WorkspaceItem) WorkspaceItem {
 	if item.SpeedRatio == 0 {
 		item.SpeedRatio = resolveSpeedRatio(effectiveOriginalProbe(item).FPS, item.InterpretFPS, item.PlaybackFPS)
 	}
+	if item.CleanShotProbe == (ffmpeg.ProbeResult{}) && item.CleanShotPath != "" {
+		// Older workspace records stored the clean shot probe in Probe. Restore the
+		// working-source probe so the editor keeps using the same timeline as I/O.
+		item.CleanShotProbe = item.Probe
+		if item.InterpretFPS {
+			item.Probe = effectiveOriginalProbe(item)
+			item.Probe.DurationMs = interpretedDurationMs(item.Probe.DurationMs, item.Probe.FPS, item.PlaybackFPS)
+			item.Probe.FPS = item.PlaybackFPS
+		} else {
+			item.Probe = effectiveOriginalProbe(item)
+		}
+	}
 	return item
 }
 
@@ -544,6 +570,21 @@ func effectiveOriginalProbe(item WorkspaceItem) ffmpeg.ProbeResult {
 		return item.OriginalProbe
 	}
 	return item.Probe
+}
+
+func effectiveCleanShotProbe(item WorkspaceItem) ffmpeg.ProbeResult {
+	if item.CleanShotProbe != (ffmpeg.ProbeResult{}) {
+		return item.CleanShotProbe
+	}
+	return item.Probe
+}
+
+func clearPreparedOutput(item *WorkspaceItem) {
+	item.CleanShotPath = ""
+	item.CleanShotName = ""
+	item.CleanShotProbe = ffmpeg.ProbeResult{}
+	item.Checksum = ""
+	item.FrameSnapshots = nil
 }
 
 func (w *Workspace) persistLocked() error {
@@ -716,11 +757,8 @@ func (w *Workspace) applyWorkingSourceLocked(ctx context.Context, item *Workspac
 			item.PreviewInMs = 0
 			item.PreviewOutMs = 0
 			item.PreviewFrames = nil
-			item.FrameSnapshots = nil
+			clearPreparedOutput(item)
 			item.Analysis = nil
-			item.CleanShotPath = ""
-			item.CleanShotName = ""
-			item.Checksum = ""
 			item.LastError = ""
 			item.Status = workspaceStatusSaved
 		}
@@ -739,11 +777,8 @@ func (w *Workspace) applyWorkingSourceLocked(ctx context.Context, item *Workspac
 		item.PreviewInMs = 0
 		item.PreviewOutMs = 0
 		item.PreviewFrames = nil
-		item.FrameSnapshots = nil
+		clearPreparedOutput(item)
 		item.Analysis = nil
-		item.CleanShotPath = ""
-		item.CleanShotName = ""
-		item.Checksum = ""
 		item.LastError = ""
 		item.Status = workspaceStatusSaved
 	}
@@ -856,8 +891,8 @@ func (w *Workspace) prepareItem(ctx context.Context, item WorkspaceItem) (Worksp
 
 	item.CleanShotPath = cleanShotPath
 	item.CleanShotName = filepath.Base(cleanShotPath)
+	item.CleanShotProbe = probe
 	item.Checksum = checksum
-	item.Probe = probe
 	item.FrameSnapshots = frameSnapshots
 
 	return item, nil
@@ -1068,6 +1103,11 @@ func decodeImageDataURL(value string) ([]byte, string, error) {
 }
 
 func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, input WorkspaceSubmitInput) (string, error) {
+	cleanShotProbe := effectiveCleanShotProbe(item)
+	if cleanShotProbe.DurationMs <= 0 {
+		return "", fmt.Errorf("clean shot duration is required")
+	}
+
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
@@ -1083,14 +1123,14 @@ func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, 
 		"product_id":           input.ProductID,
 		"source_in_ms":         fmt.Sprintf("%d", item.SourceInMs),
 		"source_out_ms":        fmt.Sprintf("%d", item.SourceOutMs),
-		"duration_ms":          fmt.Sprintf("%d", item.Probe.DurationMs),
-		"width":                fmt.Sprintf("%d", item.Probe.Width),
-		"height":               fmt.Sprintf("%d", item.Probe.Height),
-		"fps":                  fmt.Sprintf("%.3f", item.Probe.FPS),
-		"codec":                item.Probe.Codec,
-		"has_audio":            fmt.Sprintf("%t", item.Probe.HasAudio),
-		"audio_codec":          item.Probe.AudioCodec,
-		"bitrate_kbps":         fmt.Sprintf("%d", item.Probe.BitrateKbps),
+		"duration_ms":          fmt.Sprintf("%d", cleanShotProbe.DurationMs),
+		"width":                fmt.Sprintf("%d", cleanShotProbe.Width),
+		"height":               fmt.Sprintf("%d", cleanShotProbe.Height),
+		"fps":                  fmt.Sprintf("%.3f", cleanShotProbe.FPS),
+		"codec":                cleanShotProbe.Codec,
+		"has_audio":            fmt.Sprintf("%t", cleanShotProbe.HasAudio),
+		"audio_codec":          cleanShotProbe.AudioCodec,
+		"bitrate_kbps":         fmt.Sprintf("%d", cleanShotProbe.BitrateKbps),
 		"checksum":             item.Checksum,
 		"analysis_status":      "ready",
 		"scene_description":    itemAnalysisSceneDescription(item),

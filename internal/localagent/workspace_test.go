@@ -26,6 +26,25 @@ import (
 
 type stubProcessor struct{}
 
+type cleanShotProbeProcessor struct {
+	stubProcessor
+}
+
+func (cleanShotProbeProcessor) Probe(_ context.Context, path string) (ffmpeg.ProbeResult, error) {
+	if filepath.Base(path) == "clean-shot.mp4" {
+		return ffmpeg.ProbeResult{
+			DurationMs: 4000,
+			Width:      1080,
+			Height:     1920,
+			FPS:        30,
+			Codec:      "h264",
+			HasAudio:   true,
+			AudioCodec: "aac",
+		}, nil
+	}
+	return stubProcessor{}.Probe(context.Background(), path)
+}
+
 func (stubProcessor) Cut(_ context.Context, sourcePath string, outputPath string, _ int, _ int, _ ffmpeg.CutOptions) error {
 	data, err := os.ReadFile(sourcePath)
 	if err != nil {
@@ -154,6 +173,54 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 	}
 	if len(workspace.ListItems()) != 0 {
 		t.Fatalf("expected workspace to be empty after clear")
+	}
+}
+
+func TestPrepareKeepsWorkingSourceTimelineAndStoresCleanShotProbe(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, cleanShotProbeProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+
+	if _, err := workspace.SaveItem(context.Background(), imported[0].ID, WorkspaceSaveInput{
+		SourceType:  "visual_only",
+		SourceInMs:  1000,
+		SourceOutMs: 5000,
+	}); err != nil {
+		t.Fatalf("SaveItem() error = %v", err)
+	}
+	prepared, err := workspace.PrepareItem(context.Background(), imported[0].ID)
+	if err != nil {
+		t.Fatalf("PrepareItem() error = %v", err)
+	}
+	if prepared.Probe.DurationMs != 6000 {
+		t.Fatalf("expected working source duration 6000, got %d", prepared.Probe.DurationMs)
+	}
+	if prepared.CleanShotProbe.DurationMs != 4000 {
+		t.Fatalf("expected clean shot duration 4000, got %d", prepared.CleanShotProbe.DurationMs)
+	}
+	if prepared.SourceInMs != 1000 || prepared.SourceOutMs != 5000 {
+		t.Fatalf("expected preserved I/O range 1000-5000, got %d-%d", prepared.SourceInMs, prepared.SourceOutMs)
+	}
+
+	reloaded, err := NewWorkspace(root, cleanShotProbeProcessor{})
+	if err != nil {
+		t.Fatalf("reload workspace error = %v", err)
+	}
+	persisted, ok := reloaded.GetItem(imported[0].ID)
+	if !ok {
+		t.Fatalf("expected prepared item after reload")
+	}
+	if persisted.Probe.DurationMs != 6000 || persisted.CleanShotProbe.DurationMs != 4000 {
+		t.Fatalf("expected source and clean probes after reload, got %#v / %#v", persisted.Probe, persisted.CleanShotProbe)
 	}
 }
 
