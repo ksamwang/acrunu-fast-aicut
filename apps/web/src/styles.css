@@ -1175,6 +1175,25 @@ body {
   min-height: 0;
 }
 
+/* Ant Space wraps every child. Keep the list wrapper within the viewport so
+   the card body, rather than the page or wrapper, owns the scroll area. */
+.asset-library-stack > .ant-space-item {
+  min-height: 0;
+}
+
+.asset-library-stack > .ant-space-item:last-child {
+  display: flex;
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.asset-library-stack > .ant-space-item:last-child > .asset-grid-card {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .asset-filter-card,
 .asset-grid-card {
   border-color: #e5e7eb;
@@ -1243,17 +1262,16 @@ body {
   flex-direction: column;
   min-height: 0;
   padding: 16px 18px 18px;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .asset-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
   align-content: start;
-  overflow: auto;
+  overflow: visible;
   padding: 2px 4px 10px 2px;
 }
 
@@ -1411,10 +1429,16 @@ body {
 }
 
 .asset-pagination {
+  position: sticky;
+  bottom: -18px;
+  z-index: 1;
   display: flex;
   flex: 0 0 auto;
   justify-content: flex-end;
   margin-top: 12px;
+  padding: 12px 0 18px;
+  border-top: 1px solid #eef2f6;
+  background: #ffffff;
 }
 
 .asset-detail-modal {
