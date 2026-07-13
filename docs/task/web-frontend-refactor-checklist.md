@@ -18,12 +18,12 @@
 - [x] 建立 `src/shared/lib/`，承载格式化、浏览器存储和无业务归属的工具函数
 - [ ] 建立 `src/shared/components/`，仅放置跨两个及以上功能域复用的展示组件
 - [x] 建立 `src/features/auth/`
-- [ ] 建立 `src/features/products/`
-- [ ] 建立 `src/features/assets/`
-- [ ] 建立 `src/features/preprocess/`
-- [ ] 建立 `src/features/settings/`
-- [ ] 建立 `src/features/tasks/`
-- [ ] 约束功能域之间不直接导入对方的内部组件或内部实现
+- [x] 建立 `src/features/products/`
+- [x] 建立 `src/features/assets/`
+- [x] 建立 `src/features/preprocess/`
+- [x] 建立 `src/features/settings/`
+- [x] 建立 `src/features/tasks/`
+- [x] 约束功能域之间不直接导入对方的内部组件或内部实现
 - [ ] 约束跨功能域复用内容必须通过 `shared/` 暴露
 
 ## 3. 应用基础层
@@ -168,7 +168,7 @@
 - [x] 不存在承载多个业务页面的单一 TSX 文件
 - [x] 不存在混合所有功能域页面样式的单一业务样式文件
 - [ ] 服务端 API 与 Local Agent API 均有独立、可复用的调用层
-- [ ] 前端共享领域类型只有一个权威定义位置
+- [x] 前端共享领域类型只有一个权威定义位置
 - [ ] 已确认无引用的 `LegacyProductsPage` 与 `LegacySettingsPage` 已删除
 - [x] 现有 `npm.cmd run build` 通过
 - [x] 核心用户路径的 Playwright 回归通过
