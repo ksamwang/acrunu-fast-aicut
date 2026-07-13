@@ -23,6 +23,7 @@ import { authenticatedApiRequest } from "../../shared/api/server-api";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import type { UploadToken, WorkspaceItem, WorkspaceItemResponse, WorkspaceListResponse, WorkspaceProbe } from "../../shared/types/workspace";
+import "./styles.css";
 
 const LAST_SUBMIT_PRODUCT_STORAGE_KEY = "aicut.preprocess.last_submit_product_id";
 
