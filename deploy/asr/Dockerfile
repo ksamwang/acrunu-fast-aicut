@@ -12,8 +12,10 @@ ARG http_proxy
 ARG https_proxy
 ARG NO_PROXY
 ARG no_proxy
+ARG APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/ubuntu
 
-RUN apt-get update \
+RUN sed -i "s#http://archive.ubuntu.com/ubuntu#${APT_MIRROR}#g; s#http://security.ubuntu.com/ubuntu#${APT_MIRROR}#g" /etc/apt/sources.list \
+    && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
         ffmpeg \

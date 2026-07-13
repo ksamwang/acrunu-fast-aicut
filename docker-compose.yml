@@ -89,6 +89,7 @@ services:
       dockerfile: deploy/asr/Dockerfile
       args:
         ASR_BASE_IMAGE: ${ASR_BASE_IMAGE:-nvidia/cuda:12.6.3-base-ubuntu22.04}
+        APT_MIRROR: ${ASR_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/ubuntu}
         HTTP_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
         HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
         http_proxy: ${MODEL_DOWNLOAD_PROXY:-}
