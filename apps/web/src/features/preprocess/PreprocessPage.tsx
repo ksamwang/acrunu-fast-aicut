@@ -17,12 +17,12 @@ import {
   Typography,
   message
 } from "antd";
-import { VideoTrimEditor } from "./video-trim-editor";
-import { localAgentRequest } from "./shared/api/local-agent-api";
-import { authenticatedApiRequest } from "./shared/api/server-api";
-import { formatDateTime, formatDuration, formatTimestamp } from "./shared/lib/format";
-import type { Product, SellingPoint } from "./shared/types/product";
-import type { UploadToken, WorkspaceItem, WorkspaceItemResponse, WorkspaceListResponse, WorkspaceProbe } from "./shared/types/workspace";
+import { VideoTrimEditor } from "./VideoTrimEditor";
+import { localAgentRequest } from "../../shared/api/local-agent-api";
+import { authenticatedApiRequest } from "../../shared/api/server-api";
+import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
+import type { Product, SellingPoint } from "../../shared/types/product";
+import type { UploadToken, WorkspaceItem, WorkspaceItemResponse, WorkspaceListResponse, WorkspaceProbe } from "../../shared/types/workspace";
 
 const LAST_SUBMIT_PRODUCT_STORAGE_KEY = "aicut.preprocess.last_submit_product_id";
 

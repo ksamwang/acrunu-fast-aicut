@@ -88,7 +88,7 @@
 
 ### 6.1 工作区与导入
 
-- [ ] 提取预处理页面入口到 `src/features/preprocess/PreprocessPage.tsx`
+- [x] 提取预处理页面入口到 `src/features/preprocess/PreprocessPage.tsx`
 - [ ] 提取工作区工具栏到 `WorkspaceToolbar.tsx`
 - [ ] 提取预处理素材卡片到 `WorkspaceCard.tsx`
 - [ ] 提取导入视频弹窗到 `ImportVideosModal.tsx`
@@ -99,7 +99,7 @@
 ### 6.2 处理弹窗与分析
 
 - [ ] 提取预处理大弹窗到 `PreprocessModal.tsx`
-- [ ] 将 `VideoTrimEditor` 移入 `src/features/preprocess/`，保持其对外 Props 和帧级 I/O 语义不变
+- [x] 将 `VideoTrimEditor` 移入 `src/features/preprocess/`，保持其对外 Props 和帧级 I/O 语义不变
 - [ ] 提取本地分析结果展示组件
 - [ ] 提取三帧抽样弹窗到 `FramePreviewModal.tsx`
 - [ ] 提取口播转写弹窗到 `TranscriptModal.tsx`
