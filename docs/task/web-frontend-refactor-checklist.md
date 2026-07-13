@@ -72,7 +72,7 @@
 
 ## 5. 素材库功能域
 
-- [ ] 提取素材库页面到 `src/features/assets/AssetsPage.tsx`
+- [x] 提取素材库页面到 `src/features/assets/AssetsPage.tsx`
 - [ ] 提取筛选工具栏到 `AssetFilterToolbar.tsx`
 - [ ] 提取素材卡片网格到 `AssetGrid.tsx`
 - [ ] 提取单个素材预览卡片到 `AssetCard.tsx`
