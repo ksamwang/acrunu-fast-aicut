@@ -3,6 +3,7 @@ import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Selec
 import { apiRequest } from "../../shared/api/server-api";
 import { useResource } from "../../shared/hooks/use-resource";
 import type { ModelCapabilitySettings, ModelDiscoveryResult, ModelProvider, ModelSelectOption, RuntimeSettings } from "../../shared/types/settings";
+import "./styles.css";
 
 export function SettingsPage({ token }: { token: string }) {
   const providersResource = useResource<ModelProvider[]>("/api/admin/model-providers", token);

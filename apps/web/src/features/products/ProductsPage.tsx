@@ -8,6 +8,7 @@ import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, productS
 import type { Asset } from "../../shared/types/asset";
 import type { Product, ProductStats, SellingPoint } from "../../shared/types/product";
 import { productReferenceImage, readImageFileAsDataURL } from "./product-reference";
+import "./styles.css";
 
 export function ProductManagementPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token);
@@ -431,4 +432,3 @@ export function ProductManagementPage({ token }: { token: string }) {
     </Space>
   );
 }
-

@@ -66,7 +66,7 @@
 - [ ] 提取卖点编辑、新建弹窗到 `SellingPointModal.tsx`
 - [ ] 提取关联素材预览弹窗到 `LinkedAssetsModal.tsx`
 - [ ] 将产品与卖点请求收敛到 `src/features/products/api.ts`
-- [ ] 将产品功能域样式迁移到 `src/features/products/styles.css`
+- [x] 将产品功能域样式迁移到 `src/features/products/styles.css`
 - [ ] 保持产品编辑、删除约束、卖点编辑和关联素材预览行为不变
 - [x] 确认无引用后删除 `LegacyProductsPage`
 
@@ -124,7 +124,7 @@
 - [ ] 保持向量模型支持手动输入的行为不变
 - [ ] 将设置请求收敛到 `src/features/settings/api.ts`
 - [ ] 将设置页滚动限制在页面内容区域，禁止 body 滚动
-- [ ] 将设置样式迁移到 `src/features/settings/styles.css`
+- [x] 将设置样式迁移到 `src/features/settings/styles.css`
 - [x] 确认无引用后删除 `LegacySettingsPage`
 
 ### 7.2 任务

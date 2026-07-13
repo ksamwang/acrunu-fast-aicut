@@ -1,0 +1,101 @@
+.settings-page-stack {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+  padding-bottom: 24px;
+}
+
+.settings-top-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin-bottom: 0;
+  padding-top: 2px;
+  background: #f4f6f8;
+}
+
+.settings-top-tabs > .ant-tabs-nav {
+  margin-bottom: 0;
+}
+
+.settings-tab-panel {
+  margin-top: 0;
+}
+
+.wide-space {
+  width: 100%;
+}
+
+.selected-row > td {
+  background: #e6f4ff !important;
+}
+
+.table-link-button {
+  padding-left: 0;
+}
+
+.frame-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.frame-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.frame-image {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #eef2f6;
+}
+
+.summary-text {
+  display: inline-block;
+  max-width: 180px;
+}
+
+.json-block {
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f7f9fb;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.settings-overview-card .ant-descriptions-view {
+  background: linear-gradient(135deg, #f7fbff 0%, #eef6ff 100%);
+  border-radius: 12px;
+}
+
+.settings-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 16px;
+}
+
+.settings-section-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-inner-card {
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.settings-inner-card .ant-card-head {
+  min-height: 44px;
+}
+
+.settings-inner-card .ant-card-body {
+  padding-bottom: 8px;
+}
+
