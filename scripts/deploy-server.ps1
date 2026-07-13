@@ -75,7 +75,7 @@ try {
 
     if ($RunMigrations) {
         $remoteCommands += "docker build -f deploy/MigrationDockerfile -t '$MigratorImage' ."
-        $remoteCommands += "docker run --rm --network container:aicut-postgres -v '$RemoteDir/migrations:/migrations:ro' '$MigratorImage' -dir /migrations postgres '$DatabaseUrl' up"
+        $remoteCommands += "docker run --rm --network container:aicut-postgres -v '$RemoteDir/migrations:/migrations:ro' -e GOOSE_DRIVER=postgres -e 'GOOSE_DBSTRING=$DatabaseUrl' -e GOOSE_MIGRATION_DIR=/migrations '$MigratorImage' up"
     }
 
     $remoteCommands += @(
