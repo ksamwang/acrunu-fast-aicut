@@ -122,7 +122,7 @@
 - [ ] 提取运行控制 Tab 到 `RuntimeSettingsTab.tsx`
 - [ ] 保持供应商、LLM、VLM、向量模型的选择与模型拉取行为不变
 - [ ] 保持向量模型支持手动输入的行为不变
-- [ ] 将设置请求收敛到 `src/features/settings/api.ts`
+- [x] 将设置请求收敛到 `src/features/settings/api.ts`
 - [ ] 将设置页滚动限制在页面内容区域，禁止 body 滚动
 - [x] 将设置样式迁移到 `src/features/settings/styles.css`
 - [x] 确认无引用后删除 `LegacySettingsPage`

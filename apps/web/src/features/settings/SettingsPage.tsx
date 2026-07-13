@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
-import { apiRequest } from "../../shared/api/server-api";
 import { useResource } from "../../shared/hooks/use-resource";
 import type { ModelCapabilitySettings, ModelDiscoveryResult, ModelProvider, ModelSelectOption, RuntimeSettings } from "../../shared/types/settings";
+import { deleteModelProvider, discoverModels, getModelSettings, getRuntimeSettings, listModelProviders, saveModelProvider, saveModelSettings, saveRuntimeSettings as persistRuntimeSettings, testModelProvider } from "./api";
 import "./styles.css";
 
 export function SettingsPage({ token }: { token: string }) {
-  const providersResource = useResource<ModelProvider[]>("/api/admin/model-providers", token);
-  const capabilitySettings = useResource<ModelCapabilitySettings>("/api/admin/model-settings", token);
-  const runtimeSettings = useResource<RuntimeSettings>("/api/admin/runtime-settings", token);
+  const providersResource = useResource<ModelProvider[]>("/api/admin/model-providers", token, [], listModelProviders);
+  const capabilitySettings = useResource<ModelCapabilitySettings>("/api/admin/model-settings", token, [], getModelSettings);
+  const runtimeSettings = useResource<RuntimeSettings>("/api/admin/runtime-settings", token, [], getRuntimeSettings);
   const [providerForm] = Form.useForm();
   const [capabilityForm] = Form.useForm();
   const [runtimeForm] = Form.useForm();
@@ -90,15 +90,7 @@ export function SettingsPage({ token }: { token: string }) {
     const values = await providerForm.validateFields();
     setSavingProvider(true);
     try {
-      const path = editingProvider ? `/api/admin/model-providers/${editingProvider.id}` : "/api/admin/model-providers";
-      await apiRequest<ModelProvider>(
-        path,
-        {
-          method: editingProvider ? "PUT" : "POST",
-          body: JSON.stringify(values)
-        },
-        token
-      );
+      await saveModelProvider(editingProvider?.id, values, token);
       setProviderModalOpen(false);
       await providersResource.reload();
       message.success("供应商已保存");
@@ -111,7 +103,7 @@ export function SettingsPage({ token }: { token: string }) {
 
   const deleteProvider = async (providerID: string) => {
     try {
-      await apiRequest<{ deleted: boolean }>(`/api/admin/model-providers/${providerID}`, { method: "DELETE" }, token);
+      await deleteModelProvider(providerID, token);
       await providersResource.reload();
       message.success("供应商已删除");
     } catch (error) {
@@ -126,7 +118,7 @@ export function SettingsPage({ token }: { token: string }) {
     }
     setLoadingModels(true);
     try {
-      const result = await apiRequest<ModelDiscoveryResult>(`/api/admin/model-providers/${providerID}/models`, { method: "POST" }, token);
+      const result = await discoverModels(providerID, token);
       const discovered = result.models.map((item) => ({ value: item.id, label: item.id }));
       setModelsByProvider((current) => ({ ...current, [providerID]: discovered }));
       setLastModelCount(discovered.length);
@@ -147,7 +139,7 @@ export function SettingsPage({ token }: { token: string }) {
     }
     setTestingConnection(true);
     try {
-      const result = await apiRequest<{ reachable: boolean; model_count: number }>(`/api/admin/model-providers/${providerID}/test`, { method: "POST" }, token);
+      const result = await testModelProvider(providerID, token);
       setLastModelCount(result.model_count);
       message.success(`连接成功，当前可见模型数：${result.model_count}`);
     } catch (error) {
@@ -161,18 +153,11 @@ export function SettingsPage({ token }: { token: string }) {
     const values = await capabilityForm.validateFields();
     setSavingCapabilities(true);
     try {
-      await apiRequest<ModelCapabilitySettings>(
-        "/api/admin/model-settings",
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            llm: { provider_id: values.llm_provider_id, model: values.llm_model },
-            vlm: { provider_id: values.vlm_provider_id, model: values.vlm_model },
-            embedding: { provider_id: values.embedding_provider_id, model: values.embedding_model, dimension: values.embedding_dimension }
-          })
-        },
-        token
-      );
+      await saveModelSettings({
+        llm: { provider_id: values.llm_provider_id, model: values.llm_model },
+        vlm: { provider_id: values.vlm_provider_id, model: values.vlm_model },
+        embedding: { provider_id: values.embedding_provider_id, model: values.embedding_model, dimension: values.embedding_dimension }
+      }, token);
       await capabilitySettings.reload();
       message.success("默认模型已保存");
     } catch (error) {
@@ -186,14 +171,7 @@ export function SettingsPage({ token }: { token: string }) {
     const values = await runtimeForm.validateFields();
     setSavingRuntime(true);
     try {
-      await apiRequest<RuntimeSettings>(
-        "/api/admin/runtime-settings",
-        {
-          method: "PUT",
-          body: JSON.stringify(values)
-        },
-        token
-      );
+      await persistRuntimeSettings(values, token);
       await runtimeSettings.reload();
       message.success("运行控制配置已保存");
     } catch (error) {
