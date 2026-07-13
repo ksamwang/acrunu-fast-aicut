@@ -87,6 +87,13 @@ services:
     build:
       context: .
       dockerfile: deploy/asr/Dockerfile
+      args:
+        HTTP_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+        HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+        http_proxy: ${MODEL_DOWNLOAD_PROXY:-}
+        https_proxy: ${MODEL_DOWNLOAD_PROXY:-}
+        NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker
+        no_proxy: localhost,127.0.0.1,postgres,redis,api,worker
     container_name: aicut-asr
     restart: unless-stopped
     environment:
