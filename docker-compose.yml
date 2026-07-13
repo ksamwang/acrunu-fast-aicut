@@ -88,6 +88,7 @@ services:
       context: .
       dockerfile: deploy/asr/Dockerfile
       args:
+        ASR_BASE_IMAGE: ${ASR_BASE_IMAGE:-nvidia/cuda:12.6.3-base-ubuntu22.04}
         HTTP_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
         HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
         http_proxy: ${MODEL_DOWNLOAD_PROXY:-}

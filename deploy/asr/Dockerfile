@@ -1,14 +1,33 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+ARG ASR_BASE_IMAGE=nvidia/cuda:12.6.3-base-ubuntu22.04
+FROM ${ASR_BASE_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=120
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG NO_PROXY
+ARG no_proxy
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates \
+        ffmpeg \
+        python3 \
+        python3-pip \
+        python3-setuptools \
+        python3-wheel \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir --upgrade pip \
+    && python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu124 \
+        "torch==2.5.1" \
+        "torchaudio==2.5.1" \
+    && python3 -m pip install --no-cache-dir \
     "fastapi==0.115.6" \
     "uvicorn[standard]==0.34.0" \
     "python-multipart==0.0.20" \
@@ -21,4 +40,4 @@ COPY deploy/asr/app.py /app/app.py
 
 EXPOSE 10096
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10096"]
+CMD ["python3", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "10096"]
