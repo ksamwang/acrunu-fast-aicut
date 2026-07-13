@@ -2,6 +2,7 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: aicut-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aicut}
       POSTGRES_USER: ${POSTGRES_USER:-aicut}
@@ -19,6 +20,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: aicut-redis
+    restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -37,6 +39,7 @@ services:
         APP_PATH: ./apps/api
         BIN_NAME: aicut-api
     container_name: aicut-api
+    restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-development}
       API_ADDR: ${API_ADDR:-:8080}
@@ -63,6 +66,7 @@ services:
         APP_PATH: ./apps/worker
         BIN_NAME: aicut-worker
     container_name: aicut-worker
+    restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-development}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
