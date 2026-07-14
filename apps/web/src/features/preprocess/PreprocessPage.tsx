@@ -945,6 +945,27 @@ export function PreprocessPage({ token }: { token: string }) {
     setActiveSubtitleSegmentIndex(index);
   };
 
+  const splitSubtitleSegment = (index: number, splitMs: number) => {
+    const segment = watchedTranscriptSegments[index];
+    const splitAtMs = Math.round(splitMs);
+    if (!segment || splitAtMs <= segment.start_ms || splitAtMs >= segment.end_ms) {
+      return;
+    }
+    const next = [...watchedTranscriptSegments];
+    next.splice(
+      index,
+      1,
+      { ...segment, end_ms: splitAtMs },
+      { ...segment, start_ms: splitAtMs }
+    );
+    form.setFieldsValue({
+      transcript: transcriptTextFromSegments(next),
+      transcript_segments: next
+    });
+    setActiveSubtitleSegmentIndex(index + 1);
+    void persistCurrentSubtitleSegments(next);
+  };
+
   const persistCurrentSubtitleSegments = async (segmentsOverride?: WorkspaceTranscriptSegment[]) => {
     if (!selectedItem || savingSubtitle) {
       return;
@@ -1386,6 +1407,7 @@ export function PreprocessPage({ token }: { token: string }) {
                   onSubtitleSegmentChange={updateSubtitleSegmentRange}
                   onSubtitleSegmentCommit={() => void persistCurrentSubtitleSegments()}
                   onSubtitleSegmentSelect={setActiveSubtitleSegmentIndex}
+                  onSubtitleSegmentSplit={splitSubtitleSegment}
                   editingSubtitleSegmentIndex={subtitleEditingIndex}
                   editingSubtitleText={subtitleEditingText}
                   onSubtitleEditStart={startInlineSubtitleEdit}

@@ -34,6 +34,7 @@ type VideoTrimEditorProps = {
   onSubtitleSegmentChange?: (index: number, startMs: number, endMs: number) => void;
   onSubtitleSegmentCommit?: () => void;
   onSubtitleSegmentSelect?: (index: number) => void;
+  onSubtitleSegmentSplit?: (index: number, splitMs: number) => void;
   editingSubtitleSegmentIndex?: number | null;
   editingSubtitleText?: string;
   onSubtitleEditStart?: (index: number) => void;
@@ -193,6 +194,7 @@ export function VideoTrimEditor({
   onSubtitleSegmentChange,
   onSubtitleSegmentCommit,
   onSubtitleSegmentSelect,
+  onSubtitleSegmentSplit,
   editingSubtitleSegmentIndex = null,
   editingSubtitleText = "",
   onSubtitleEditStart,
@@ -484,6 +486,26 @@ export function VideoTrimEditor({
     emitTrim(inFrame, nextOutFrame);
   };
 
+  const splitSelectedSubtitle = () => {
+    if (activeSubtitleSegmentIndex === null || !onSubtitleSegmentSplit) {
+      return;
+    }
+    const segment = subtitleSegments[activeSubtitleSegmentIndex];
+    if (!segment) {
+      return;
+    }
+
+    const selectionStartMs = frameToMs(inFrame, frameRate);
+    const segmentStartFrame = msToFrame(selectionStartMs + segment.start_ms, frameRate, totalFrames);
+    const segmentEndFrame = msToFrame(selectionStartMs + segment.end_ms, frameRate, totalFrames);
+    const splitFrame = currentPlaybackFrame();
+    if (splitFrame <= segmentStartFrame || splitFrame >= segmentEndFrame) {
+      return;
+    }
+
+    onSubtitleSegmentSplit(activeSubtitleSegmentIndex, frameToMs(splitFrame, frameRate) - selectionStartMs);
+  };
+
   useEffect(() => {
     if (!hotkeysEnabled) {
       return;
@@ -499,6 +521,11 @@ export function VideoTrimEditor({
         return;
       }
       const key = event.key.toLowerCase();
+      if (event.ctrlKey && !event.altKey && key === "b") {
+        event.preventDefault();
+        splitSelectedSubtitle();
+        return;
+      }
       if (key === "i") {
         event.preventDefault();
         setInPointAtCurrentFrame();
@@ -512,7 +539,17 @@ export function VideoTrimEditor({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hotkeysEnabled, inFrame, outFrame, safeCurrentFrame, totalFrames, frameRate]);
+  }, [
+    activeSubtitleSegmentIndex,
+    frameRate,
+    hotkeysEnabled,
+    inFrame,
+    onSubtitleSegmentSplit,
+    outFrame,
+    safeCurrentFrame,
+    subtitleSegments,
+    totalFrames
+  ]);
 
   const handleTimeUpdate = () => {
     const video = videoRef.current;
@@ -738,7 +775,7 @@ export function VideoTrimEditor({
                   onClick={(event) => {
                     event.stopPropagation();
                     onSubtitleSegmentSelect?.(index);
-                    seekToFrame(startFrame);
+                    seekToFrame(clamp(subtitleFrameFromPointer(event.clientX), startFrame, endFrame));
                   }}
                 >
                   <button
