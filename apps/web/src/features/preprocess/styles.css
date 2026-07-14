@@ -644,11 +644,11 @@
   z-index: 3;
   left: 50%;
   bottom: 6%;
-  width: min(82%, 900px);
+  width: fit-content;
+  max-width: min(82%, 900px);
   padding: 6px 12px;
   transform: translateX(-50%);
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  background: rgba(2, 6, 23, 0.86);
+  background: rgba(2, 6, 23, 0.3);
   color: #ffffff;
   font-size: 18px;
   font-weight: 600;
@@ -660,7 +660,7 @@
 
 .video-trim-subtitle-overlay.is-editing {
   padding: 3px;
-  border-color: #67e8f9;
+  box-shadow: 0 0 0 1px #67e8f9;
 }
 
 .video-trim-subtitle-input {
