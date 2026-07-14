@@ -85,6 +85,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	reviewerNotes := c.PostForm("reviewer_notes")
 	sellingPointIDs := splitCommaSeparated(c.PostForm("selling_point_ids"))
 	transcript := c.PostForm("transcript")
+	speechSegmentsJSON := c.PostForm("speech_segments_json")
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -128,10 +129,18 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	}
 
 	var probeErr error
+	var transcriptSegments []transcriptSegment
 	if submissionMode == "preprocessed" {
 		if err := applyPreprocessedAssetFields(c, &assetInput, sourceType, transcript); err != nil {
 			Fail(c, http.StatusBadRequest, "bad_request", err.Error())
 			return
+		}
+		if speechSegmentsJSON != "" {
+			transcriptSegments, err = parseSpeechSegmentsJSON(speechSegmentsJSON, assetInput.DurationMs)
+			if err != nil {
+				Fail(c, http.StatusBadRequest, "bad_request", err.Error())
+				return
+			}
 		}
 	} else {
 		probeResult, err := ffmpeg.Probe(context.Background(), fullPath)
@@ -160,8 +169,8 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 		handleProductError(c, err)
 		return
 	}
-	if transcript != "" {
-		if err := createTranscriptSegments(s.productAssetService, asset.ID, transcript, token.UserID); err != nil {
+	if transcript != "" || len(transcriptSegments) > 0 {
+		if err := createTranscriptSegments(s.productAssetService, asset.ID, transcript, transcriptSegments, token.UserID); err != nil {
 			Fail(c, http.StatusInternalServerError, "internal_error", "failed to persist transcript segments")
 			return
 		}
@@ -433,8 +442,10 @@ func parseJSONObject(value string) map[string]any {
 	return decoded
 }
 
-func createTranscriptSegments(service *services.ProductAssetService, assetID string, transcript string, userID string) error {
-	segments := parseTranscriptSegments(transcript)
+func createTranscriptSegments(service *services.ProductAssetService, assetID string, transcript string, segments []transcriptSegment, userID string) error {
+	if len(segments) == 0 {
+		segments = parseTranscriptSegments(transcript)
+	}
 	for _, segment := range segments {
 		if _, err := service.CreateSpeechSegment(services.CreateSpeechSegmentInput{
 			AssetID:         assetID,
@@ -452,9 +463,34 @@ func createTranscriptSegments(service *services.ProductAssetService, assetID str
 }
 
 type transcriptSegment struct {
-	StartMs    int
-	EndMs      int
-	Transcript string
+	StartMs    int    `json:"start_ms"`
+	EndMs      int    `json:"end_ms"`
+	Transcript string `json:"text"`
+}
+
+func parseSpeechSegmentsJSON(value string, durationMs int) ([]transcriptSegment, error) {
+	var segments []transcriptSegment
+	if err := json.Unmarshal([]byte(value), &segments); err != nil {
+		return nil, fmt.Errorf("invalid speech_segments_json")
+	}
+	if len(segments) == 0 {
+		return nil, fmt.Errorf("speech segments are required for a non-empty speech_segments_json")
+	}
+	lastEndMs := 0
+	for index := range segments {
+		segments[index].Transcript = strings.TrimSpace(segments[index].Transcript)
+		if segments[index].Transcript == "" {
+			return nil, fmt.Errorf("speech segment %d text is required", index+1)
+		}
+		if segments[index].StartMs < 0 || segments[index].EndMs <= segments[index].StartMs || segments[index].EndMs > durationMs {
+			return nil, fmt.Errorf("speech segment %d is outside the clean shot duration", index+1)
+		}
+		if index > 0 && segments[index].StartMs < lastEndMs {
+			return nil, fmt.Errorf("speech segment %d overlaps the previous segment", index+1)
+		}
+		lastEndMs = segments[index].EndMs
+	}
+	return segments, nil
 }
 
 func parseTranscriptSegments(transcript string) []transcriptSegment {

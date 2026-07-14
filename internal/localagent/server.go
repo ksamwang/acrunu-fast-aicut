@@ -384,6 +384,7 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"playback_fps":          item.PlaybackFPS,
 		"speed_ratio":           item.SpeedRatio,
 		"transcript":            item.Transcript,
+		"transcript_segments":   item.TranscriptSegments,
 		"asr_draft":             item.ASRDraft,
 		"reviewer_notes":        item.ReviewerNotes,
 		"probe":                 item.Probe,

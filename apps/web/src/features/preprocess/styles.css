@@ -1091,6 +1091,39 @@
   white-space: pre-wrap;
 }
 
+.preprocess-confirmed-transcript {
+  display: grid;
+  gap: 8px;
+}
+
+.preprocess-confirmed-transcript-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preprocess-confirmed-segment-list {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid #334155;
+  background: #0f172a;
+}
+
+.preprocess-confirmed-segment {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.preprocess-confirmed-segment .ant-input {
+  min-height: 32px;
+}
+
 
 @media (max-width: 1200px) {
   .preprocess-modal-header,
@@ -1116,6 +1149,17 @@
   }
 
   .preprocess-asr-segment {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .preprocess-confirmed-transcript-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .preprocess-confirmed-segment {
     grid-template-columns: 1fr;
     gap: 4px;
   }

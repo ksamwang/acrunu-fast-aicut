@@ -40,45 +40,46 @@ const (
 )
 
 type WorkspaceItem struct {
-	ID                  string                   `json:"id"`
-	Status              string                   `json:"status"`
-	ProductID           string                   `json:"product_id,omitempty"`
-	SubmittedAssetID    string                   `json:"submitted_asset_id,omitempty"`
-	AssetName           string                   `json:"asset_name,omitempty"`
-	SourceType          string                   `json:"source_type,omitempty"`
-	OriginalFileName    string                   `json:"original_file_name"`
-	OriginalSourcePath  string                   `json:"original_source_path,omitempty"`
-	OriginalProbe       ffmpeg.ProbeResult       `json:"original_probe,omitempty"`
-	SourceFileName      string                   `json:"source_file_name"`
-	SourceFileSize      int64                    `json:"source_file_size"`
-	SourcePath          string                   `json:"source_path"`
-	CleanShotPath       string                   `json:"clean_shot_path,omitempty"`
-	CleanShotName       string                   `json:"clean_shot_name,omitempty"`
-	CleanShotProbe      ffmpeg.ProbeResult       `json:"clean_shot_probe,omitempty"`
-	Checksum            string                   `json:"checksum,omitempty"`
-	SourceInMs          int                      `json:"source_in_ms"`
-	SourceOutMs         int                      `json:"source_out_ms"`
-	InterpretFPS        bool                     `json:"interpret_fps_enabled"`
-	InterpretFPSVersion string                   `json:"interpret_fps_version,omitempty"`
-	PlaybackFPS         float64                  `json:"playback_fps,omitempty"`
-	SpeedRatio          float64                  `json:"speed_ratio,omitempty"`
-	Transcript          string                   `json:"transcript,omitempty"`
-	ASRDraft            *WorkspaceASRDraft       `json:"asr_draft,omitempty"`
-	ReviewerNotes       string                   `json:"reviewer_notes,omitempty"`
-	Probe               ffmpeg.ProbeResult       `json:"probe"`
-	PreviewInMs         int                      `json:"preview_in_ms,omitempty"`
-	PreviewOutMs        int                      `json:"preview_out_ms,omitempty"`
-	PreviewFrames       []WorkspaceFrameSnapshot `json:"preview_frame_snapshots,omitempty"`
-	FrameSnapshots      []WorkspaceFrameSnapshot `json:"frame_snapshots,omitempty"`
-	Analysis            *WorkspaceAnalysis       `json:"analysis,omitempty"`
-	VLMStatus           string                   `json:"vlm_status,omitempty"`
-	VLMError            string                   `json:"vlm_error,omitempty"`
-	VLMStartedAt        *time.Time               `json:"vlm_started_at,omitempty"`
-	VLMFinishedAt       *time.Time               `json:"vlm_finished_at,omitempty"`
-	LastError           string                   `json:"last_error,omitempty"`
-	CreatedAt           time.Time                `json:"created_at"`
-	UpdatedAt           time.Time                `json:"updated_at"`
-	SubmittedAt         *time.Time               `json:"submitted_at,omitempty"`
+	ID                  string                       `json:"id"`
+	Status              string                       `json:"status"`
+	ProductID           string                       `json:"product_id,omitempty"`
+	SubmittedAssetID    string                       `json:"submitted_asset_id,omitempty"`
+	AssetName           string                       `json:"asset_name,omitempty"`
+	SourceType          string                       `json:"source_type,omitempty"`
+	OriginalFileName    string                       `json:"original_file_name"`
+	OriginalSourcePath  string                       `json:"original_source_path,omitempty"`
+	OriginalProbe       ffmpeg.ProbeResult           `json:"original_probe,omitempty"`
+	SourceFileName      string                       `json:"source_file_name"`
+	SourceFileSize      int64                        `json:"source_file_size"`
+	SourcePath          string                       `json:"source_path"`
+	CleanShotPath       string                       `json:"clean_shot_path,omitempty"`
+	CleanShotName       string                       `json:"clean_shot_name,omitempty"`
+	CleanShotProbe      ffmpeg.ProbeResult           `json:"clean_shot_probe,omitempty"`
+	Checksum            string                       `json:"checksum,omitempty"`
+	SourceInMs          int                          `json:"source_in_ms"`
+	SourceOutMs         int                          `json:"source_out_ms"`
+	InterpretFPS        bool                         `json:"interpret_fps_enabled"`
+	InterpretFPSVersion string                       `json:"interpret_fps_version,omitempty"`
+	PlaybackFPS         float64                      `json:"playback_fps,omitempty"`
+	SpeedRatio          float64                      `json:"speed_ratio,omitempty"`
+	Transcript          string                       `json:"transcript,omitempty"`
+	TranscriptSegments  []WorkspaceTranscriptSegment `json:"transcript_segments,omitempty"`
+	ASRDraft            *WorkspaceASRDraft           `json:"asr_draft,omitempty"`
+	ReviewerNotes       string                       `json:"reviewer_notes,omitempty"`
+	Probe               ffmpeg.ProbeResult           `json:"probe"`
+	PreviewInMs         int                          `json:"preview_in_ms,omitempty"`
+	PreviewOutMs        int                          `json:"preview_out_ms,omitempty"`
+	PreviewFrames       []WorkspaceFrameSnapshot     `json:"preview_frame_snapshots,omitempty"`
+	FrameSnapshots      []WorkspaceFrameSnapshot     `json:"frame_snapshots,omitempty"`
+	Analysis            *WorkspaceAnalysis           `json:"analysis,omitempty"`
+	VLMStatus           string                       `json:"vlm_status,omitempty"`
+	VLMError            string                       `json:"vlm_error,omitempty"`
+	VLMStartedAt        *time.Time                   `json:"vlm_started_at,omitempty"`
+	VLMFinishedAt       *time.Time                   `json:"vlm_finished_at,omitempty"`
+	LastError           string                       `json:"last_error,omitempty"`
+	CreatedAt           time.Time                    `json:"created_at"`
+	UpdatedAt           time.Time                    `json:"updated_at"`
+	SubmittedAt         *time.Time                   `json:"submitted_at,omitempty"`
 }
 
 type WorkspaceFrameSnapshot struct {
@@ -104,14 +105,15 @@ type WorkspaceAnalysis struct {
 }
 
 type WorkspaceSaveInput struct {
-	AssetName     string  `json:"asset_name"`
-	SourceType    string  `json:"source_type"`
-	SourceInMs    int     `json:"source_in_ms"`
-	SourceOutMs   int     `json:"source_out_ms"`
-	InterpretFPS  bool    `json:"interpret_fps_enabled"`
-	PlaybackFPS   float64 `json:"playback_fps"`
-	Transcript    string  `json:"transcript"`
-	ReviewerNotes string  `json:"reviewer_notes"`
+	AssetName          string                       `json:"asset_name"`
+	SourceType         string                       `json:"source_type"`
+	SourceInMs         int                          `json:"source_in_ms"`
+	SourceOutMs        int                          `json:"source_out_ms"`
+	InterpretFPS       bool                         `json:"interpret_fps_enabled"`
+	PlaybackFPS        float64                      `json:"playback_fps"`
+	Transcript         string                       `json:"transcript"`
+	TranscriptSegments []WorkspaceTranscriptSegment `json:"transcript_segments"`
+	ReviewerNotes      string                       `json:"reviewer_notes"`
 }
 
 type WorkspacePreviewFramesInput struct {
@@ -235,6 +237,7 @@ func (w *Workspace) SaveItem(ctx context.Context, itemID string, input Workspace
 	if err := validateSaveInput(input, effectiveOriginalProbe(item).FPS); err != nil {
 		return WorkspaceItem{}, err
 	}
+	selectionChanged := item.SourceType != "" && (item.SourceType != input.SourceType || item.SourceInMs != input.SourceInMs || item.SourceOutMs != input.SourceOutMs)
 
 	item.AssetName = strings.TrimSpace(input.AssetName)
 	item.SourceType = input.SourceType
@@ -245,6 +248,18 @@ func (w *Workspace) SaveItem(ctx context.Context, itemID string, input Workspace
 	}
 	invalidateASRDraft(&item)
 	item.Transcript = strings.TrimSpace(input.Transcript)
+	if selectionChanged {
+		item.TranscriptSegments = nil
+	} else {
+		segments, err := normalizeTranscriptSegments(input.TranscriptSegments, input.SourceOutMs-input.SourceInMs)
+		if err != nil {
+			return WorkspaceItem{}, err
+		}
+		item.TranscriptSegments = segments
+	}
+	if len(item.TranscriptSegments) > 0 {
+		item.Transcript = transcriptTextFromSegments(item.TranscriptSegments)
+	}
 	item.ReviewerNotes = strings.TrimSpace(input.ReviewerNotes)
 	if item.Status == workspaceStatusReadyToSubmit {
 		clearPreparedOutput(&item)
@@ -717,6 +732,7 @@ func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, er
 		PlaybackFPS:         source.PlaybackFPS,
 		SpeedRatio:          source.SpeedRatio,
 		Transcript:          source.Transcript,
+		TranscriptSegments:  cloneTranscriptSegments(source.TranscriptSegments),
 		ASRDraft:            cloneASRDraft(source.ASRDraft),
 		ReviewerNotes:       source.ReviewerNotes,
 		Probe:               source.Probe,
@@ -1158,8 +1174,32 @@ func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, 
 			return "", err
 		}
 	}
-	if len(item.Transcript) > 0 {
-		if err := writer.WriteField("transcript", item.Transcript); err != nil {
+	transcriptSegments := item.TranscriptSegments
+	if item.SourceType == "talking_head" && len(transcriptSegments) == 0 && strings.TrimSpace(item.Transcript) != "" {
+		transcriptSegments = []WorkspaceTranscriptSegment{{
+			StartMs: 0,
+			EndMs:   cleanShotProbe.DurationMs,
+			Text:    item.Transcript,
+		}}
+	}
+	if len(transcriptSegments) > 0 {
+		normalizedSegments, err := normalizeTranscriptSegments(transcriptSegments, cleanShotProbe.DurationMs)
+		if err != nil {
+			return "", err
+		}
+		transcriptSegments = normalizedSegments
+	}
+	transcriptText := item.Transcript
+	if len(transcriptSegments) > 0 {
+		transcriptText = transcriptTextFromSegments(transcriptSegments)
+	}
+	if transcriptText != "" {
+		if err := writer.WriteField("transcript", transcriptText); err != nil {
+			return "", err
+		}
+	}
+	if len(transcriptSegments) > 0 {
+		if err := writer.WriteField("speech_segments_json", mustJSONString(transcriptSegments)); err != nil {
 			return "", err
 		}
 	}
@@ -1246,6 +1286,50 @@ func validateSaveInput(input WorkspaceSaveInput, sourceFPS float64) error {
 		return err
 	}
 	return nil
+}
+
+func normalizeTranscriptSegments(input []WorkspaceTranscriptSegment, durationMs int) ([]WorkspaceTranscriptSegment, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	if durationMs <= 0 {
+		return nil, fmt.Errorf("transcript segment duration is required")
+	}
+
+	segments := make([]WorkspaceTranscriptSegment, 0, len(input))
+	lastEndMs := 0
+	for _, segment := range input {
+		segment.Text = cleanASRText(segment.Text)
+		if segment.Text == "" {
+			continue
+		}
+		if segment.StartMs < 0 || segment.EndMs <= segment.StartMs || segment.EndMs > durationMs {
+			return nil, fmt.Errorf("transcript segment is outside the current selection")
+		}
+		if len(segments) > 0 && segment.StartMs < lastEndMs {
+			return nil, fmt.Errorf("transcript segments overlap")
+		}
+		segments = append(segments, segment)
+		lastEndMs = segment.EndMs
+	}
+	return segments, nil
+}
+
+func transcriptTextFromSegments(segments []WorkspaceTranscriptSegment) string {
+	texts := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if text := strings.TrimSpace(segment.Text); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, "")
+}
+
+func cloneTranscriptSegments(source []WorkspaceTranscriptSegment) []WorkspaceTranscriptSegment {
+	if len(source) == 0 {
+		return nil
+	}
+	return append([]WorkspaceTranscriptSegment(nil), source...)
 }
 
 func validateItemForPrepare(item WorkspaceItem) error {

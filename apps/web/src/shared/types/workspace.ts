@@ -63,6 +63,7 @@ export type WorkspaceItem = {
   playback_fps?: number;
   speed_ratio?: number;
   transcript?: string;
+  transcript_segments?: WorkspaceTranscriptSegment[];
   asr_draft?: WorkspaceASRDraft;
   reviewer_notes?: string;
   probe: WorkspaceProbe;

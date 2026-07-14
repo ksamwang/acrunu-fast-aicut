@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -511,11 +512,12 @@ func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 	item := imported[0]
 
 	if _, err := workspace.SaveItem(context.Background(), item.ID, WorkspaceSaveInput{
-		AssetName:   "test asset",
-		SourceType:  "talking_head",
-		SourceInMs:  0,
-		SourceOutMs: 5000,
-		Transcript:  "[00:00:00:00]-[00:00:02:00] hello",
+		AssetName:          "test asset",
+		SourceType:         "talking_head",
+		SourceInMs:         0,
+		SourceOutMs:        5000,
+		Transcript:         "[00:00:00:00]-[00:00:02:00] hello",
+		TranscriptSegments: []WorkspaceTranscriptSegment{{StartMs: 250, EndMs: 1500, Text: "hello"}},
 	}); err != nil {
 		t.Fatalf("SaveItem() error = %v", err)
 	}
@@ -535,6 +537,9 @@ func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 		}
 		if got := r.FormValue("submission_mode"); got != "preprocessed" {
 			t.Fatalf("expected preprocessed submission, got %q", got)
+		}
+		if got := r.FormValue("speech_segments_json"); !strings.Contains(got, `"start_ms":250`) {
+			t.Fatalf("expected timed speech segments, got %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{

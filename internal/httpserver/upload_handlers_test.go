@@ -531,31 +531,32 @@ func TestHandleUploadCleanShotPreprocessedSubmissionSkipsServerAnalysis(t *testi
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	fields := map[string]string{
-		"submission_mode":     "preprocessed",
-		"source_type":         "talking_head",
-		"asset_name":          "prepared-shot",
-		"source_in_ms":        "0",
-		"source_out_ms":       "5200",
-		"duration_ms":         "5200",
-		"width":               "1080",
-		"height":              "1920",
-		"fps":                 "30",
-		"codec":               "h264",
-		"has_audio":           "true",
-		"audio_codec":         "aac",
-		"bitrate_kbps":        "3200",
-		"analysis_status":     "ready",
-		"usability_status":    "usable",
-		"scene_description":   "presenter talks to camera",
-		"shot_size":           "medium_close_up",
-		"camera_movement":     "static",
-		"subjects_json":       `["person","product"]`,
-		"scene_tags_json":     `["talking_head","indoor"]`,
-		"quality_tags_json":   `[]`,
-		"model_result_json":   `{"provider":"mock","frame_count":3}`,
-		"selling_point_ids":   sellingPoint.ID,
-		"transcript":          "[00:00:00:00]-[00:00:02:00] 大家好。",
-		"manual_clean_status": "cleaned",
+		"submission_mode":      "preprocessed",
+		"source_type":          "talking_head",
+		"asset_name":           "prepared-shot",
+		"source_in_ms":         "0",
+		"source_out_ms":        "5200",
+		"duration_ms":          "5200",
+		"width":                "1080",
+		"height":               "1920",
+		"fps":                  "30",
+		"codec":                "h264",
+		"has_audio":            "true",
+		"audio_codec":          "aac",
+		"bitrate_kbps":         "3200",
+		"analysis_status":      "ready",
+		"usability_status":     "usable",
+		"scene_description":    "presenter talks to camera",
+		"shot_size":            "medium_close_up",
+		"camera_movement":      "static",
+		"subjects_json":        `["person","product"]`,
+		"scene_tags_json":      `["talking_head","indoor"]`,
+		"quality_tags_json":    `[]`,
+		"model_result_json":    `{"provider":"mock","frame_count":3}`,
+		"selling_point_ids":    sellingPoint.ID,
+		"transcript":           "[00:00:00:00]-[00:00:02:00] 大家好。",
+		"manual_clean_status":  "cleaned",
+		"speech_segments_json": `[{"start_ms":150,"end_ms":2200,"text":"first sentence"},{"start_ms":2600,"end_ms":5000,"text":"second sentence"}]`,
 	}
 	for key, value := range fields {
 		if err := writer.WriteField(key, value); err != nil {
@@ -633,7 +634,7 @@ func TestHandleUploadCleanShotPreprocessedSubmissionSkipsServerAnalysis(t *testi
 	if err != nil {
 		t.Fatalf("list speech segments failed: %v", err)
 	}
-	if len(segments) != 1 || segments[0].Transcript == "" {
-		t.Fatalf("expected transcript segments to persist, got %#v", segments)
+	if len(segments) != 2 || segments[0].StartMs != 150 || segments[1].EndMs != 5000 {
+		t.Fatalf("expected timed transcript segments to persist, got %#v", segments)
 	}
 }

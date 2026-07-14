@@ -22,7 +22,14 @@ import { localAgentRequest } from "../../shared/api/local-agent-api";
 import { authenticatedApiRequest } from "../../shared/api/server-api";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
 import type { Product, SellingPoint } from "../../shared/types/product";
-import type { UploadToken, WorkspaceItem, WorkspaceItemResponse, WorkspaceListResponse, WorkspaceProbe } from "../../shared/types/workspace";
+import type {
+  UploadToken,
+  WorkspaceItem,
+  WorkspaceItemResponse,
+  WorkspaceListResponse,
+  WorkspaceProbe,
+  WorkspaceTranscriptSegment
+} from "../../shared/types/workspace";
 import { loadLastSubmitProductID, persistLastSubmitProductID } from "./storage";
 import "./styles.css";
 
@@ -184,6 +191,10 @@ function formatFileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function transcriptTextFromSegments(segments: WorkspaceTranscriptSegment[]) {
+  return segments.map((segment) => segment.text.trim()).filter(Boolean).join("");
+}
+
 function getWorkspacePreviewUrl(item: WorkspaceItem) {
   return item.frame_snapshots[0]?.image_url;
 }
@@ -294,6 +305,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [interpretFPSModalOpen, setInterpretFPSModalOpen] = useState(false);
   const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [transcriptSegmentsDraft, setTranscriptSegmentsDraft] = useState<WorkspaceTranscriptSegment[]>([]);
   const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
   const initializedEditorItemIDRef = useRef<string | null>(null);
@@ -408,6 +420,7 @@ export function PreprocessPage({ token }: { token: string }) {
       interpret_fps_enabled: Boolean(selectedItem.interpret_fps_enabled),
       playback_fps: selectedItem.playback_fps || 25,
       transcript: selectedItem.transcript ?? "",
+      transcript_segments: selectedItem.transcript_segments ?? [],
       reviewer_notes: selectedItem.reviewer_notes ?? ""
     });
     setSubmitProductID(selectedItem.product_id || lastSubmitProductIDRef.current);
@@ -561,6 +574,7 @@ export function PreprocessPage({ token }: { token: string }) {
       "interpret_fps_enabled",
       "playback_fps",
       "transcript",
+      "transcript_segments",
       "reviewer_notes"
     ]);
     const range = clampCurrentSourceRange(
@@ -849,19 +863,34 @@ export function PreprocessPage({ token }: { token: string }) {
 
   const openTranscriptModal = () => {
     setTranscriptDraft(form.getFieldValue("transcript") ?? "");
+    setTranscriptSegmentsDraft((form.getFieldValue("transcript_segments") ?? []).map((segment: WorkspaceTranscriptSegment) => ({ ...segment })));
     setTranscriptModalOpen(true);
   };
 
   const saveTranscriptDraft = () => {
-    form.setFieldValue("transcript", transcriptDraft);
+    const segments = transcriptSegmentsDraft.filter((segment) => segment.text.trim() !== "");
+    form.setFieldsValue({
+      transcript: segments.length > 0 ? transcriptTextFromSegments(segments) : transcriptDraft,
+      transcript_segments: segments
+    });
     setTranscriptModalOpen(false);
   };
 
   const applyASRDraft = () => {
-    if (!selectedItem?.asr_draft?.text) {
+    if (!selectedItem?.asr_draft?.segments.length) {
       return;
     }
-    setTranscriptDraft(selectedItem.asr_draft.text);
+    const segments = selectedItem.asr_draft.segments.map((segment) => ({ ...segment }));
+    setTranscriptSegmentsDraft(segments);
+    setTranscriptDraft(transcriptTextFromSegments(segments));
+  };
+
+  const updateTranscriptSegmentText = (index: number, text: string) => {
+    setTranscriptSegmentsDraft((current) => {
+      const next = current.map((segment, segmentIndex) => (segmentIndex === index ? { ...segment, text } : segment));
+      setTranscriptDraft(transcriptTextFromSegments(next));
+      return next;
+    });
   };
 
   const openNotesModal = () => {
@@ -1112,6 +1141,9 @@ export function PreprocessPage({ token }: { token: string }) {
               hidden
               rules={watchedSourceType === "talking_head" ? [{ required: true, message: "口播素材必须填写转写内容" }] : undefined}
             >
+              <Input type="hidden" />
+            </Form.Item>
+            <Form.Item name="transcript_segments" hidden>
               <Input type="hidden" />
             </Form.Item>
             <Form.Item name="reviewer_notes" hidden>
@@ -1404,12 +1436,35 @@ export function PreprocessPage({ token }: { token: string }) {
               识别当前选区
             </Button>
           </div>
-          <Input.TextArea
-            value={transcriptDraft}
-            onChange={(event) => setTranscriptDraft(event.target.value)}
-            rows={8}
-            placeholder="[00:00:03:00]-[00:00:05:00] 大家好。"
-          />
+          {transcriptSegmentsDraft.length > 0 ? (
+            <div className="preprocess-confirmed-transcript">
+              <div className="preprocess-confirmed-transcript-header">
+                <Typography.Text strong>已确认句段</Typography.Text>
+                <Typography.Text type="secondary">逐句核对文字，时间范围来自当前选区</Typography.Text>
+              </div>
+              <div className="preprocess-confirmed-segment-list">
+                {transcriptSegmentsDraft.map((segment, index) => (
+                  <div key={`${segment.start_ms}-${segment.end_ms}-${index}`} className="preprocess-confirmed-segment">
+                    <Typography.Text className="preprocess-asr-segment-time">
+                      +{formatTimestamp(segment.start_ms)} - +{formatTimestamp(segment.end_ms)}
+                    </Typography.Text>
+                    <Input.TextArea
+                      value={segment.text}
+                      autoSize={{ minRows: 1, maxRows: 4 }}
+                      onChange={(event) => updateTranscriptSegmentText(index, event.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <Input.TextArea
+              value={transcriptDraft}
+              onChange={(event) => setTranscriptDraft(event.target.value)}
+              rows={8}
+              placeholder="请输入口播转写"
+            />
+          )}
           <div className="preprocess-asr-draft" aria-live="polite">
             <div className="preprocess-asr-draft-header">
               <div>
