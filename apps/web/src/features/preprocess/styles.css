@@ -743,6 +743,25 @@
   object-fit: contain;
 }
 
+.video-trim-subtitle-overlay {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 6%;
+  width: min(82%, 900px);
+  padding: 6px 12px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(2, 6, 23, 0.86);
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  text-shadow: 0 1px 2px #000000;
+  pointer-events: none;
+}
+
 .video-trim-control-panel {
   display: grid;
   gap: 6px;
@@ -1035,6 +1054,82 @@
   font-size: 12px;
 }
 
+.video-trim-subtitle-track {
+  position: relative;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid #334155;
+  background: #0b1220;
+}
+
+.video-trim-subtitle-track::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: #334155;
+}
+
+.video-trim-subtitle-segment {
+  position: absolute;
+  top: 4px;
+  display: flex;
+  align-items: center;
+  min-width: 16px;
+  height: 20px;
+  overflow: hidden;
+  border: 1px solid #0e7490;
+  background: #164e63;
+  color: #ecfeff;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.video-trim-subtitle-segment:hover,
+.video-trim-subtitle-segment.is-selected {
+  border-color: #67e8f9;
+  background: #155e75;
+}
+
+.video-trim-subtitle-segment span {
+  display: block;
+  min-width: 0;
+  padding: 0 7px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.video-trim-subtitle-handle {
+  position: absolute;
+  top: -1px;
+  width: 7px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: #67e8f9;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.video-trim-subtitle-handle-start {
+  left: -1px;
+}
+
+.video-trim-subtitle-handle-end {
+  right: -1px;
+}
+
+.video-trim-subtitle-handle:focus-visible {
+  outline: 2px solid #f8fafc;
+  outline-offset: 1px;
+}
+
 .preprocess-transcript-modal-content {
   display: grid;
   gap: 12px;
@@ -1122,6 +1217,13 @@
 
 .preprocess-confirmed-segment .ant-input {
   min-height: 32px;
+}
+
+.preprocess-confirmed-segment.is-selected {
+  margin: -4px;
+  padding: 4px;
+  outline: 1px solid #67e8f9;
+  background: #111f35;
 }
 
 

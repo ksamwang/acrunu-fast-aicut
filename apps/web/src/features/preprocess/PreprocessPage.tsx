@@ -306,6 +306,8 @@ export function PreprocessPage({ token }: { token: string }) {
   const [interpretFPSModalOpen, setInterpretFPSModalOpen] = useState(false);
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [transcriptSegmentsDraft, setTranscriptSegmentsDraft] = useState<WorkspaceTranscriptSegment[]>([]);
+  const [subtitlesVisible, setSubtitlesVisible] = useState(true);
+  const [activeSubtitleSegmentIndex, setActiveSubtitleSegmentIndex] = useState<number | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
   const initializedEditorItemIDRef = useRef<string | null>(null);
@@ -316,6 +318,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const watchedSourceOutMs = Form.useWatch("source_out_ms", form) ?? 0;
   const watchedInterpretFPS = Boolean(Form.useWatch("interpret_fps_enabled", form));
   const watchedPlaybackFPS = Number(Form.useWatch("playback_fps", form) ?? 25);
+  const watchedTranscriptSegments = (Form.useWatch("transcript_segments", form) ?? []) as WorkspaceTranscriptSegment[];
   const selectedSubmitProduct = useMemo(
     () => products.find((product) => product.id === submitProductID) ?? null,
     [products, submitProductID]
@@ -377,6 +380,12 @@ export function PreprocessPage({ token }: { token: string }) {
     [items, selectedItemID]
   );
   const selectedItem = selectedIndex >= 0 ? items[selectedIndex] : null;
+  const activeASRDraft =
+    selectedItem?.asr_draft &&
+    selectedItem.asr_draft.source_in_ms === Number(watchedSourceInMs) &&
+    selectedItem.asr_draft.source_out_ms === Number(watchedSourceOutMs)
+      ? selectedItem.asr_draft
+      : undefined;
   const workspaceStats = useMemo(
     () => ({
       pending: items.filter((item) => item.status === "pending").length,
@@ -426,6 +435,11 @@ export function PreprocessPage({ token }: { token: string }) {
     setSubmitProductID(selectedItem.product_id || lastSubmitProductIDRef.current);
     setSubmitSellingPointIDs([]);
   }, [form, selectedItem]);
+
+  useEffect(() => {
+    setSubtitlesVisible(true);
+    setActiveSubtitleSegmentIndex(null);
+  }, [selectedItem?.id]);
 
   useEffect(() => {
     const root = preprocessWorkbenchRef.current;
@@ -855,10 +869,26 @@ export function PreprocessPage({ token }: { token: string }) {
   };
 
   const updateTrimRange = (startMs: number, endMs: number) => {
+    const currentInMs = Number(form.getFieldValue("source_in_ms") ?? 0);
+    const currentOutMs = Number(form.getFieldValue("source_out_ms") ?? 0);
+    const selectionChanged = currentInMs !== startMs || currentOutMs !== endMs;
+    const hasConfirmedSegments = watchedTranscriptSegments.length > 0;
     form.setFieldsValue({
       source_in_ms: startMs,
-      source_out_ms: endMs
+      source_out_ms: endMs,
+      ...(selectionChanged && hasConfirmedSegments
+        ? {
+            transcript: "",
+            transcript_segments: []
+          }
+        : {})
     });
+    if (selectionChanged && hasConfirmedSegments) {
+      setTranscriptDraft("");
+      setTranscriptSegmentsDraft([]);
+      setActiveSubtitleSegmentIndex(null);
+      message.warning("调整 I/O 后已清除当前字幕句段，请重新识别并确认");
+    }
   };
 
   const openTranscriptModal = () => {
@@ -877,12 +907,13 @@ export function PreprocessPage({ token }: { token: string }) {
   };
 
   const applyASRDraft = () => {
-    if (!selectedItem?.asr_draft?.segments.length) {
+    if (!activeASRDraft?.segments.length) {
       return;
     }
-    const segments = selectedItem.asr_draft.segments.map((segment) => ({ ...segment }));
+    const segments = activeASRDraft.segments.map((segment) => ({ ...segment }));
     setTranscriptSegmentsDraft(segments);
     setTranscriptDraft(transcriptTextFromSegments(segments));
+    setActiveSubtitleSegmentIndex(0);
   };
 
   const updateTranscriptSegmentText = (index: number, text: string) => {
@@ -891,6 +922,22 @@ export function PreprocessPage({ token }: { token: string }) {
       setTranscriptDraft(transcriptTextFromSegments(next));
       return next;
     });
+  };
+
+  const updateSubtitleSegmentRange = (index: number, startMs: number, endMs: number) => {
+    const next = watchedTranscriptSegments.map((segment, segmentIndex) =>
+      segmentIndex === index ? { ...segment, start_ms: startMs, end_ms: endMs } : segment
+    );
+    form.setFieldsValue({
+      transcript: transcriptTextFromSegments(next),
+      transcript_segments: next
+    });
+    setTranscriptSegmentsDraft((current) =>
+      current.map((segment, segmentIndex) =>
+        segmentIndex === index ? { ...segment, start_ms: startMs, end_ms: endMs } : segment
+      )
+    );
+    setActiveSubtitleSegmentIndex(index);
   };
 
   const openNotesModal = () => {
@@ -1247,6 +1294,12 @@ export function PreprocessPage({ token }: { token: string }) {
                   trimOutMs={watchedSourceOutMs}
                   hotkeysEnabled={!!selectedItem && !framesPreviewOpen}
                   onTrimChange={(range) => updateTrimRange(range.inMs, range.outMs)}
+                  subtitleSegments={watchedSourceType === "talking_head" ? watchedTranscriptSegments : []}
+                  subtitlesVisible={subtitlesVisible}
+                  activeSubtitleSegmentIndex={activeSubtitleSegmentIndex}
+                  onSubtitlesVisibleChange={setSubtitlesVisible}
+                  onSubtitleSegmentChange={updateSubtitleSegmentRange}
+                  onSubtitleSegmentSelect={setActiveSubtitleSegmentIndex}
                   extraControls={
                     <>
                       <Button size="small" loading={previewingFrames} onClick={() => void previewFrames()}>
@@ -1444,7 +1497,10 @@ export function PreprocessPage({ token }: { token: string }) {
               </div>
               <div className="preprocess-confirmed-segment-list">
                 {transcriptSegmentsDraft.map((segment, index) => (
-                  <div key={`${segment.start_ms}-${segment.end_ms}-${index}`} className="preprocess-confirmed-segment">
+                  <div
+                    key={`${segment.start_ms}-${segment.end_ms}-${index}`}
+                    className={`preprocess-confirmed-segment${activeSubtitleSegmentIndex === index ? " is-selected" : ""}`}
+                  >
                     <Typography.Text className="preprocess-asr-segment-time">
                       +{formatTimestamp(segment.start_ms)} - +{formatTimestamp(segment.end_ms)}
                     </Typography.Text>
@@ -1469,19 +1525,19 @@ export function PreprocessPage({ token }: { token: string }) {
             <div className="preprocess-asr-draft-header">
               <div>
                 <Typography.Text strong>识别草稿</Typography.Text>
-                {selectedItem?.asr_draft ? (
+                {activeASRDraft ? (
                   <Typography.Text type="secondary">
-                    当前选区 · {formatTimestamp(selectedItem.asr_draft.source_in_ms)} - {formatTimestamp(selectedItem.asr_draft.source_out_ms)}
+                    当前选区 · {formatTimestamp(activeASRDraft.source_in_ms)} - {formatTimestamp(activeASRDraft.source_out_ms)}
                   </Typography.Text>
                 ) : null}
               </div>
-              <Button size="small" disabled={!selectedItem?.asr_draft?.text} onClick={applyASRDraft}>
+              <Button size="small" disabled={!activeASRDraft?.segments.length} onClick={applyASRDraft}>
                 应用草稿
               </Button>
             </div>
-            {selectedItem?.asr_draft?.segments.length ? (
+            {activeASRDraft?.segments.length ? (
               <div className="preprocess-asr-segment-list">
-                {selectedItem.asr_draft.segments.map((segment, index) => (
+                {activeASRDraft.segments.map((segment, index) => (
                   <div key={`${segment.start_ms}-${segment.end_ms}-${index}`} className="preprocess-asr-segment">
                     <Typography.Text className="preprocess-asr-segment-time">
                       +{formatTimestamp(segment.start_ms)} - +{formatTimestamp(segment.end_ms)}
@@ -1490,8 +1546,8 @@ export function PreprocessPage({ token }: { token: string }) {
                   </div>
                 ))}
               </div>
-            ) : selectedItem?.asr_draft?.text ? (
-              <Typography.Paragraph className="preprocess-asr-draft-text">{selectedItem.asr_draft.text}</Typography.Paragraph>
+            ) : activeASRDraft?.text ? (
+              <Typography.Paragraph className="preprocess-asr-draft-text">{activeASRDraft.text}</Typography.Paragraph>
             ) : (
               <Typography.Text type="secondary">尚未识别当前选区。</Typography.Text>
             )}

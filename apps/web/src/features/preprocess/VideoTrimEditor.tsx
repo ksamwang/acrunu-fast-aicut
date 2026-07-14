@@ -10,6 +10,14 @@ type TrimRange = {
 
 type DragTarget = "playhead" | "in" | "out";
 
+type SubtitleDragEdge = "start" | "end";
+
+export type VideoSubtitleSegment = {
+  start_ms: number;
+  end_ms: number;
+  text: string;
+};
+
 type VideoTrimEditorProps = {
   src: string;
   durationMs?: number;
@@ -19,6 +27,12 @@ type VideoTrimEditorProps = {
   hotkeysEnabled?: boolean;
   analysisOverlay?: React.ReactNode;
   extraControls?: React.ReactNode;
+  subtitleSegments?: VideoSubtitleSegment[];
+  subtitlesVisible?: boolean;
+  activeSubtitleSegmentIndex?: number | null;
+  onSubtitlesVisibleChange?: (visible: boolean) => void;
+  onSubtitleSegmentChange?: (index: number, startMs: number, endMs: number) => void;
+  onSubtitleSegmentSelect?: (index: number) => void;
   onTrimChange: (range: TrimRange) => void;
 };
 
@@ -96,6 +110,16 @@ function JumpToOutIcon() {
   );
 }
 
+function CaptionsIcon() {
+  return (
+    <SvgIcon>
+      <rect x="3" y="5" width="18" height="14" rx="1" />
+      <path d="M7 10h4" />
+      <path d="M7 14h7" />
+    </SvgIcon>
+  );
+}
+
 function isEditableKeyboardTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) {
     return false;
@@ -155,10 +179,17 @@ export function VideoTrimEditor({
   hotkeysEnabled = false,
   analysisOverlay,
   extraControls,
+  subtitleSegments = [],
+  subtitlesVisible = true,
+  activeSubtitleSegmentIndex = null,
+  onSubtitlesVisibleChange,
+  onSubtitleSegmentChange,
+  onSubtitleSegmentSelect,
   onTrimChange
 }: VideoTrimEditorProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const subtitleTimelineRef = useRef<HTMLDivElement | null>(null);
   const dragTargetRef = useRef<DragTarget | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
@@ -245,6 +276,14 @@ export function VideoTrimEditor({
 
   const frameFromPointer = (clientX: number) => {
     const rect = timelineRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) {
+      return 0;
+    }
+    return clamp(Math.round(((clientX - rect.left) / rect.width) * totalFrames), 0, totalFrames);
+  };
+
+  const subtitleFrameFromPointer = (clientX: number) => {
+    const rect = subtitleTimelineRef.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) {
       return 0;
     }
@@ -339,6 +378,65 @@ export function VideoTrimEditor({
     dragTargetRef.current = null;
   };
 
+  const applySubtitleDrag = (index: number, edge: SubtitleDragEdge, sourceFrame: number) => {
+    const segment = subtitleSegments[index];
+    if (!segment || !onSubtitleSegmentChange) {
+      return;
+    }
+
+    const selectionStartMs = frameToMs(inFrame, frameRate);
+    const selectionEndMs = frameToMs(outFrame, frameRate);
+    const segmentStartFrame = msToFrame(selectionStartMs + segment.start_ms, frameRate, totalFrames);
+    const segmentEndFrame = msToFrame(selectionStartMs + segment.end_ms, frameRate, totalFrames);
+    const previousSegment = subtitleSegments[index - 1];
+    const nextSegment = subtitleSegments[index + 1];
+    const previousEndFrame = previousSegment
+      ? msToFrame(selectionStartMs + previousSegment.end_ms, frameRate, totalFrames)
+      : inFrame;
+    const followingStartFrame = nextSegment
+      ? msToFrame(selectionStartMs + nextSegment.start_ms, frameRate, totalFrames)
+      : outFrame;
+    let nextStartFrame = segmentStartFrame;
+    let nextEndFrame = segmentEndFrame;
+
+    if (edge === "start") {
+      nextStartFrame = clamp(sourceFrame, previousEndFrame, segmentEndFrame - 1);
+    } else {
+      nextEndFrame = clamp(sourceFrame, segmentStartFrame + 1, followingStartFrame);
+    }
+
+    const nextStartMs = clamp(frameToMs(nextStartFrame, frameRate) - selectionStartMs, 0, selectionEndMs - selectionStartMs - 1);
+    const nextEndMs = clamp(frameToMs(nextEndFrame, frameRate) - selectionStartMs, nextStartMs + 1, selectionEndMs - selectionStartMs);
+    onSubtitleSegmentChange(index, nextStartMs, nextEndMs);
+  };
+
+  const startSubtitleDrag = (index: number, edge: SubtitleDragEdge, event: React.PointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    onSubtitleSegmentSelect?.(index);
+    const video = videoRef.current;
+    if (video && !video.paused) {
+      video.pause();
+      setIsPlaying(false);
+    }
+    applySubtitleDrag(index, edge, subtitleFrameFromPointer(event.clientX));
+
+    const handleWindowPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      applySubtitleDrag(index, edge, subtitleFrameFromPointer(moveEvent.clientX));
+    };
+    const handleWindowPointerUp = () => {
+      window.removeEventListener("pointermove", handleWindowPointerMove);
+      window.removeEventListener("pointerup", handleWindowPointerUp);
+      window.removeEventListener("pointercancel", handleWindowPointerUp);
+    };
+
+    window.addEventListener("pointermove", handleWindowPointerMove);
+    window.addEventListener("pointerup", handleWindowPointerUp);
+    window.addEventListener("pointercancel", handleWindowPointerUp);
+  };
+
   const togglePlay = async () => {
     const video = videoRef.current;
     if (!video) {
@@ -430,6 +528,11 @@ export function VideoTrimEditor({
   const inPercent = (inFrame / totalFrames) * 100;
   const outPercent = (outFrame / totalFrames) * 100;
   const playheadPercent = (safeCurrentFrame / totalFrames) * 100;
+  const selectionStartMs = frameToMs(inFrame, frameRate);
+  const currentSelectionMs = frameToMs(safeCurrentFrame, frameRate) - selectionStartMs;
+  const activeSubtitle = subtitlesVisible
+    ? subtitleSegments.find((segment) => currentSelectionMs >= segment.start_ms && currentSelectionMs < segment.end_ms)
+    : undefined;
   const selectedDurationSeconds = Math.max(0, outFrame - inFrame) / frameRate;
   const rulerTicks = useMemo(() => buildRulerTicks(totalFrames / frameRate), [frameRate, totalFrames]);
 
@@ -446,6 +549,7 @@ export function VideoTrimEditor({
           onPause={() => setIsPlaying(false)}
           onPlay={() => setIsPlaying(true)}
         />
+        {activeSubtitle ? <div className="video-trim-subtitle-overlay">{activeSubtitle.text}</div> : null}
         {analysisOverlay}
       </div>
 
@@ -479,6 +583,18 @@ export function VideoTrimEditor({
                 onClick={() => seekToFrame(outFrame)}
               />
             </Tooltip>
+            {subtitleSegments.length > 0 ? (
+              <Tooltip title={subtitlesVisible ? "隐藏字幕预览" : "显示字幕预览"}>
+                <Button
+                  size="small"
+                  className="video-trim-icon-button"
+                  type={subtitlesVisible ? "primary" : "default"}
+                  aria-label={subtitlesVisible ? "隐藏字幕预览" : "显示字幕预览"}
+                  icon={<CaptionsIcon />}
+                  onClick={() => onSubtitlesVisibleChange?.(!subtitlesVisible)}
+                />
+              </Tooltip>
+            ) : null}
             {extraControls}
           </Space>
           <Typography.Text className="video-trim-timecode">
@@ -536,6 +652,47 @@ export function VideoTrimEditor({
           />
           <div className="video-trim-playhead" style={{ left: `${playheadPercent}%` }} />
         </div>
+
+        {subtitleSegments.length > 0 ? (
+          <div ref={subtitleTimelineRef} className="video-trim-subtitle-track">
+            {subtitleSegments.map((segment, index) => {
+              const startFrame = msToFrame(selectionStartMs + segment.start_ms, frameRate, totalFrames);
+              const endFrame = msToFrame(selectionStartMs + segment.end_ms, frameRate, totalFrames);
+              const left = (startFrame / totalFrames) * 100;
+              const width = ((Math.max(endFrame - startFrame, 1) / totalFrames) * 100);
+              const selected = activeSubtitleSegmentIndex === index;
+              return (
+                <div
+                  key={`${segment.start_ms}-${segment.end_ms}-${index}`}
+                  className={`video-trim-subtitle-segment${selected ? " is-selected" : ""}`}
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                  title={segment.text}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSubtitleSegmentSelect?.(index);
+                    seekToFrame(startFrame);
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="video-trim-subtitle-handle video-trim-subtitle-handle-start"
+                    aria-label="调整字幕起点"
+                    onPointerDown={(event) => startSubtitleDrag(index, "start", event)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                  <span>{segment.text}</span>
+                  <button
+                    type="button"
+                    className="video-trim-subtitle-handle video-trim-subtitle-handle-end"
+                    aria-label="调整字幕终点"
+                    onPointerDown={(event) => startSubtitleDrag(index, "end", event)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
 
       </div>
     </div>
