@@ -301,16 +301,17 @@ export function PreprocessPage({ token }: { token: string }) {
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
   const [useProductReferenceImage, setUseProductReferenceImage] = useState(true);
   const [framesPreviewOpen, setFramesPreviewOpen] = useState(false);
-  const [transcriptModalOpen, setTranscriptModalOpen] = useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [interpretFPSModalOpen, setInterpretFPSModalOpen] = useState(false);
-  const [transcriptDraft, setTranscriptDraft] = useState("");
-  const [transcriptSegmentsDraft, setTranscriptSegmentsDraft] = useState<WorkspaceTranscriptSegment[]>([]);
   const [subtitlesVisible, setSubtitlesVisible] = useState(true);
   const [activeSubtitleSegmentIndex, setActiveSubtitleSegmentIndex] = useState<number | null>(null);
+  const [subtitleEditingIndex, setSubtitleEditingIndex] = useState<number | null>(null);
+  const [subtitleEditingText, setSubtitleEditingText] = useState("");
+  const [savingSubtitle, setSavingSubtitle] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const importPreviewsRef = useRef<ImportPreview[]>([]);
   const initializedEditorItemIDRef = useRef<string | null>(null);
+  const selectedItemIDRef = useRef<string | null>(null);
   const preprocessWorkbenchRef = useRef<HTMLDivElement | null>(null);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
@@ -380,12 +381,6 @@ export function PreprocessPage({ token }: { token: string }) {
     [items, selectedItemID]
   );
   const selectedItem = selectedIndex >= 0 ? items[selectedIndex] : null;
-  const activeASRDraft =
-    selectedItem?.asr_draft &&
-    selectedItem.asr_draft.source_in_ms === Number(watchedSourceInMs) &&
-    selectedItem.asr_draft.source_out_ms === Number(watchedSourceOutMs)
-      ? selectedItem.asr_draft
-      : undefined;
   const workspaceStats = useMemo(
     () => ({
       pending: items.filter((item) => item.status === "pending").length,
@@ -396,6 +391,10 @@ export function PreprocessPage({ token }: { token: string }) {
     [items]
   );
   const hasRunningVLMLabel = items.some((item) => item.vlm_status === "queued" || item.vlm_status === "running");
+
+  useEffect(() => {
+    selectedItemIDRef.current = selectedItemID;
+  }, [selectedItemID]);
 
   useEffect(() => {
     if (!hasRunningVLMLabel) {
@@ -439,6 +438,8 @@ export function PreprocessPage({ token }: { token: string }) {
   useEffect(() => {
     setSubtitlesVisible(true);
     setActiveSubtitleSegmentIndex(null);
+    setSubtitleEditingIndex(null);
+    setSubtitleEditingText("");
   }, [selectedItem?.id]);
 
   useEffect(() => {
@@ -626,7 +627,34 @@ export function PreprocessPage({ token }: { token: string }) {
     return response.item;
   };
 
-  const startTranscription = async () => {
+  const persistASRSubtitleSegments = async (item: WorkspaceItem, segments: WorkspaceTranscriptSegment[]) => {
+    const transcript = transcriptTextFromSegments(segments);
+    const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${item.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        asset_name: item.asset_name ?? "",
+        source_type: item.source_type ?? defaultSourceType,
+        source_in_ms: item.source_in_ms,
+        source_out_ms: item.source_out_ms,
+        interpret_fps_enabled: Boolean(item.interpret_fps_enabled),
+        playback_fps: item.playback_fps || 25,
+        transcript,
+        transcript_segments: segments,
+        reviewer_notes: item.reviewer_notes ?? ""
+      })
+    });
+    setItems((current) => current.map((currentItem) => (currentItem.id === response.item.id ? response.item : currentItem)));
+    if (selectedItemIDRef.current === response.item.id) {
+      form.setFieldsValue({
+        transcript: response.item.transcript ?? transcript,
+        transcript_segments: response.item.transcript_segments ?? segments
+      });
+    }
+    return response.item;
+  };
+
+  const runTranscription = async () => {
     if (!selectedItem || transcribingItemID) {
       return;
     }
@@ -646,12 +674,28 @@ export function PreprocessPage({ token }: { token: string }) {
         })
       });
       setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
-      message.success("当前选区转写完成，请核对草稿后应用到编辑区");
+      const segments = response.item.asr_draft?.segments ?? [];
+      if (segments.length === 0) {
+        throw new Error("语音识别未返回可用句段");
+      }
+      await persistASRSubtitleSegments(response.item, segments);
+      if (selectedItemIDRef.current === itemID) {
+        setActiveSubtitleSegmentIndex(0);
+        setSubtitlesVisible(true);
+      }
+      message.success("当前选区转写完成，字幕已叠加到预览画面");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "当前选区转写失败");
     } finally {
       setTranscribingItemID((current) => (current === itemID ? null : current));
     }
+  };
+
+  const startTranscription = () => {
+    if (!selectedItem || transcribingItemID) {
+      return;
+    }
+    void runTranscription();
   };
 
   const prepareItem = async () => {
@@ -884,44 +928,10 @@ export function PreprocessPage({ token }: { token: string }) {
         : {})
     });
     if (selectionChanged && hasConfirmedSegments) {
-      setTranscriptDraft("");
-      setTranscriptSegmentsDraft([]);
       setActiveSubtitleSegmentIndex(null);
+      setSubtitleEditingIndex(null);
       message.warning("调整 I/O 后已清除当前字幕句段，请重新识别并确认");
     }
-  };
-
-  const openTranscriptModal = () => {
-    setTranscriptDraft(form.getFieldValue("transcript") ?? "");
-    setTranscriptSegmentsDraft((form.getFieldValue("transcript_segments") ?? []).map((segment: WorkspaceTranscriptSegment) => ({ ...segment })));
-    setTranscriptModalOpen(true);
-  };
-
-  const saveTranscriptDraft = () => {
-    const segments = transcriptSegmentsDraft.filter((segment) => segment.text.trim() !== "");
-    form.setFieldsValue({
-      transcript: segments.length > 0 ? transcriptTextFromSegments(segments) : transcriptDraft,
-      transcript_segments: segments
-    });
-    setTranscriptModalOpen(false);
-  };
-
-  const applyASRDraft = () => {
-    if (!activeASRDraft?.segments.length) {
-      return;
-    }
-    const segments = activeASRDraft.segments.map((segment) => ({ ...segment }));
-    setTranscriptSegmentsDraft(segments);
-    setTranscriptDraft(transcriptTextFromSegments(segments));
-    setActiveSubtitleSegmentIndex(0);
-  };
-
-  const updateTranscriptSegmentText = (index: number, text: string) => {
-    setTranscriptSegmentsDraft((current) => {
-      const next = current.map((segment, segmentIndex) => (segmentIndex === index ? { ...segment, text } : segment));
-      setTranscriptDraft(transcriptTextFromSegments(next));
-      return next;
-    });
   };
 
   const updateSubtitleSegmentRange = (index: number, startMs: number, endMs: number) => {
@@ -932,12 +942,87 @@ export function PreprocessPage({ token }: { token: string }) {
       transcript: transcriptTextFromSegments(next),
       transcript_segments: next
     });
-    setTranscriptSegmentsDraft((current) =>
-      current.map((segment, segmentIndex) =>
-        segmentIndex === index ? { ...segment, start_ms: startMs, end_ms: endMs } : segment
-      )
-    );
     setActiveSubtitleSegmentIndex(index);
+  };
+
+  const persistCurrentSubtitleSegments = async (segmentsOverride?: WorkspaceTranscriptSegment[]) => {
+    if (!selectedItem || savingSubtitle) {
+      return;
+    }
+    const segments = segmentsOverride ?? ((form.getFieldValue("transcript_segments") ?? []) as WorkspaceTranscriptSegment[]);
+    if (segments.length === 0) {
+      return;
+    }
+    const values = form.getFieldsValue([
+      "asset_name",
+      "source_type",
+      "source_in_ms",
+      "source_out_ms",
+      "interpret_fps_enabled",
+      "playback_fps",
+      "reviewer_notes"
+    ]);
+    const transcript = transcriptTextFromSegments(segments);
+    form.setFieldsValue({ transcript, transcript_segments: segments });
+    setSavingSubtitle(true);
+    try {
+      const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...values,
+          transcript,
+          transcript_segments: segments
+        })
+      });
+      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      if (selectedItemIDRef.current === response.item.id) {
+        form.setFieldsValue({
+          transcript: response.item.transcript ?? transcript,
+          transcript_segments: response.item.transcript_segments ?? segments
+        });
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "保存字幕失败");
+    } finally {
+      setSavingSubtitle(false);
+    }
+  };
+
+  const startInlineSubtitleEdit = (index: number) => {
+    const segment = watchedTranscriptSegments[index];
+    if (!segment) {
+      return;
+    }
+    setActiveSubtitleSegmentIndex(index);
+    setSubtitleEditingIndex(index);
+    setSubtitleEditingText(segment.text);
+  };
+
+  const cancelInlineSubtitleEdit = () => {
+    setSubtitleEditingIndex(null);
+    setSubtitleEditingText("");
+  };
+
+  const commitInlineSubtitleEdit = () => {
+    if (subtitleEditingIndex === null) {
+      return;
+    }
+    const text = subtitleEditingText.trim();
+    if (!text) {
+      message.warning("字幕文字不能为空");
+      return;
+    }
+    const next = watchedTranscriptSegments.map((segment, index) =>
+      index === subtitleEditingIndex ? { ...segment, text } : segment
+    );
+    form.setFieldsValue({
+      transcript: transcriptTextFromSegments(next),
+      transcript_segments: next
+    });
+    setSubtitleEditingIndex(null);
+    setSubtitleEditingText("");
+    void persistCurrentSubtitleSegments(next);
   };
 
   const openNotesModal = () => {
@@ -1299,7 +1384,14 @@ export function PreprocessPage({ token }: { token: string }) {
                   activeSubtitleSegmentIndex={activeSubtitleSegmentIndex}
                   onSubtitlesVisibleChange={setSubtitlesVisible}
                   onSubtitleSegmentChange={updateSubtitleSegmentRange}
+                  onSubtitleSegmentCommit={() => void persistCurrentSubtitleSegments()}
                   onSubtitleSegmentSelect={setActiveSubtitleSegmentIndex}
+                  editingSubtitleSegmentIndex={subtitleEditingIndex}
+                  editingSubtitleText={subtitleEditingText}
+                  onSubtitleEditStart={startInlineSubtitleEdit}
+                  onSubtitleEditChange={setSubtitleEditingText}
+                  onSubtitleEditCommit={commitInlineSubtitleEdit}
+                  onSubtitleEditCancel={cancelInlineSubtitleEdit}
                   extraControls={
                     <>
                       <Button size="small" loading={previewingFrames} onClick={() => void previewFrames()}>
@@ -1313,7 +1405,12 @@ export function PreprocessPage({ token }: { token: string }) {
                       >
                         升格
                       </Button>
-                      <Button size="small" disabled={watchedSourceType !== "talking_head"} onClick={openTranscriptModal}>
+                      <Button
+                        size="small"
+                        loading={transcribingItemID === selectedItem.id}
+                        disabled={watchedSourceType !== "talking_head" || !selectedItem.probe.has_audio}
+                        onClick={startTranscription}
+                      >
                         转写
                       </Button>
                       <Button size="small" onClick={openNotesModal}>
@@ -1464,95 +1561,6 @@ export function PreprocessPage({ token }: { token: string }) {
             </Typography.Text>
           </div>
         </Space>
-      </Modal>
-
-      <Modal
-        open={transcriptModalOpen}
-        onCancel={() => setTranscriptModalOpen(false)}
-        onOk={saveTranscriptDraft}
-        width={720}
-        title="口播转写"
-        okText="保存"
-        cancelText="取消"
-        destroyOnClose={false}
-        className="preprocess-text-modal preprocess-transcript-modal"
-      >
-        <div className="preprocess-transcript-modal-content">
-          <div className="preprocess-transcript-actions">
-            <Typography.Text type="secondary">识别范围：当前 I/O 选区</Typography.Text>
-            <Button
-              type="primary"
-              loading={transcribingItemID === selectedItem?.id}
-              disabled={!selectedItem || watchedSourceType !== "talking_head" || !selectedItem.probe.has_audio}
-              onClick={() => void startTranscription()}
-            >
-              识别当前选区
-            </Button>
-          </div>
-          {transcriptSegmentsDraft.length > 0 ? (
-            <div className="preprocess-confirmed-transcript">
-              <div className="preprocess-confirmed-transcript-header">
-                <Typography.Text strong>已确认句段</Typography.Text>
-                <Typography.Text type="secondary">逐句核对文字，时间范围来自当前选区</Typography.Text>
-              </div>
-              <div className="preprocess-confirmed-segment-list">
-                {transcriptSegmentsDraft.map((segment, index) => (
-                  <div
-                    key={`${segment.start_ms}-${segment.end_ms}-${index}`}
-                    className={`preprocess-confirmed-segment${activeSubtitleSegmentIndex === index ? " is-selected" : ""}`}
-                  >
-                    <Typography.Text className="preprocess-asr-segment-time">
-                      +{formatTimestamp(segment.start_ms)} - +{formatTimestamp(segment.end_ms)}
-                    </Typography.Text>
-                    <Input.TextArea
-                      value={segment.text}
-                      autoSize={{ minRows: 1, maxRows: 4 }}
-                      onChange={(event) => updateTranscriptSegmentText(index, event.target.value)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <Input.TextArea
-              value={transcriptDraft}
-              onChange={(event) => setTranscriptDraft(event.target.value)}
-              rows={8}
-              placeholder="请输入口播转写"
-            />
-          )}
-          <div className="preprocess-asr-draft" aria-live="polite">
-            <div className="preprocess-asr-draft-header">
-              <div>
-                <Typography.Text strong>识别草稿</Typography.Text>
-                {activeASRDraft ? (
-                  <Typography.Text type="secondary">
-                    当前选区 · {formatTimestamp(activeASRDraft.source_in_ms)} - {formatTimestamp(activeASRDraft.source_out_ms)}
-                  </Typography.Text>
-                ) : null}
-              </div>
-              <Button size="small" disabled={!activeASRDraft?.segments.length} onClick={applyASRDraft}>
-                应用草稿
-              </Button>
-            </div>
-            {activeASRDraft?.segments.length ? (
-              <div className="preprocess-asr-segment-list">
-                {activeASRDraft.segments.map((segment, index) => (
-                  <div key={`${segment.start_ms}-${segment.end_ms}-${index}`} className="preprocess-asr-segment">
-                    <Typography.Text className="preprocess-asr-segment-time">
-                      +{formatTimestamp(segment.start_ms)} - +{formatTimestamp(segment.end_ms)}
-                    </Typography.Text>
-                    <Typography.Text>{segment.text}</Typography.Text>
-                  </div>
-                ))}
-              </div>
-            ) : activeASRDraft?.text ? (
-              <Typography.Paragraph className="preprocess-asr-draft-text">{activeASRDraft.text}</Typography.Paragraph>
-            ) : (
-              <Typography.Text type="secondary">尚未识别当前选区。</Typography.Text>
-            )}
-          </div>
-        </div>
       </Modal>
 
       <Modal

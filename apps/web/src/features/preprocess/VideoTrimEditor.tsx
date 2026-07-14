@@ -32,7 +32,14 @@ type VideoTrimEditorProps = {
   activeSubtitleSegmentIndex?: number | null;
   onSubtitlesVisibleChange?: (visible: boolean) => void;
   onSubtitleSegmentChange?: (index: number, startMs: number, endMs: number) => void;
+  onSubtitleSegmentCommit?: () => void;
   onSubtitleSegmentSelect?: (index: number) => void;
+  editingSubtitleSegmentIndex?: number | null;
+  editingSubtitleText?: string;
+  onSubtitleEditStart?: (index: number) => void;
+  onSubtitleEditChange?: (text: string) => void;
+  onSubtitleEditCommit?: () => void;
+  onSubtitleEditCancel?: () => void;
   onTrimChange: (range: TrimRange) => void;
 };
 
@@ -184,13 +191,21 @@ export function VideoTrimEditor({
   activeSubtitleSegmentIndex = null,
   onSubtitlesVisibleChange,
   onSubtitleSegmentChange,
+  onSubtitleSegmentCommit,
   onSubtitleSegmentSelect,
+  editingSubtitleSegmentIndex = null,
+  editingSubtitleText = "",
+  onSubtitleEditStart,
+  onSubtitleEditChange,
+  onSubtitleEditCommit,
+  onSubtitleEditCancel,
   onTrimChange
 }: VideoTrimEditorProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const subtitleTimelineRef = useRef<HTMLDivElement | null>(null);
   const dragTargetRef = useRef<DragTarget | null>(null);
+  const subtitleEditHandledRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -430,6 +445,7 @@ export function VideoTrimEditor({
       window.removeEventListener("pointermove", handleWindowPointerMove);
       window.removeEventListener("pointerup", handleWindowPointerUp);
       window.removeEventListener("pointercancel", handleWindowPointerUp);
+      onSubtitleSegmentCommit?.();
     };
 
     window.addEventListener("pointermove", handleWindowPointerMove);
@@ -530,9 +546,22 @@ export function VideoTrimEditor({
   const playheadPercent = (safeCurrentFrame / totalFrames) * 100;
   const selectionStartMs = frameToMs(inFrame, frameRate);
   const currentSelectionMs = frameToMs(safeCurrentFrame, frameRate) - selectionStartMs;
-  const activeSubtitle = subtitlesVisible
-    ? subtitleSegments.find((segment) => currentSelectionMs >= segment.start_ms && currentSelectionMs < segment.end_ms)
-    : undefined;
+  const activeSubtitleIndex = subtitlesVisible
+    ? subtitleSegments.findIndex((segment) => currentSelectionMs >= segment.start_ms && currentSelectionMs < segment.end_ms)
+    : -1;
+  const activeSubtitle = activeSubtitleIndex >= 0 ? subtitleSegments[activeSubtitleIndex] : undefined;
+  const subtitleIsEditing = activeSubtitleIndex >= 0 && editingSubtitleSegmentIndex === activeSubtitleIndex;
+
+  const startSubtitleEdit = () => {
+    if (activeSubtitleIndex < 0 || !activeSubtitle) {
+      return;
+    }
+    subtitleEditHandledRef.current = false;
+    videoRef.current?.pause();
+    setIsPlaying(false);
+    onSubtitleSegmentSelect?.(activeSubtitleIndex);
+    onSubtitleEditStart?.(activeSubtitleIndex);
+  };
   const selectedDurationSeconds = Math.max(0, outFrame - inFrame) / frameRate;
   const rulerTicks = useMemo(() => buildRulerTicks(totalFrames / frameRate), [frameRate, totalFrames]);
 
@@ -549,7 +578,46 @@ export function VideoTrimEditor({
           onPause={() => setIsPlaying(false)}
           onPlay={() => setIsPlaying(true)}
         />
-        {activeSubtitle ? <div className="video-trim-subtitle-overlay">{activeSubtitle.text}</div> : null}
+        {activeSubtitle ? (
+          <div
+            className={`video-trim-subtitle-overlay${subtitleIsEditing ? " is-editing" : ""}`}
+            onClick={subtitleIsEditing ? undefined : startSubtitleEdit}
+          >
+            {subtitleIsEditing ? (
+              <input
+                autoFocus
+                className="video-trim-subtitle-input"
+                value={editingSubtitleText}
+                aria-label="编辑字幕"
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => onSubtitleEditChange?.(event.target.value)}
+                onBlur={() => {
+                  if (subtitleEditHandledRef.current) {
+                    subtitleEditHandledRef.current = false;
+                    return;
+                  }
+                  onSubtitleEditCommit?.();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    subtitleEditHandledRef.current = true;
+                    onSubtitleEditCancel?.();
+                    event.currentTarget.blur();
+                    return;
+                  }
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    subtitleEditHandledRef.current = true;
+                    onSubtitleEditCommit?.();
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            ) : (
+              activeSubtitle.text
+            )}
+          </div>
+        ) : null}
         {analysisOverlay}
       </div>
 
