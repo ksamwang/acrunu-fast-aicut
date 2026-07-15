@@ -56,6 +56,83 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     updated_at: "2026-07-08T00:00:02Z",
     analyzed_at: "2026-07-08T00:00:02Z"
   };
+  const voiceProfiles = [
+    {
+      id: "voice-warm-female",
+      name: "温和女声",
+      language: "中文",
+      style_tags: ["自然", "亲和"],
+      reference_text: "希望每一次表达都听起来自然、清晰而有温度。",
+      preview_text: "这是一段用于确认旁白语速、语气和听感的样音。",
+      preview_audio_url: "/storage/voice-profiles/voice-warm-female/preview.wav",
+      reference_audio_name: "warm-female.wav",
+      preview_status: "ready",
+      status: "enabled",
+      is_default: true,
+      created_at: "2026-07-15T00:00:00.000Z",
+      updated_at: "2026-07-15T00:00:00.000Z"
+    },
+    {
+      id: "voice-clear-male",
+      name: "清晰男声",
+      language: "中文",
+      style_tags: ["沉稳", "清晰"],
+      reference_text: "用清晰、克制的语气讲清楚每一个重点。",
+      preview_text: "这是一段用于确认旁白语速、语气和听感的样音。",
+      preview_audio_url: "/storage/voice-profiles/voice-clear-male/preview.wav",
+      reference_audio_name: "clear-male.wav",
+      preview_status: "ready",
+      status: "enabled",
+      is_default: false,
+      created_at: "2026-07-15T00:00:00.000Z",
+      updated_at: "2026-07-15T00:00:00.000Z"
+    },
+    {
+      id: "voice-bright-female",
+      name: "明快女声",
+      language: "中文",
+      style_tags: ["轻快", "有活力"],
+      reference_text: "用轻快的节奏带出产品使用时的积极感受。",
+      preview_text: "这是一段用于确认旁白语速、语气和听感的样音。",
+      preview_audio_url: "/storage/voice-profiles/voice-bright-female/preview.wav",
+      reference_audio_name: "bright-female.wav",
+      preview_status: "ready",
+      status: "enabled",
+      is_default: false,
+      created_at: "2026-07-15T00:00:00.000Z",
+      updated_at: "2026-07-15T00:00:00.000Z"
+    }
+  ];
+  let generatedWorkPolls = 0;
+  let finishedWorks = [
+    {
+      id: "work-completed-1",
+      run_id: "work-completed-1",
+      product_id: "product-1",
+      product_name: "Smart Light",
+      title: "灯光自动唤醒，夜间更安心",
+      hook: "回到家，灯光自动亮起。",
+      voice_profile_id: "voice-warm-female",
+      voice_profile_name: "温和女声",
+      script_text: "回到家，灯光自动亮起。无需摸黑找开关，夜间使用更安心。",
+      duration_ms: 8500,
+      status: "completed",
+      progress: 100,
+      stage_label: "已完成",
+      created_at: "2026-07-15T08:40:00.000Z",
+      completed_at: "2026-07-15T08:42:00.000Z",
+      editing_intent: "从回家摸黑的场景切入，再展示自动亮灯的结果。",
+      narration_segments: [
+        { id: "segment-1", start_ms: 0, end_ms: 4000, text: "回到家，灯光自动亮起。" },
+        { id: "segment-2", start_ms: 4000, end_ms: 8500, text: "无需摸黑找开关，夜间使用更安心。" }
+      ],
+      beats: [
+        { id: "beat-1", label: "开头", selling_point: "自动唤醒", visual_goal: "以回家场景建立需求。", source_type: "mixed" },
+        { id: "beat-2", label: "展示", selling_point: "夜间安心", visual_goal: "展示自动亮灯和使用结果。", source_type: "visual_only" }
+      ],
+      audio_url: "/storage/voiceovers/work-completed-1.wav"
+    }
+  ];
 
   await page.route((url) => url.pathname.startsWith("/api/"), async (route) => {
     const url = route.request().url();
@@ -74,6 +151,103 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
             }
           }
         })
+      });
+      return;
+    }
+
+    if (url.includes("/api/admin/voice-profiles")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: voiceProfiles })
+      });
+      return;
+    }
+
+    if (url.includes("/api/voice-profiles/") && url.includes("/auditions")) {
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            id: "audition-1",
+            task_id: "audition-task-1",
+            voice_profile_id: "voice-clear-male",
+            voice_profile_name: "清晰男声",
+            text: (route.request().postDataJSON() as { text: string }).text,
+            audio_url: "/storage/voice-auditions/audition-1.wav",
+            sample_rate: 24000,
+            duration_ms: 6400,
+            status: "completed",
+            created_at: "2026-07-15T09:00:00.000Z",
+            updated_at: "2026-07-15T09:00:01.000Z"
+          }
+        })
+      });
+      return;
+    }
+
+    if (url.includes("/api/voice-profiles")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: voiceProfiles })
+      });
+      return;
+    }
+
+    if (url.includes("/api/workbench/voiceover-tasks")) {
+      const body = route.request().postDataJSON() as {
+        product_id: string;
+        voice_profile_id: string;
+        variants: Array<{ hook: string; script_text: string; editing_intent: string; beats: unknown[] }>;
+      };
+      const profile = voiceProfiles.find((item) => item.id === body.voice_profile_id) ?? voiceProfiles[0];
+      const createdWorks = body.variants.map((variant, index) => ({
+        id: `work-generated-${index + 1}`,
+        run_id: `work-generated-${index + 1}`,
+        product_id: body.product_id,
+        product_name: "Smart Light",
+        title: variant.hook,
+        hook: variant.hook,
+        voice_profile_id: profile.id,
+        voice_profile_name: profile.name,
+        script_text: variant.script_text,
+        duration_ms: 0,
+        status: "generating",
+        progress: 8,
+        stage_label: "等待生成",
+        created_at: "2026-07-15T09:10:00.000Z",
+        editing_intent: variant.editing_intent,
+        beats: variant.beats
+      }));
+      generatedWorkPolls = 0;
+      finishedWorks = [...createdWorks, ...finishedWorks];
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ data: createdWorks })
+      });
+      return;
+    }
+
+    if (url.includes("/api/workbench/works")) {
+      if (finishedWorks.some((work) => work.id.startsWith("work-generated-"))) {
+        generatedWorkPolls += 1;
+        if (generatedWorkPolls >= 3) {
+          finishedWorks = finishedWorks.map((work) => work.id.startsWith("work-generated-") ? {
+            ...work,
+            duration_ms: 6400,
+            status: "completed",
+            progress: 100,
+            stage_label: "已完成",
+            completed_at: "2026-07-15T09:10:08.000Z",
+            audio_url: "/storage/voiceovers/work-generated-1.wav",
+            narration_segments: [{ id: "generated-segment-1", start_ms: 0, end_ms: 6400, text: work.script_text }]
+          } : work);
+        }
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: finishedWorks })
       });
       return;
     }
@@ -489,10 +663,10 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(voiceSelector).toContainText("温和女声");
   await voiceSelector.getByRole("button", { name: "选择音色" }).click();
   const voiceModal = page.getByTestId("voice-profile-modal");
-  await expect(voiceModal.getByTestId("voice-profile-option-voice-prototype-warm-female")).toBeVisible();
-  await expect(voiceModal.getByTestId("voice-profile-option-voice-prototype-clear-male")).toBeVisible();
-  await expect(voiceModal.getByTestId("voice-profile-option-voice-prototype-bright-female")).toBeVisible();
-  await voiceModal.getByTestId("voice-profile-option-voice-prototype-clear-male").click();
+  await expect(voiceModal.getByTestId("voice-profile-option-voice-warm-female")).toBeVisible();
+  await expect(voiceModal.getByTestId("voice-profile-option-voice-clear-male")).toBeVisible();
+  await expect(voiceModal.getByTestId("voice-profile-option-voice-bright-female")).toBeVisible();
+  await voiceModal.getByTestId("voice-profile-option-voice-clear-male").click();
   await expect(voiceSelector).toContainText("清晰男声");
   await page.reload();
   await expect(page.getByTestId("workbench-voice-selector")).toContainText("清晰男声");
@@ -503,17 +677,17 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await voicesTab.click();
   const voiceSettings = page.getByTestId("voice-profiles-settings");
   await expect(voiceSettings).toBeVisible();
-  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-prototype-warm-female")).toBeVisible();
-  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-prototype-clear-male")).toBeVisible();
-  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-prototype-bright-female")).toBeVisible();
+  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-warm-female")).toBeVisible();
+  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-clear-male")).toBeVisible();
+  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-bright-female")).toBeVisible();
   await page.getByRole("menuitem", { name: "工作台" }).click();
 
   await page.getByRole("menuitem", { name: "成品库" }).click();
-  const demoWork = page.getByTestId("finished-work-demo-finished-cuff-strap-01");
-  await expect(demoWork).toBeVisible();
-  const demoDetailButton = demoWork.getByRole("button");
-  await expect(demoDetailButton).toHaveCount(1);
-  await demoDetailButton.click();
+  const completedWork = page.getByTestId("finished-work-work-completed-1");
+  await expect(completedWork).toBeVisible();
+  const completedDetailButton = completedWork.getByRole("button");
+  await expect(completedDetailButton).toHaveCount(1);
+  await completedDetailButton.click();
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
   await expect(page.getByText("字幕", { exact: true })).toBeVisible();
   await expect(page.getByText("初步镜头编排", { exact: true })).toBeVisible();
@@ -527,6 +701,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByTestId("workbench-generate")).toBeEnabled();
   await page.getByTestId("workbench-generate").click();
   await expect(page.getByText("文案 01")).toBeVisible();
+  await page.getByRole("button", { name: "试听当前文案" }).click();
+  await expect(page.getByLabel("当前文案试听")).toBeVisible();
   await page.getByRole("button", { name: "确认文案" }).click();
   await expect(page.getByTestId("workbench-start-tasks")).toHaveText("开始 1 条任务");
   await page.getByTestId("workbench-start-tasks").click();
@@ -535,18 +711,6 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByText("待提交", { exact: true })).toHaveCount(0);
   await expect(page.getByText("已提交", { exact: true })).toHaveCount(0);
 
-  await page.evaluate(() => {
-    const raw = window.localStorage.getItem("aicut.workbench.prototype.store.v1");
-    const store = raw ? JSON.parse(raw) : { runs: [], finished_works: [] };
-    store.runs = store.runs.map((run: { started_at: string }) => ({
-      ...run,
-      started_at: new Date(Date.now() - 12_000).toISOString()
-    }));
-    window.localStorage.setItem("aicut.workbench.prototype.store.v1", JSON.stringify(store));
-  });
-
-  await page.reload();
-  await expect(page.getByTestId("finished-library-page")).toBeVisible();
   await expect(page.locator('[data-status="completed"]')).toBeVisible();
   await expect(page.locator('[data-status="completed"] button')).toBeVisible();
 
@@ -556,10 +720,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByText("mute-shot.mp4")).toBeVisible();
 
   await page.evaluate(() => {
-    const raw = window.localStorage.getItem("aicut.workbench.prototype.store.v1");
-    const store = raw ? JSON.parse(raw) : { finished_works: [] };
-    const work = store.finished_works.find((item: { is_demo?: boolean }) => !item.is_demo);
-    window.location.hash = `#/finished/${work.id}`;
+    window.location.hash = "#/finished/work-generated-1";
   });
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
   await expect(page.getByText("清晰男声", { exact: true })).toBeVisible();

@@ -14,15 +14,19 @@ The Docker stack contains two internal media services:
   - Exposes `GET /healthz` and a minimal `POST /v1/render` smoke endpoint.
   - Writes its test outputs to `storage/renders/remotion` through the existing shared storage mount.
 
-Neither service is wired to `generation_tasks` yet. The current deployment proves the model and renderer environments; the later TTS and render workers will call these internal endpoints after the voiceover and `edit_plan` objects are implemented.
+`tts` is wired to the server-side voiceover pipeline. The browser and `local-agent` never call CosyVoice directly. The API stores reference audio, queues an asynchronous task, and the worker calls `http://tts:50000/v1/synthesize`, stores the resulting WAV, then asks FunASR for normalized `narration_segments`.
+
+`renderer` is still infrastructure-only. It is not yet called by a generation worker, and no `edit_plan` or finished video is generated in the current voiceover phase.
 
 ## Deployment
 
-The deployment script archives committed `HEAD`, so commit the media-service changes first. No database migration is required for this infrastructure-only deployment.
+The deployment script archives committed `HEAD`, so commit the changes first. The voiceover pipeline adds database tables and task types, so deploy it with migrations:
 
 ```powershell
-.\scripts\deploy-server.ps1 -Services tts,renderer
+.\scripts\deploy-server.ps1 -RunMigrations
 ```
+
+Use `-Services tts,renderer` only when the media service images themselves also need rebuilding.
 
 The first TTS startup downloads the CosyVoice3 model into the persistent `tts-models` volume and then loads it into the GPU. It can take several minutes. The model cache remains intact across container rebuilds and server restarts.
 
@@ -66,6 +70,7 @@ The response contains an `output_path` below `/app/storage/renders/remotion`; on
 ## Operational Notes
 
 - The RTX 3060 has 12GB of VRAM. FunASR and CosyVoice share it. Keep `COSYVOICE_FP16=true` and do not introduce a second TTS replica on this server.
+- TTS synthesis is serialized by the worker process because FunASR and CosyVoice share one GPU. LLM and VLM calls remain independently concurrent.
 - The TTS container uses the standard PyTorch inference path. TensorRT and DeepSpeed are intentionally excluded because they are not required for the initial service and increase image size substantially.
 - A failed or interrupted model download can be retried by restarting only `tts`; the ModelScope cache is persistent. Delete `tts-models` only when a clean model download is specifically required.
 - `renderer` is deliberately renderer-only. It does not accept source filesystem paths, asset IDs, or arbitrary JavaScript. The later Go render worker must validate a persisted `edit_plan` and call a dedicated production render contract.

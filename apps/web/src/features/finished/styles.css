@@ -190,6 +190,11 @@
   animation: finished-work-spin 1.1s linear infinite;
 }
 
+.finished-work-generation-state.is-failed svg,
+.finished-detail-generation-state.is-failed svg {
+  animation: none;
+}
+
 .finished-work-overlay-top {
   position: absolute;
   z-index: 1;
@@ -457,6 +462,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+.finished-detail-audio {
+  width: min(100%, 432px);
+  height: 34px;
+  margin: 0 auto;
+}
+
 .finished-detail-timebar-track {
   display: block;
   height: 4px;
@@ -545,6 +556,14 @@
   gap: 6px;
   align-items: center;
   color: #15803d;
+  font-size: 13px;
+}
+
+.finished-detail-failed {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: #b42318;
   font-size: 13px;
 }
 

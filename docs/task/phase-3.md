@@ -57,21 +57,28 @@ LLM 在候选素材中完成 clip_segment 装配
 
 ## 4. 配音与主叙事时间轴
 
-- [ ] 明确 `voiceovers` 数据表或等效存储结构
-- [ ] 明确配音任务输入输出结构
+- [x] 明确 `voiceovers` 数据表或等效存储结构
+- [x] 明确 CosyVoice 配音任务输入输出结构
 - [ ] 统一 TTS / 外部录制配音接入方式
-- [ ] 支持基于脚本文本生成配音
-- [ ] 支持保存配音音频文件到 `storage/voiceovers`
-- [ ] 支持读取配音时长
-- [ ] 支持记录配音 provider / voice / model
-- [ ] 支持配音失败原因记录
-- [ ] 明确 `narration_segments` 落库字段
-- [ ] 支持从真实配音时间轴切分 narration segments
-- [ ] 支持 narration segment 记录文本
-- [ ] 支持 narration segment 记录起止时间
+- [x] 支持基于脚本文本生成配音
+- [x] 支持保存配音音频文件到 `storage/voiceovers`
+- [x] 支持读取配音时长
+- [x] 支持记录配音 provider / voice / model
+- [x] 支持配音失败原因记录
+- [x] 明确 `narration_segments` 落库字段
+- [x] 支持从真实配音时间轴切分 narration segments
+- [x] 支持 narration segment 记录文本
+- [x] 支持 narration segment 记录起止时间
 - [ ] 支持 narration segment 关联卖点或表达意图
-- [ ] 支持 narration segment 连续性校验
-- [ ] 补充配音与 narration 解析测试
+- [x] 支持 narration segment 连续性校验
+- [x] 补充配音与 narration 解析测试
+
+音色与试听补充：
+
+- [x] `voice_profiles` 保存参考音频、参考文本、样音文本、启用状态与默认音色。
+- [x] 创建或编辑音色后异步生成固定样音；样音未就绪时禁止用于试听和正式任务。
+- [x] 工作台支持以当前文案创建 `voice_audition` 异步任务，并播放服务端 WAV。
+- [x] CosyVoice 客户端仅在 API / worker 服务端进程使用，浏览器和 `local-agent` 不参与调用。
 
 ## 5. 素材召回与候选集构建
 

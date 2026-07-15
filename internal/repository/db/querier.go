@@ -15,38 +15,70 @@ type Querier interface {
 	ArchiveAsset(ctx context.Context, arg ArchiveAssetParams) error
 	ArchiveProduct(ctx context.Context, arg ArchiveProductParams) error
 	ArchiveSellingPoint(ctx context.Context, arg ArchiveSellingPointParams) error
+	ClearDefaultVoiceProfiles(ctx context.Context) error
 	CountAssetSellingPointLinks(ctx context.Context, sellingPointID pgtype.UUID) (int32, error)
 	CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset, error)
 	CreateGenerationTask(ctx context.Context, arg CreateGenerationTaskParams) (GenerationTask, error)
+	CreateNarrationSegment(ctx context.Context, arg CreateNarrationSegmentParams) (NarrationSegment, error)
 	CreateProduct(ctx context.Context, arg CreateProductParams) (Product, error)
+	CreateScriptVariant(ctx context.Context, arg CreateScriptVariantParams) (ScriptVariant, error)
 	CreateSellingPoint(ctx context.Context, arg CreateSellingPointParams) (ProductSellingPoint, error)
 	CreateSpeechSegment(ctx context.Context, arg CreateSpeechSegmentParams) (SpeechSegment, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateVoiceAudition(ctx context.Context, arg CreateVoiceAuditionParams) (VoiceAudition, error)
+	CreateVoiceProfile(ctx context.Context, arg CreateVoiceProfileParams) (VoiceProfile, error)
+	CreateVoiceover(ctx context.Context, arg CreateVoiceoverParams) (Voiceover, error)
 	DeleteAssetFrameSnapshotsByAsset(ctx context.Context, assetID pgtype.UUID) error
+	DeleteNarrationSegmentsByVoiceoverID(ctx context.Context, voiceoverID pgtype.UUID) error
 	DeleteProduct(ctx context.Context, id pgtype.UUID) error
 	DeleteSellingPoint(ctx context.Context, id pgtype.UUID) error
+	DeleteVoiceProfile(ctx context.Context, id pgtype.UUID) error
 	GetAssetByID(ctx context.Context, id pgtype.UUID) (Asset, error)
 	GetGenerationTaskByID(ctx context.Context, id pgtype.UUID) (GenerationTask, error)
 	GetProductByID(ctx context.Context, id pgtype.UUID) (Product, error)
+	GetScriptVariantByGenerationTaskID(ctx context.Context, generationTaskID pgtype.UUID) (ScriptVariant, error)
+	GetScriptVariantByID(ctx context.Context, id pgtype.UUID) (ScriptVariant, error)
 	GetSellingPointByID(ctx context.Context, id pgtype.UUID) (ProductSellingPoint, error)
 	GetSystemConfigByKey(ctx context.Context, configKey string) (SystemConfig, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetVoiceAuditionByID(ctx context.Context, id pgtype.UUID) (VoiceAudition, error)
+	GetVoiceProfileByID(ctx context.Context, id pgtype.UUID) (VoiceProfile, error)
+	GetVoiceoverByID(ctx context.Context, id pgtype.UUID) (Voiceover, error)
+	GetVoiceoverByScriptVariantID(ctx context.Context, scriptVariantID pgtype.UUID) (Voiceover, error)
 	ListAssetFrameSnapshotsByAsset(ctx context.Context, assetID pgtype.UUID) ([]AssetFrameSnapshot, error)
 	ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset, error)
 	ListGenerationTasks(ctx context.Context, status pgtype.Text) ([]GenerationTask, error)
+	ListNarrationSegmentsByVoiceoverID(ctx context.Context, voiceoverID pgtype.UUID) ([]NarrationSegment, error)
 	ListProducts(ctx context.Context, status pgtype.Text) ([]Product, error)
+	ListScriptVariantsByGenerationTaskID(ctx context.Context, generationTaskID pgtype.UUID) ([]ScriptVariant, error)
 	ListSellingPointIDsByAsset(ctx context.Context, assetID pgtype.UUID) ([]pgtype.UUID, error)
 	ListSellingPointsByProduct(ctx context.Context, arg ListSellingPointsByProductParams) ([]ProductSellingPoint, error)
 	ListSpeechSegmentsByAsset(ctx context.Context, arg ListSpeechSegmentsByAssetParams) ([]SpeechSegment, error)
 	ListSystemConfigs(ctx context.Context) ([]SystemConfig, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListVoiceProfiles(ctx context.Context) ([]VoiceProfile, error)
+	ListVoiceoverGenerationTasks(ctx context.Context) ([]GenerationTask, error)
+	MarkScriptVariantFailed(ctx context.Context, arg MarkScriptVariantFailedParams) error
+	MarkScriptVariantVoiceoverReady(ctx context.Context, id pgtype.UUID) error
+	MarkVoiceAuditionCompleted(ctx context.Context, arg MarkVoiceAuditionCompletedParams) error
+	MarkVoiceAuditionFailed(ctx context.Context, arg MarkVoiceAuditionFailedParams) error
+	MarkVoiceAuditionSynthesizing(ctx context.Context, id pgtype.UUID) error
+	MarkVoiceProfilePreviewFailed(ctx context.Context, arg MarkVoiceProfilePreviewFailedParams) error
+	MarkVoiceProfilePreviewReady(ctx context.Context, arg MarkVoiceProfilePreviewReadyParams) error
+	MarkVoiceProfilePreviewSynthesizing(ctx context.Context, id pgtype.UUID) error
+	MarkVoiceoverCompleted(ctx context.Context, arg MarkVoiceoverCompletedParams) error
+	MarkVoiceoverFailed(ctx context.Context, arg MarkVoiceoverFailedParams) error
+	MarkVoiceoverSynthesizing(ctx context.Context, id pgtype.UUID) error
+	MarkVoiceoverTranscribing(ctx context.Context, id pgtype.UUID) error
+	QueueVoiceProfilePreview(ctx context.Context, id pgtype.UUID) error
 	RemoveAssetSellingPoint(ctx context.Context, arg RemoveAssetSellingPointParams) error
 	RestoreAsset(ctx context.Context, arg RestoreAssetParams) error
+	SetDefaultVoiceProfile(ctx context.Context, arg SetDefaultVoiceProfileParams) (VoiceProfile, error)
 	UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalysisParams) error
 	UpdateAssetEmbedding(ctx context.Context, arg UpdateAssetEmbeddingParams) error
-	UpdateAssetMetadata(ctx context.Context, arg UpdateAssetMetadataParams) error
 	UpdateAssetMediaInfo(ctx context.Context, arg UpdateAssetMediaInfoParams) error
+	UpdateAssetMetadata(ctx context.Context, arg UpdateAssetMetadataParams) error
 	UpdateAssetReview(ctx context.Context, arg UpdateAssetReviewParams) error
 	UpdateAssetStatus(ctx context.Context, arg UpdateAssetStatusParams) error
 	UpdateGenerationTaskStatus(ctx context.Context, arg UpdateGenerationTaskStatusParams) error
@@ -55,6 +87,8 @@ type Querier interface {
 	UpdateSpeechSegment(ctx context.Context, arg UpdateSpeechSegmentParams) (SpeechSegment, error)
 	UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) error
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
+	UpdateVoiceProfileMetadata(ctx context.Context, arg UpdateVoiceProfileMetadataParams) (VoiceProfile, error)
+	UpdateVoiceProfileWithReference(ctx context.Context, arg UpdateVoiceProfileWithReferenceParams) (VoiceProfile, error)
 	UpsertAssetFrameSnapshot(ctx context.Context, arg UpsertAssetFrameSnapshotParams) (AssetFrameSnapshot, error)
 	UpsertSystemConfig(ctx context.Context, arg UpsertSystemConfigParams) (SystemConfig, error)
 }

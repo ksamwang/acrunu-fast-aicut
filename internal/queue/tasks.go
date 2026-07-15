@@ -4,6 +4,9 @@ const TypeTestTask = "test:task"
 const TypeAssetExtractFrames = "asset:extract_frames"
 const TypeAssetAnalyze = "asset:analyze"
 const TypeAssetEmbedding = "asset:embedding"
+const TypeVoiceProfilePreview = "voice:profile_preview"
+const TypeVoiceAudition = "voice:audition"
+const TypeVoiceoverGenerate = "voice:generate"
 
 const (
 	FrameExtractionModeFixedInterval = "fixed_interval"
@@ -37,4 +40,21 @@ type AssetAnalyzePayload struct {
 type AssetEmbeddingPayload struct {
 	TaskID  string `json:"task_id"`
 	AssetID string `json:"asset_id"`
+}
+
+type VoiceProfilePreviewPayload struct {
+	TaskID         string `json:"task_id"`
+	VoiceProfileID string `json:"voice_profile_id"`
+}
+
+type VoiceAuditionPayload struct {
+	TaskID         string `json:"task_id"`
+	AuditionID     string `json:"audition_id"`
+	VoiceProfileID string `json:"voice_profile_id,omitempty"`
+}
+
+type VoiceoverGeneratePayload struct {
+	TaskID          string `json:"task_id"`
+	ScriptVariantID string `json:"script_variant_id"`
+	VoiceoverID     string `json:"voiceover_id"`
 }

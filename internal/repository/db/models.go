@@ -6,6 +6,7 @@ package db
 
 import (
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
 
 type Asset struct {
@@ -58,6 +59,24 @@ type Asset struct {
 	Embedding          []byte             `json:"embedding"`
 }
 
+type AssetEmbeddingObject struct {
+	ID           pgtype.UUID        `json:"id"`
+	AssetID      pgtype.UUID        `json:"asset_id"`
+	ObjectType   string             `json:"object_type"`
+	ObjectID     pgtype.UUID        `json:"object_id"`
+	Text         string             `json:"text"`
+	TextHash     string             `json:"text_hash"`
+	ProviderID   pgtype.UUID        `json:"provider_id"`
+	Model        string             `json:"model"`
+	Dimension    int32              `json:"dimension"`
+	Embedding    pgvector.Vector    `json:"embedding"`
+	Metadata     []byte             `json:"metadata"`
+	Status       string             `json:"status"`
+	ErrorMessage string             `json:"error_message"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AssetFrameSnapshot struct {
 	ID          pgtype.UUID        `json:"id"`
 	AssetID     pgtype.UUID        `json:"asset_id"`
@@ -93,6 +112,31 @@ type GenerationTask struct {
 	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
 }
 
+type ModelProvider struct {
+	ID           pgtype.UUID        `json:"id"`
+	Name         string             `json:"name"`
+	ProviderType string             `json:"provider_type"`
+	BaseUrl      string             `json:"base_url"`
+	ApiKey       string             `json:"api_key"`
+	Enabled      bool               `json:"enabled"`
+	Metadata     []byte             `json:"metadata"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type NarrationSegment struct {
+	ID              pgtype.UUID        `json:"id"`
+	ScriptVariantID pgtype.UUID        `json:"script_variant_id"`
+	VoiceoverID     pgtype.UUID        `json:"voiceover_id"`
+	SegmentIndex    int32              `json:"segment_index"`
+	Text            string             `json:"text"`
+	StartMs         int32              `json:"start_ms"`
+	EndMs           int32              `json:"end_ms"`
+	Confidence      pgtype.Numeric     `json:"confidence"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Product struct {
 	ID              pgtype.UUID        `json:"id"`
 	Name            string             `json:"name"`
@@ -117,6 +161,26 @@ type ProductSellingPoint struct {
 	UpdatedByUserID pgtype.UUID        `json:"updated_by_user_id"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ScriptVariant struct {
+	ID                       pgtype.UUID        `json:"id"`
+	GenerationTaskID         pgtype.UUID        `json:"generation_task_id"`
+	ProductID                pgtype.UUID        `json:"product_id"`
+	VariantIndex             int32              `json:"variant_index"`
+	Hook                     string             `json:"hook"`
+	ScriptText               string             `json:"script_text"`
+	EditingIntent            string             `json:"editing_intent"`
+	Beats                    []byte             `json:"beats"`
+	VoiceProfileID           pgtype.UUID        `json:"voice_profile_id"`
+	VoiceProfileName         string             `json:"voice_profile_name"`
+	ReferenceAudioStorageKey string             `json:"reference_audio_storage_key"`
+	ReferenceAudioFileName   string             `json:"reference_audio_file_name"`
+	ReferenceText            string             `json:"reference_text"`
+	Status                   string             `json:"status"`
+	ErrorMessage             pgtype.Text        `json:"error_message"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
 }
 
 type SpeechSegment struct {
@@ -169,4 +233,60 @@ type User struct {
 	LastLoginAt  pgtype.Timestamptz `json:"last_login_at"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type VoiceAudition struct {
+	ID                       pgtype.UUID        `json:"id"`
+	GenerationTaskID         pgtype.UUID        `json:"generation_task_id"`
+	VoiceProfileID           pgtype.UUID        `json:"voice_profile_id"`
+	VoiceProfileName         string             `json:"voice_profile_name"`
+	ReferenceAudioStorageKey string             `json:"reference_audio_storage_key"`
+	ReferenceAudioFileName   string             `json:"reference_audio_file_name"`
+	ReferenceText            string             `json:"reference_text"`
+	Text                     string             `json:"text"`
+	AudioStorageKey          pgtype.Text        `json:"audio_storage_key"`
+	SampleRate               pgtype.Int4        `json:"sample_rate"`
+	DurationMs               pgtype.Int4        `json:"duration_ms"`
+	Status                   string             `json:"status"`
+	ErrorMessage             pgtype.Text        `json:"error_message"`
+	CreatedByUserID          pgtype.UUID        `json:"created_by_user_id"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+}
+
+type VoiceProfile struct {
+	ID                       pgtype.UUID        `json:"id"`
+	Name                     string             `json:"name"`
+	Language                 string             `json:"language"`
+	StyleTags                []byte             `json:"style_tags"`
+	ReferenceText            string             `json:"reference_text"`
+	ReferenceAudioStorageKey string             `json:"reference_audio_storage_key"`
+	ReferenceAudioFileName   string             `json:"reference_audio_file_name"`
+	ReferenceAudioMimeType   string             `json:"reference_audio_mime_type"`
+	ReferenceAudioSize       int64              `json:"reference_audio_size"`
+	PreviewText              string             `json:"preview_text"`
+	PreviewAudioStorageKey   pgtype.Text        `json:"preview_audio_storage_key"`
+	PreviewStatus            string             `json:"preview_status"`
+	PreviewError             pgtype.Text        `json:"preview_error"`
+	Status                   string             `json:"status"`
+	IsDefault                bool               `json:"is_default"`
+	CreatedByUserID          pgtype.UUID        `json:"created_by_user_id"`
+	UpdatedByUserID          pgtype.UUID        `json:"updated_by_user_id"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Voiceover struct {
+	ID              pgtype.UUID        `json:"id"`
+	ScriptVariantID pgtype.UUID        `json:"script_variant_id"`
+	StorageKey      pgtype.Text        `json:"storage_key"`
+	VoiceProvider   string             `json:"voice_provider"`
+	VoiceModel      string             `json:"voice_model"`
+	VoiceName       string             `json:"voice_name"`
+	SampleRate      pgtype.Int4        `json:"sample_rate"`
+	DurationMs      pgtype.Int4        `json:"duration_ms"`
+	Status          string             `json:"status"`
+	ErrorMessage    pgtype.Text        `json:"error_message"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }

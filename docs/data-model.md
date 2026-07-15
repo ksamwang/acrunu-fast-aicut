@@ -403,6 +403,13 @@
 
 - `task_type`
   - `batch_video`
+  - `test`
+  - `asset_extract_frames`
+  - `asset_analyze`
+  - `asset_embedding`
+  - `voice_profile_preview`
+  - `voice_audition`
+  - `voiceover_generate`
 - `status`
   - `queued`
   - `running`
@@ -414,6 +421,22 @@
 
 - 所有批量任务共享全局队列
 - `config_snapshot` 保存任务创建时使用的模型、并发、渲染等关键配置快照
+
+当前旁白阶段将一个已确认文案版本对应为一个 `voiceover_generate` 任务；它完成时只代表 WAV 与旁白时间轴可用，不能代表视频已经渲染。
+
+### 8.1.1 `voice_profiles` 与 `voice_auditions`
+
+当前已实现的音色对象与工作台试听对象：
+
+- `voice_profiles`
+  - 保存名称、语言、风格标签、参考文本、参考音频存储键、固定样音文本、样音存储键与状态。
+  - `preview_status` 为 `queued`、`processing`、`ready` 或 `failed`。
+  - 只有 `enabled` 且 `preview_status=ready` 的音色可以用于试听或正式旁白。
+- `voice_auditions`
+  - 保存当前文案试听对应的任务、音色快照、文案、WAV 存储键、采样率、真实时长和状态。
+  - 试听是可丢弃的异步结果，不替代正式 `voiceovers`。
+
+音色参考音频、样音、试听和正式旁白均在服务端存储；浏览器只接收受认证 API 返回的对象元数据和可播放 URL，不持有 CosyVoice 访问配置。
 
 ### 8.2 `script_variants`
 

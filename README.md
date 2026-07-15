@@ -198,7 +198,7 @@ git commit -m "更新说明"
 .\scripts\deploy-server.ps1 -Services tts,renderer
 ```
 
-CosyVoice 首次启动会下载模型并加载到 GPU，健康检查最多允许 30 分钟；Remotion 仅使用 CPU 并将 smoke render 写入 `storage/renders/remotion`。两项服务默认仅绑定服务器回环地址，后续由 Docker 内的 API / worker 调用，不对浏览器暴露。
+CosyVoice 首次启动会下载模型并加载到 GPU，健康检查最多允许 30 分钟；Remotion 仅使用 CPU 并将 smoke render 写入 `storage/renders/remotion`。两项服务默认仅绑定服务器回环地址，后续由 Docker 内的 API / worker 调用，不对浏览器暴露。当前旁白任务已接入 CosyVoice 和 FunASR；如本次部署包含旁白表结构或 worker 代码，请同时使用 `-RunMigrations`。
 
 运行状态和验证方式见 [媒体服务部署说明](./docs/media-services.md)。
 

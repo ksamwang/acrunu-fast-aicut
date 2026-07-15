@@ -161,6 +161,18 @@ func (failingTaskStore) CreateAssetEmbeddingTask(_ context.Context, _ string, _ 
 	return services.GenerationTask{}, nil
 }
 
+func (failingTaskStore) CreateVoiceProfilePreviewTask(_ context.Context, _ string, _ queue.VoiceProfilePreviewPayload) (services.GenerationTask, error) {
+	return services.GenerationTask{}, nil
+}
+
+func (failingTaskStore) CreateVoiceAuditionTask(_ context.Context, _ string, _ queue.VoiceAuditionPayload) (services.GenerationTask, error) {
+	return services.GenerationTask{}, nil
+}
+
+func (failingTaskStore) CreateVoiceoverGenerateTask(_ context.Context, _ string, _ string, _ queue.VoiceoverGeneratePayload) (services.GenerationTask, error) {
+	return services.GenerationTask{}, nil
+}
+
 func (failingTaskStore) GetTask(_ context.Context, _ string) (services.GenerationTask, error) {
 	return services.GenerationTask{}, nil
 }

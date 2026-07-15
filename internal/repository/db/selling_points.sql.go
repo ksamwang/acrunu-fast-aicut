@@ -37,9 +37,9 @@ WHERE selling_point_id = $1
 
 func (q *Queries) CountAssetSellingPointLinks(ctx context.Context, sellingPointID pgtype.UUID) (int32, error) {
 	row := q.db.QueryRow(ctx, countAssetSellingPointLinks, sellingPointID)
-	var count int32
-	err := row.Scan(&count)
-	return count, err
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createSellingPoint = `-- name: CreateSellingPoint :one

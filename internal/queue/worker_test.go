@@ -42,6 +42,18 @@ func (h *stubHandler) HandleAssetEmbedding(_ context.Context, payload AssetEmbed
 	return nil
 }
 
+func (h *stubHandler) HandleVoiceProfilePreview(_ context.Context, _ VoiceProfilePreviewPayload) error {
+	return nil
+}
+
+func (h *stubHandler) HandleVoiceAudition(_ context.Context, _ VoiceAuditionPayload) error {
+	return nil
+}
+
+func (h *stubHandler) HandleVoiceoverGenerate(_ context.Context, _ VoiceoverGeneratePayload) error {
+	return nil
+}
+
 func TestHandleFileTaskDispatchesAssetEmbedding(t *testing.T) {
 	payload, err := json.Marshal(AssetEmbeddingPayload{AssetID: "asset-3"})
 	if err != nil {

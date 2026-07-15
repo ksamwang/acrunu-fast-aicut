@@ -43,6 +43,9 @@ type TaskStore interface {
 	CreateAssetExtractFramesTask(ctx context.Context, userID string, productID string, payload queue.AssetExtractFramesPayload) (GenerationTask, error)
 	CreateAssetAnalyzeTask(ctx context.Context, userID string, productID string, payload queue.AssetAnalyzePayload) (GenerationTask, error)
 	CreateAssetEmbeddingTask(ctx context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error)
+	CreateVoiceProfilePreviewTask(ctx context.Context, userID string, payload queue.VoiceProfilePreviewPayload) (GenerationTask, error)
+	CreateVoiceAuditionTask(ctx context.Context, userID string, payload queue.VoiceAuditionPayload) (GenerationTask, error)
+	CreateVoiceoverGenerateTask(ctx context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error)
 	GetTask(ctx context.Context, taskID string) (GenerationTask, error)
 	ListTasks(ctx context.Context) ([]GenerationTask, error)
 	MarkRunning(ctx context.Context, taskID string) error
@@ -99,6 +102,30 @@ func (s *TaskService) CreateAssetAnalyzeTask(ctx context.Context, userID string,
 
 func (s *TaskService) CreateAssetEmbeddingTask(ctx context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error) {
 	task, err := s.store.CreateAssetEmbeddingTask(ctx, userID, productID, payload)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) CreateVoiceProfilePreviewTask(ctx context.Context, userID string, payload queue.VoiceProfilePreviewPayload) (GenerationTask, error) {
+	task, err := s.store.CreateVoiceProfilePreviewTask(ctx, userID, payload)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) CreateVoiceAuditionTask(ctx context.Context, userID string, payload queue.VoiceAuditionPayload) (GenerationTask, error) {
+	task, err := s.store.CreateVoiceAuditionTask(ctx, userID, payload)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) CreateVoiceoverGenerateTask(ctx context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error) {
+	task, err := s.store.CreateVoiceoverGenerateTask(ctx, userID, productID, payload)
 	if err != nil {
 		return GenerationTask{}, err
 	}
@@ -191,6 +218,25 @@ func (s *fileTaskStore) CreateAssetAnalyzeTask(_ context.Context, userID string,
 func (s *fileTaskStore) CreateAssetEmbeddingTask(_ context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error) {
 	return s.createTask(userID, productID, "asset_embedding", map[string]any{
 		"asset_id": payload.AssetID,
+	})
+}
+
+func (s *fileTaskStore) CreateVoiceProfilePreviewTask(_ context.Context, userID string, payload queue.VoiceProfilePreviewPayload) (GenerationTask, error) {
+	return s.createTask(userID, "", "voice_profile_preview", map[string]any{
+		"voice_profile_id": payload.VoiceProfileID,
+	})
+}
+
+func (s *fileTaskStore) CreateVoiceAuditionTask(_ context.Context, userID string, payload queue.VoiceAuditionPayload) (GenerationTask, error) {
+	return s.createTask(userID, "", "voice_audition", map[string]any{
+		"audition_id": payload.AuditionID,
+	})
+}
+
+func (s *fileTaskStore) CreateVoiceoverGenerateTask(_ context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error) {
+	return s.createTask(userID, productID, "voiceover_generate", map[string]any{
+		"script_variant_id": payload.ScriptVariantID,
+		"voiceover_id":      payload.VoiceoverID,
 	})
 }
 

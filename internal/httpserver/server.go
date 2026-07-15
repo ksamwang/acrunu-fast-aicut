@@ -18,6 +18,7 @@ type Options struct {
 	ModelProviderService  *services.ModelProviderService
 	ProductAssetService   *services.ProductAssetService
 	AssetEmbeddingService *services.AssetEmbeddingService
+	VoiceoverService      *services.VoiceoverService
 }
 
 type Server struct {
@@ -29,6 +30,7 @@ type Server struct {
 	modelProviderService  *services.ModelProviderService
 	productAssetService   *services.ProductAssetService
 	assetEmbeddingService *services.AssetEmbeddingService
+	voiceoverService      *services.VoiceoverService
 	uploadTokenService    *services.UploadTokenService
 	localStore            *storage.LocalStore
 	taskService           *services.TaskService
@@ -62,6 +64,10 @@ func New(opts Options) *Server {
 	if assetEmbeddingService == nil {
 		assetEmbeddingService = services.NewAssetEmbeddingService(nil, productAssetService, systemConfigService, modelProviderService, opts.Config)
 	}
+	voiceoverService := opts.VoiceoverService
+	if voiceoverService == nil {
+		voiceoverService = services.NewVoiceoverService(opts.Config.StorageRoot, opts.Config, opts.Logger)
+	}
 
 	server := &Server{
 		cfg:                   opts.Config,
@@ -72,6 +78,7 @@ func New(opts Options) *Server {
 		modelProviderService:  modelProviderService,
 		productAssetService:   productAssetService,
 		assetEmbeddingService: assetEmbeddingService,
+		voiceoverService:      voiceoverService,
 		uploadTokenService:    services.NewUploadTokenService(),
 		localStore:            storage.NewLocalStore(opts.Config.StorageRoot),
 		taskService:           taskService,
@@ -136,6 +143,13 @@ func (s *Server) routes() {
 	runtimeSettings.GET("", s.handleGetRuntimeSettings)
 	runtimeSettings.PUT("", s.handleUpdateRuntimeSettings)
 
+	voiceProfileAdmin := adminGroup.Group("/voice-profiles")
+	voiceProfileAdmin.GET("", s.handleListVoiceProfiles)
+	voiceProfileAdmin.POST("", s.handleCreateVoiceProfile)
+	voiceProfileAdmin.PUT("/:voiceProfileID", s.handleUpdateVoiceProfile)
+	voiceProfileAdmin.POST("/:voiceProfileID/default", s.handleSetDefaultVoiceProfile)
+	voiceProfileAdmin.DELETE("/:voiceProfileID", s.handleDeleteVoiceProfile)
+
 	protected := api.Group("")
 	protected.Use(s.authMiddleware())
 	protected.GET("/ping", func(c *gin.Context) {
@@ -157,6 +171,12 @@ func (s *Server) routes() {
 	protected.POST("/uploads/tokens", s.handleCreateUploadToken)
 	protected.POST("/preprocess/asr-transcribe", s.handlePreprocessASRTranscribe)
 	protected.POST("/preprocess/vlm-label", s.handlePreprocessVLMLabel)
+	protected.GET("/voice-profiles", s.handleListVoiceProfiles)
+	protected.POST("/voice-profiles/:voiceProfileID/auditions", s.handleCreateVoiceAudition)
+	protected.GET("/voice-auditions/:auditionID", s.handleGetVoiceAudition)
+	protected.POST("/workbench/voiceover-tasks", s.handleCreateVoiceoverTasks)
+	protected.GET("/workbench/works", s.handleListVoiceoverWorks)
+	protected.GET("/workbench/works/:taskID", s.handleGetVoiceoverWork)
 	protected.GET("/assets", s.handleListAssets)
 	protected.GET("/assets/:assetID", s.handleGetAsset)
 	protected.GET("/assets/:assetID/frames", s.handleListAssetFrames)

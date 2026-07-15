@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Empty, Input, Progress, Segmented, Select, Tag } from "antd";
-import { Eye, LoaderCircle, Play } from "lucide-react";
+import { CircleAlert, LoaderCircle, Play } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
-import type { FinishedWork, FinishedWorkStatus } from "../../shared/types/generation";
+import type { FinishedWork } from "../../shared/types/generation";
 import type { Product } from "../../shared/types/product";
 import { listProducts } from "../products/api";
-import { listPrototypeFinishedWorks } from "../workbench/prototype-api";
+import { listVoiceoverWorks } from "../workbench/api";
 import { FinishedWorkDetail } from "./FinishedWorkDetail";
 import { FinishedWorkVisual } from "./FinishedWorkVisual";
 import "./styles.css";
 
-type StatusFilter = "all" | FinishedWorkStatus;
+type StatusFilter = "all" | "generating" | "completed";
 
 function readFinishedWorkID() {
   const match = window.location.hash.match(/^#\/finished\/([^/?#]+)/);
@@ -56,16 +56,31 @@ function formatCardDate(value?: string) {
 
 export function FinishedLibraryPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token, [], listProducts);
-  const [works, setWorks] = useState<FinishedWork[]>(() => listPrototypeFinishedWorks());
+  const [works, setWorks] = useState<FinishedWork[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [productID, setProductID] = useState<string | undefined>();
   const [keyword, setKeyword] = useState("");
   const [selectedWorkID, setSelectedWorkID] = useState(readFinishedWorkID);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setWorks(listPrototypeFinishedWorks()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+    let disposed = false;
+    const load = async () => {
+      try {
+        const nextWorks = await listVoiceoverWorks(token);
+        if (!disposed) {
+          setWorks(nextWorks);
+        }
+      } catch {
+        // Keep the last successful list visible while the service is temporarily unavailable.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [token]);
 
   useEffect(() => {
     const syncSelectedWork = () => setSelectedWorkID(readFinishedWorkID());
@@ -139,9 +154,10 @@ export function FinishedLibraryPage({ token }: { token: string }) {
           <div className="finished-waterfall">
             {filteredWorks.map((work) => {
               const isGenerating = work.status === "generating";
+              const isFailed = work.status === "failed";
               return (
                 <article
-                  className={`finished-work-card${isGenerating ? " is-generating" : ""}`}
+                  className={`finished-work-card${isGenerating ? " is-generating" : ""}${isFailed ? " is-failed" : ""}`}
                   key={work.id}
                   data-status={work.status}
                   data-testid={`finished-work-${work.id}`}
@@ -156,16 +172,20 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                     <span className="finished-work-overlay-top">
                       <span className="finished-work-overlay-labels">
                         <Tag className="finished-work-product">{work.product_name}</Tag>
-                        {work.is_demo ? <Tag>示例</Tag> : null}
                       </span>
-                      <Tag className="finished-work-status" color={isGenerating ? "processing" : "green"}>
-                        {isGenerating ? "生成中" : "已完成"}
+                      <Tag className="finished-work-status" color={isGenerating ? "processing" : isFailed ? "error" : "green"}>
+                        {isGenerating ? "生成中" : isFailed ? "生成失败" : "已完成"}
                       </Tag>
                     </span>
                     {isGenerating ? (
                       <span className="finished-work-generation-state">
                         <LoaderCircle size={22} />
                         <span>{work.stage_label}</span>
+                      </span>
+                    ) : isFailed ? (
+                      <span className="finished-work-generation-state is-failed">
+                        <CircleAlert size={22} />
+                        <span>{work.error_message || "生成失败"}</span>
                       </span>
                     ) : (
                       <span className="finished-work-play"><Play size={18} fill="currentColor" /></span>
@@ -175,7 +195,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                       <span className="finished-work-overlay-script">{work.script_text}</span>
                       <span className="finished-work-overlay-meta">
                         <span>{formatDuration(work.duration_ms)}</span>
-                        <span>{isGenerating ? `${work.progress}% · ${work.stage_label}` : `完成 ${formatCardDate(work.completed_at ?? work.created_at)}`}</span>
+                        <span>{isGenerating ? `${work.progress}% · ${work.stage_label}` : isFailed ? "生成失败" : `完成 ${formatCardDate(work.completed_at ?? work.created_at)}`}</span>
                       </span>
                       {isGenerating ? <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#4fc1b2" /> : null}
                     </span>

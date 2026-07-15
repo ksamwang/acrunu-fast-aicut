@@ -1,5 +1,5 @@
 import { Button, Progress, Tag, Tooltip, Typography } from "antd";
-import { ArrowLeft, CheckCircle2, LoaderCircle, Play } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleAlert, LoaderCircle, Volume2 } from "lucide-react";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
 import type { FinishedWork } from "../../shared/types/generation";
 import { FinishedWorkVisual } from "./FinishedWorkVisual";
@@ -12,8 +12,10 @@ const sourceTypeLabels = {
 
 export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBack: () => void }) {
   const isGenerating = work.status === "generating";
+  const isFailed = work.status === "failed";
   const narrationSegments = work.narration_segments ?? [];
   const editPlan = work.edit_plan ?? [];
+  const beats = work.beats ?? [];
   const previewCaption = narrationSegments[0]?.text;
 
   return (
@@ -26,8 +28,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
           <Typography.Text className="finished-detail-title">{work.title}</Typography.Text>
           <div className="finished-detail-heading-meta">
             <Tag className="finished-detail-product">{work.product_name}</Tag>
-            {work.is_demo ? <Tag>示例</Tag> : null}
-            <Tag color={isGenerating ? "processing" : "green"}>{isGenerating ? "生成中" : "已完成"}</Tag>
+            <Tag color={isGenerating ? "processing" : isFailed ? "error" : "green"}>{isGenerating ? "生成中" : isFailed ? "生成失败" : "已完成"}</Tag>
           </div>
         </div>
       </header>
@@ -43,8 +44,13 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
                   <LoaderCircle size={22} />
                   <span>{work.stage_label}</span>
                 </span>
+              ) : isFailed ? (
+                <span className="finished-detail-generation-state is-failed">
+                  <CircleAlert size={22} />
+                  <span>{work.error_message || "生成失败"}</span>
+                </span>
               ) : (
-                <span className="finished-detail-play"><Play size={24} fill="currentColor" /></span>
+                <span className="finished-detail-play"><Volume2 size={23} /></span>
               )}
               {previewCaption ? <span className="finished-detail-caption">{previewCaption}</span> : null}
             </div>
@@ -55,6 +61,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
               </span>
               <span>{formatDuration(work.duration_ms)}</span>
             </div>
+            {work.audio_url ? <audio className="finished-detail-audio" controls preload="metadata" src={work.audio_url} aria-label="旁白音频" /> : null}
           </div>
 
           <aside className="finished-detail-summary">
@@ -92,8 +99,10 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
                 <span>{work.progress}%</span>
                 <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#2f8c83" />
               </div>
+            ) : isFailed ? (
+              <span className="finished-detail-failed"><CircleAlert size={16} /> {work.error_message || "生成失败"}</span>
             ) : (
-              <span className="finished-detail-complete"><CheckCircle2 size={16} /> 成品已完成</span>
+              <span className="finished-detail-complete"><CheckCircle2 size={16} /> 旁白已完成</span>
             )}
           </aside>
         </section>
@@ -114,22 +123,32 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
           </div>
         </section>
 
-        <section className="finished-detail-section" aria-label="初步镜头编排">
-          <div className="finished-detail-section-heading">
-            <Typography.Text>初步镜头编排</Typography.Text>
-            <Typography.Text type="secondary">{editPlan.length} 段</Typography.Text>
-          </div>
-          <div className="finished-detail-plan-list">
-            {editPlan.map((beat) => (
-              <article className="finished-detail-plan-row" key={beat.id}>
-                <span className="finished-detail-plan-time">{formatTimestamp(beat.start_ms)} - {formatTimestamp(beat.end_ms)}</span>
-                <span className="finished-detail-plan-label">{beat.label}</span>
-                <span className="finished-detail-plan-goal">{beat.visual_goal}</span>
-                <Tag>{sourceTypeLabels[beat.source_type]}</Tag>
-              </article>
-            ))}
-          </div>
-        </section>
+        {editPlan.length > 0 || beats.length > 0 ? (
+          <section className="finished-detail-section" aria-label="初步镜头编排">
+            <div className="finished-detail-section-heading">
+              <Typography.Text>初步镜头编排</Typography.Text>
+              <Typography.Text type="secondary">{editPlan.length || beats.length} 段</Typography.Text>
+            </div>
+            <div className="finished-detail-plan-list">
+              {editPlan.map((beat) => (
+                <article className="finished-detail-plan-row" key={beat.id}>
+                  <span className="finished-detail-plan-time">{formatTimestamp(beat.start_ms)} - {formatTimestamp(beat.end_ms)}</span>
+                  <span className="finished-detail-plan-label">{beat.label}</span>
+                  <span className="finished-detail-plan-goal">{beat.visual_goal}</span>
+                  <Tag>{sourceTypeLabels[beat.source_type]}</Tag>
+                </article>
+              ))}
+              {editPlan.length === 0 ? beats.map((beat) => (
+                <article className="finished-detail-plan-row is-intent" key={beat.id}>
+                  <span className="finished-detail-plan-time">{beat.selling_point}</span>
+                  <span className="finished-detail-plan-label">{beat.label}</span>
+                  <span className="finished-detail-plan-goal">{beat.visual_goal}</span>
+                  <Tag>{sourceTypeLabels[beat.source_type]}</Tag>
+                </article>
+              )) : null}
+            </div>
+          </section>
+        ) : null}
       </main>
     </div>
   );

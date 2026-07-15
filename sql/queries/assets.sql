@@ -61,6 +61,7 @@ WHERE product_id = COALESCE(sqlc.narg('product_id'), product_id)
   AND status = COALESCE(sqlc.narg('status'), status)
   AND analysis_status = COALESCE(sqlc.narg('analysis_status'), analysis_status)
   AND usability_status = COALESCE(sqlc.narg('usability_status'), usability_status)
+  AND shot_size = COALESCE(sqlc.narg('shot_size'), shot_size)
   AND (
     sqlc.narg('selling_point_id')::uuid IS NULL
     OR EXISTS (
@@ -88,6 +89,7 @@ WHERE product_id = COALESCE(sqlc.narg('product_id'), product_id)
     OR COALESCE(duration_ms, 0) <= sqlc.narg('max_duration_ms')::int
   )
   AND has_audio = COALESCE(sqlc.narg('has_audio'), has_audio)
+  AND likely_has_speech = COALESCE(sqlc.narg('likely_has_speech'), likely_has_speech)
 ORDER BY created_at DESC;
 
 -- name: UpdateAssetStatus :exec

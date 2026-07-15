@@ -161,36 +161,36 @@ draft
 
 当前项目具备产品、卖点、正式素材库、VLM 分析、ASR 句段、向量写入和服务端任务基础。
 
-当前已完成前端原型：
+当前已完成的工作台与旁白链路：
 
 - 已新增 `#/workbench` 和 `#/finished` 路由，工作台为默认首页。
 - 已将工作台和成品库置于导航最前，普通用户导航移除了任务入口。
 - 产品和已有卖点读取现有真实接口。
-- 文案 variants、执行进度和成品状态暂由集中式浏览器 prototype adapter 驱动，并持久化到浏览器本地存储。
-- 工作台支持自定义卖点、生成/编辑/确认文案、开始 mock 任务和进行中状态。
-- 成品库支持瀑布流预览，以及生成中/已完成筛选；工作台启动的 mock 任务会立即出现在成品库。
-- 成品卡可进入 `#/finished/<work_id>` 详情，展示预览、旁白句段和初步镜头编排；刷新后仍保留详情地址。
-- 原型存储为空时，成品库会提供两条标记为“示例”的完整 mock 成品，方便确认详情交互；首次启动真实原型任务时自动移除。
+- 文案生成仍是前端 prototype；产品、卖点、手工编辑和确认流程已可用于验证工作台交互。
+- 音色配置已由服务端持久化：参考音频上传至服务端存储，创建或编辑后异步生成固定样音；浏览器只播放服务端返回的 WAV。
+- 工作台支持“试听当前文案”。试听作为 `voice_audition` 异步任务运行，不阻塞文案编辑。
+- “开始任务”已创建真实 `voiceover_generate` 任务。worker 使用服务端 CosyVoice，保存 WAV，再由 FunASR 生成连续且不重叠的 `narration_segments`。
+- 成品库从 `/api/workbench/works` 读取并轮询 `generating`、`completed` 和异常 `failed` 状态；详情页展示实际旁白音频、真实时长、句段和初步镜头意图。当前“已完成”表示旁白任务完成，不表示视频已渲染。
 
 尚未具备完整工作台链路，主要缺口如下：
 
-- 当前任务服务只支持测试和素材处理任务，尚无文案、配音、编排任务 API 或 worker。
+- 仍无服务端 LLM 文案生成和编排规划接口；当前文案 variants 仍由前端 prototype 生成。
 - `modelgateway` 当前提供素材分析和向量能力，尚无独立的脚本文案生成或编排规划接口。
 - 向量已可写入，但 `AssetRepository.SearchByEmbedding` 仍返回“未实现”，尚不能进行实际候选召回。
-- `generation_tasks` 数据库结构已有 `variant_count`、目标时长、风格和配置快照等基础字段，但现有服务层未将其用于生产任务创建。
-- 尚无 `script_variants`、`voiceovers`、`narration_segments`、`edit_plans` 和 `clip_segments` 的实际持久化与验证链路。
+- 已落地 `voice_profile_preview`、`voice_audition` 与 `voiceover_generate` 三类任务，以及 `voice_profiles`、`script_variants`、`voiceovers`、`narration_segments` 和 `voice_auditions` 的持久化。
+- 尚无 `edit_plans`、`clip_segments` 和视频渲染任务；成品库暂不能播放最终视频。
 
 ## 6. CosyVoice3
 
-CosyVoice3 是完整生产任务链的前置能力之一，而不是文案工作台本身的前置能力。
+CosyVoice3 已接入旁白阶段，但不是浏览器或 `local-agent` 能直接调用的客户端能力。
 
 建议接入方式：
 
 - 作为服务端独立 `tts` 服务，使用 Docker 内部网络访问，不在 local-agent 执行。
-- 提供明确的 TTS 抽象接口，避免业务代码直接依赖 CosyVoice HTTP 细节。
-- 配音文件写入服务端存储，并保存 provider、model、voice、采样率、时长和生成参数。
-- TTS 生成后复用 FunASR 或强制对齐链路生成句段时间轴，不假设 TTS 服务天然返回可用的字幕时间戳。
-- 部署前确认服务器 GPU、模型下载体积、持久化模型缓存、健康检查、超时和失败恢复策略。
+- `internal/modelgateway.CosyVoiceClient` 是唯一的 Go HTTP 适配层；业务服务不依赖 CosyVoice multipart 细节。
+- 配音文件写入服务端存储，持久化 provider、model、voice、采样率、时长和状态。
+- TTS 生成后调用 FunASR，写入连续且不重叠的 `narration_segments`，不假设 TTS 服务天然返回字幕时间戳。
+- 音色样音、当前文案试听和正式旁白均通过异步任务运行；正式任务只能选择启用且样音就绪的音色。
 
 在 TTS 未配置时，工作台可以完成文案生成与确认，但不应伪造最终 `edit_plan` 或以预计时长替代真实配音时间轴。
 
@@ -221,9 +221,9 @@ Remotion 不属于首期工作台、文案或编排链路的前置依赖。
 
 ### 第三步：CosyVoice3 与 narration 时间轴
 
-- 部署并接入服务端 TTS。
-- 保存配音音频与真实时长。
-- 通过 ASR / 对齐生成 `narration_segments`。
+- [x] 部署并接入服务端 TTS。
+- [x] 保存配音音频与真实时长。
+- [x] 通过 FunASR 生成 `narration_segments`。
 
 ### 第四步：编排与 edit_plan
 

@@ -12,14 +12,10 @@ type VoiceProfilePickerProps = {
   onChange: (profileID: string) => void;
 };
 
-function previewKindLabel(profile: VoiceProfile) {
-  return profile.preview_kind === "reference_audio" ? "参考音频" : "原型样音";
-}
-
 export function VoiceProfilePicker({ profiles, value, onChange }: VoiceProfilePickerProps) {
   const [open, setOpen] = useState(false);
   const { playingProfileID, togglePreview } = useVoicePreview();
-  const availableProfiles = profiles.filter((profile) => profile.status === "enabled");
+  const availableProfiles = profiles.filter((profile) => profile.status === "enabled" && profile.preview_status === "ready");
   const selectedProfile = availableProfiles.find((profile) => profile.id === value) ?? null;
 
   const previewProfile = (event: MouseEvent<HTMLElement>, profile: VoiceProfile) => {
@@ -87,7 +83,7 @@ export function VoiceProfilePicker({ profiles, value, onChange }: VoiceProfilePi
                   </div>
                   <div className="voice-profile-option-tags">
                     {profile.style_tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}
-                    <Tag className="voice-profile-preview-kind">{previewKindLabel(profile)}</Tag>
+                    <Tag className="voice-profile-preview-kind">样音就绪</Tag>
                   </div>
                   <Typography.Paragraph className="voice-profile-option-sample">{profile.preview_text}</Typography.Paragraph>
                   <div className="voice-profile-option-actions">

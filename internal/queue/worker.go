@@ -14,6 +14,9 @@ type TestTaskHandler interface {
 	HandleAssetExtractFrames(ctx context.Context, payload AssetExtractFramesPayload) error
 	HandleAssetAnalyze(ctx context.Context, payload AssetAnalyzePayload) error
 	HandleAssetEmbedding(ctx context.Context, payload AssetEmbeddingPayload) error
+	HandleVoiceProfilePreview(ctx context.Context, payload VoiceProfilePreviewPayload) error
+	HandleVoiceAudition(ctx context.Context, payload VoiceAuditionPayload) error
+	HandleVoiceoverGenerate(ctx context.Context, payload VoiceoverGeneratePayload) error
 }
 
 func NewServer(redisAddr string, concurrency int) *asynq.Server {
@@ -52,6 +55,27 @@ func NewServeMux(handler TestTaskHandler) *asynq.ServeMux {
 			return err
 		}
 		return handler.HandleAssetEmbedding(ctx, payload)
+	})
+	mux.HandleFunc(TypeVoiceProfilePreview, func(ctx context.Context, task *asynq.Task) error {
+		var payload VoiceProfilePreviewPayload
+		if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+			return err
+		}
+		return handler.HandleVoiceProfilePreview(ctx, payload)
+	})
+	mux.HandleFunc(TypeVoiceAudition, func(ctx context.Context, task *asynq.Task) error {
+		var payload VoiceAuditionPayload
+		if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+			return err
+		}
+		return handler.HandleVoiceAudition(ctx, payload)
+	})
+	mux.HandleFunc(TypeVoiceoverGenerate, func(ctx context.Context, task *asynq.Task) error {
+		var payload VoiceoverGeneratePayload
+		if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+			return err
+		}
+		return handler.HandleVoiceoverGenerate(ctx, payload)
 	})
 	return mux
 }
@@ -113,6 +137,24 @@ func handleFileTask(ctx context.Context, task FileTask, handler TestTaskHandler)
 			return err
 		}
 		return handler.HandleAssetEmbedding(ctx, payload)
+	case TypeVoiceProfilePreview:
+		var payload VoiceProfilePreviewPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			return err
+		}
+		return handler.HandleVoiceProfilePreview(ctx, payload)
+	case TypeVoiceAudition:
+		var payload VoiceAuditionPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			return err
+		}
+		return handler.HandleVoiceAudition(ctx, payload)
+	case TypeVoiceoverGenerate:
+		var payload VoiceoverGeneratePayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			return err
+		}
+		return handler.HandleVoiceoverGenerate(ctx, payload)
 	default:
 		return nil
 	}

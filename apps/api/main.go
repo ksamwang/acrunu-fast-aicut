@@ -23,6 +23,8 @@ func main() {
 	defer productAssetService.Close()
 	assetEmbeddingService := services.NewConfiguredAssetEmbeddingService(context.Background(), cfg, productAssetService.Service, systemConfigService.Service, modelProviderService.Service, logger)
 	defer assetEmbeddingService.Close()
+	voiceoverService := services.NewConfiguredVoiceoverService(context.Background(), cfg, logger)
+	defer voiceoverService.Close()
 
 	server := httpserver.New(httpserver.Options{
 		Config:                cfg,
@@ -32,6 +34,7 @@ func main() {
 		ModelProviderService:  modelProviderService.Service,
 		ProductAssetService:   productAssetService.Service,
 		AssetEmbeddingService: assetEmbeddingService.Service,
+		VoiceoverService:      voiceoverService.Service,
 	})
 
 	if err := server.Run(); err != nil {

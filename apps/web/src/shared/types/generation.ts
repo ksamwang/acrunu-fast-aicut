@@ -68,7 +68,7 @@ export type PrototypeRun = {
   beats?: EditingIntentBeat[];
 };
 
-export type FinishedWorkStatus = "generating" | "completed";
+export type FinishedWorkStatus = "generating" | "completed" | "failed";
 
 export type FinishedWork = {
   id: string;
@@ -88,7 +88,10 @@ export type FinishedWork = {
   created_at: string;
   completed_at?: string;
   editing_intent?: string;
+  beats?: EditingIntentBeat[];
   narration_segments?: NarrationSegment[];
   edit_plan?: EditPlanBeat[];
+  audio_url?: string;
+  error_message?: string;
   is_demo?: boolean;
 };

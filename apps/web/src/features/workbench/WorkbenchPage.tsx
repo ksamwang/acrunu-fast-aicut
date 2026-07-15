@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, Input, InputNumber, Modal, Select, Tag, Tooltip, Typography, message } from "antd";
-import { Check, CheckCircle2, Circle, Clapperboard, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
+import { Check, CheckCircle2, Circle, Clapperboard, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { Product, SellingPoint } from "../../shared/types/product";
+import type { VoiceAudition } from "../../shared/types/voice";
 import { listProducts, listSellingPoints } from "../products/api";
 import { VoiceProfilePicker } from "../voice-profiles/VoiceProfilePicker";
 import { useVoiceProfiles } from "../voice-profiles/useVoiceProfiles";
 import {
   clearWorkbenchVariants,
-  generatePrototypeScripts,
+  generateDraftScripts,
   loadWorkbenchDraft,
-  saveWorkbenchDraft,
-  startPrototypeWorks
-} from "./prototype-api";
+  saveWorkbenchDraft
+} from "./draft-scripts";
+import { createVoiceAudition, createVoiceoverTasks, getVoiceAudition } from "./api";
 import "./styles.css";
 
 const sourceTypeLabels = {
@@ -37,8 +38,11 @@ export function WorkbenchPage({ token }: { token: string }) {
   const [customSellingPointInput, setCustomSellingPointInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const [regeneratingVariantID, setRegeneratingVariantID] = useState<string | null>(null);
+  const [startingTasks, setStartingTasks] = useState(false);
+  const [audition, setAudition] = useState<VoiceAudition | null>(null);
+  const [creatingAudition, setCreatingAudition] = useState(false);
   const defaultedProductIDRef = useRef("");
-  const voiceProfiles = useVoiceProfiles();
+  const voiceProfilesResource = useVoiceProfiles(token);
 
   const sellingPoints = useResource<SellingPoint[]>(
     draft.product_id ? `/api/products/${draft.product_id}/selling-points` : null,
@@ -55,10 +59,15 @@ export function WorkbenchPage({ token }: { token: string }) {
   const confirmedVariants = draft.variants.filter((variant) => variant.status === "confirmed");
   const canGenerate = Boolean(selectedProduct) && (selectedSellingPoints.length > 0 || draft.custom_selling_points.length > 0);
   const availableVoiceProfiles = useMemo(
-    () => voiceProfiles.filter((profile) => profile.status === "enabled"),
-    [voiceProfiles]
+    () => voiceProfilesResource.profiles.filter((profile) => profile.status === "enabled" && profile.preview_status === "ready"),
+    [voiceProfilesResource.profiles]
   );
   const selectedVoiceProfile = availableVoiceProfiles.find((profile) => profile.id === draft.voice_profile_id) ?? null;
+  const activeAudition = audition && activeVariant && selectedVoiceProfile
+    && audition.voice_profile_id === selectedVoiceProfile.id
+    && audition.text === activeVariant.script_text
+    ? audition
+    : null;
 
   useEffect(() => {
     saveWorkbenchDraft(draft);
@@ -90,6 +99,28 @@ export function WorkbenchPage({ token }: { token: string }) {
       return existingProfile ? current : { ...current, voice_profile_id: fallbackProfile.id };
     });
   }, [availableVoiceProfiles]);
+
+  useEffect(() => {
+    if (!audition || audition.status === "completed" || audition.status === "failed") {
+      return;
+    }
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const nextAudition = await getVoiceAudition(audition.id, token);
+        if (!disposed) {
+          setAudition(nextAudition);
+        }
+      } catch {
+        // The next manual attempt can retry the audition if the task failed remotely.
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), 1_500);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [audition, token]);
 
   const setProduct = (productID: string) => {
     const apply = () => {
@@ -147,7 +178,7 @@ export function WorkbenchPage({ token }: { token: string }) {
     }
     setGenerating(true);
     try {
-      const variants = await generatePrototypeScripts({
+      const variants = await generateDraftScripts({
         product: selectedProduct,
         selling_points: selectedSellingPoints,
         custom_selling_points: draft.custom_selling_points,
@@ -181,7 +212,7 @@ export function WorkbenchPage({ token }: { token: string }) {
     }
     setRegeneratingVariantID(activeVariant.id);
     try {
-      const [replacement] = await generatePrototypeScripts({
+      const [replacement] = await generateDraftScripts({
         product: selectedProduct,
         selling_points: selectedSellingPoints,
         custom_selling_points: draft.custom_selling_points,
@@ -202,7 +233,24 @@ export function WorkbenchPage({ token }: { token: string }) {
     }
   };
 
-  const startTasks = () => {
+  const requestAudition = async () => {
+    if (!activeVariant || !selectedVoiceProfile) {
+      message.warning("请选择样音已就绪的音色");
+      return;
+    }
+    setCreatingAudition(true);
+    try {
+      const nextAudition = await createVoiceAudition(selectedVoiceProfile.id, activeVariant.script_text, token);
+      setAudition(nextAudition);
+      message.success("试听已加入生成队列");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "创建试听失败");
+    } finally {
+      setCreatingAudition(false);
+    }
+  };
+
+  const startTasks = async () => {
     if (!selectedProduct || confirmedVariants.length === 0) {
       return;
     }
@@ -210,12 +258,19 @@ export function WorkbenchPage({ token }: { token: string }) {
       message.warning("请选择音色");
       return;
     }
-    const started = startPrototypeWorks(selectedProduct, confirmedVariants, selectedVoiceProfile);
-    const nextDraft = clearWorkbenchVariants(draft);
-    saveWorkbenchDraft(nextDraft);
-    setDraft(nextDraft);
-    message.success(`已开始 ${started.length} 条任务`);
-    window.location.hash = "#/finished";
+    setStartingTasks(true);
+    try {
+      const works = await createVoiceoverTasks(selectedProduct.id, selectedVoiceProfile.id, confirmedVariants, token);
+      const nextDraft = clearWorkbenchVariants(draft);
+      saveWorkbenchDraft(nextDraft);
+      setDraft(nextDraft);
+      message.success(`已开始 ${works.length} 条任务`);
+      window.location.hash = "#/finished";
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "创建配音任务失败");
+    } finally {
+      setStartingTasks(false);
+    }
   };
 
   const productOptions = useMemo(
@@ -299,7 +354,7 @@ export function WorkbenchPage({ token }: { token: string }) {
         <div className="workbench-field workbench-voice-field">
           <Typography.Text className="workbench-field-label">音色</Typography.Text>
           <VoiceProfilePicker
-            profiles={voiceProfiles}
+            profiles={availableVoiceProfiles}
             value={draft.voice_profile_id}
             onChange={(voiceProfileID) => setDraft((current) => ({ ...current, voice_profile_id: voiceProfileID }))}
           />
@@ -364,6 +419,16 @@ export function WorkbenchPage({ token }: { token: string }) {
                     <Typography.Text type="secondary">预计 {formatDuration(activeVariant.estimated_duration_ms)}</Typography.Text>
                   </div>
                   <div className="workbench-script-actions">
+                    <Button
+                      type="text"
+                      aria-label="试听当前文案"
+                      icon={<Volume2 size={17} />}
+                      loading={creatingAudition || (activeAudition?.status === "queued" || activeAudition?.status === "synthesizing")}
+                      disabled={!selectedVoiceProfile || activeAudition?.status === "queued" || activeAudition?.status === "synthesizing"}
+                      onClick={() => void requestAudition()}
+                    >
+                      {activeAudition?.status === "queued" || activeAudition?.status === "synthesizing" ? "生成试听" : "试听当前文案"}
+                    </Button>
                     <Tooltip title="重新生成当前文案">
                       <Button
                         type="text"
@@ -382,6 +447,13 @@ export function WorkbenchPage({ token }: { token: string }) {
                     </Button>
                   </div>
                 </div>
+
+                {activeAudition?.status === "completed" && activeAudition.audio_url ? (
+                  <div className="workbench-audition-player">
+                    <audio controls preload="none" src={activeAudition.audio_url} aria-label="当前文案试听" />
+                  </div>
+                ) : null}
+                {activeAudition?.status === "failed" ? <Typography.Text type="danger">{activeAudition.error_message || "试听生成失败"}</Typography.Text> : null}
 
                 <Input.TextArea
                   data-testid="workbench-script-editor"
@@ -432,8 +504,9 @@ export function WorkbenchPage({ token }: { token: string }) {
           type="primary"
           data-testid="workbench-start-tasks"
           icon={<Clapperboard size={17} />}
+          loading={startingTasks}
           disabled={confirmedVariants.length === 0 || !selectedVoiceProfile}
-          onClick={startTasks}
+          onClick={() => void startTasks()}
         >
           开始 {confirmedVariants.length} 条任务
         </Button>

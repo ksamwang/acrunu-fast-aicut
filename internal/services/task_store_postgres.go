@@ -58,6 +58,25 @@ func (s *PostgresTaskStore) CreateAssetEmbeddingTask(ctx context.Context, userID
 	})
 }
 
+func (s *PostgresTaskStore) CreateVoiceProfilePreviewTask(ctx context.Context, userID string, payload queue.VoiceProfilePreviewPayload) (GenerationTask, error) {
+	return s.createTask(ctx, userID, "", "voice_profile_preview", map[string]any{
+		"voice_profile_id": payload.VoiceProfileID,
+	})
+}
+
+func (s *PostgresTaskStore) CreateVoiceAuditionTask(ctx context.Context, userID string, payload queue.VoiceAuditionPayload) (GenerationTask, error) {
+	return s.createTask(ctx, userID, "", "voice_audition", map[string]any{
+		"audition_id": payload.AuditionID,
+	})
+}
+
+func (s *PostgresTaskStore) CreateVoiceoverGenerateTask(ctx context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error) {
+	return s.createTask(ctx, userID, productID, "voiceover_generate", map[string]any{
+		"script_variant_id": payload.ScriptVariantID,
+		"voiceover_id":      payload.VoiceoverID,
+	})
+}
+
 func (s *PostgresTaskStore) createTask(ctx context.Context, userID string, productID string, taskType string, payloadSummary map[string]any) (GenerationTask, error) {
 	snapshot, err := json.Marshal(payloadSummary)
 	if err != nil {

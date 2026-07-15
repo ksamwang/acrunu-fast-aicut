@@ -308,7 +308,7 @@ export function SettingsPage({ token }: { token: string }) {
         className="settings-tab-panel"
         style={{ display: settingsTab === "voices" ? undefined : "none" }}
       >
-        <VoiceProfilesSettingsPanel />
+        <VoiceProfilesSettingsPanel token={token} />
       </Card>
 
       <Modal

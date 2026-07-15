@@ -1,10 +1,11 @@
 import { requestJSON } from "./http";
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const { response, payload } = await requestJSON(path, {
     ...options,
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers
     }

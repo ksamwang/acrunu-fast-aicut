@@ -107,3 +107,57 @@ func (c *Client) EnqueueAssetEmbedding(taskID string, assetID string) error {
 	_, err = c.client.Enqueue(asynq.NewTask(TypeAssetEmbedding, encodedPayload), asynq.MaxRetry(3))
 	return err
 }
+
+func (c *Client) EnqueueVoiceProfilePreview(payload VoiceProfilePreviewPayload) error {
+	if payload.TaskID == "" || payload.VoiceProfileID == "" {
+		return fmt.Errorf("task id and voice profile id are required")
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeVoiceProfilePreview, encodedPayload, 2)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeVoiceProfilePreview, encodedPayload), asynq.MaxRetry(2))
+	return err
+}
+
+func (c *Client) EnqueueVoiceAudition(payload VoiceAuditionPayload) error {
+	if payload.TaskID == "" || payload.AuditionID == "" {
+		return fmt.Errorf("task id and audition id are required")
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeVoiceAudition, encodedPayload, 2)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeVoiceAudition, encodedPayload), asynq.MaxRetry(2))
+	return err
+}
+
+func (c *Client) EnqueueVoiceoverGenerate(payload VoiceoverGeneratePayload) error {
+	if payload.TaskID == "" || payload.ScriptVariantID == "" || payload.VoiceoverID == "" {
+		return fmt.Errorf("task id, script variant id, and voiceover id are required")
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeVoiceoverGenerate, encodedPayload, 2)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeVoiceoverGenerate, encodedPayload), asynq.MaxRetry(2))
+	return err
+}

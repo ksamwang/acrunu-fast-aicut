@@ -240,6 +240,20 @@
 
 CosyVoice 与 FunASR 共用服务器 GPU；当前部署使用半精度 CosyVoice3 模型。Remotion 默认使用 CPU，避免与模型推理竞争显存。
 
+### 5.6 当前已落地的旁白任务链
+
+音色和正式旁白属于服务端生成对象，不属于 `local-agent` 预处理工作区：
+
+```text
+browser -> API -> server storage / generation_tasks -> worker -> CosyVoice -> WAV -> FunASR -> narration_segments
+```
+
+- 浏览器只能调用受认证的音色、试听和工作台 API；不能调用 `tts` 或 `asr` 容器。
+- 参考音频、固定样音、试听 WAV 和正式旁白 WAV 均保存在服务端 `storage/` 下。
+- 音色创建或编辑、当前文案试听和正式旁白分别对应异步任务；前端通过状态轮询展示结果，不阻塞文案编辑。
+- 正式旁白完成后，FunASR 生成连续且不重叠的 `narration_segments`，它们是后续编排的真实时间轴锚点。
+- 当前阶段尚未生成 `edit_plan`、素材组合或最终视频；成品库中的“已完成”仅表示旁白任务完成。
+
 ## 6. 标签体系设计
 
 素材标签应同时包含结构化标签和开放语义标签，两者不能互相替代。

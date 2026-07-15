@@ -1,25 +1,42 @@
 import { useEffect, useState } from "react";
 import type { VoiceProfile } from "../../shared/types/voice";
-import { listPrototypeVoiceProfiles, voiceProfilesChangedEvent } from "./prototype-store";
+import { listVoiceProfiles } from "./api";
 
-export function useVoiceProfiles() {
-  const [profiles, setProfiles] = useState<VoiceProfile[]>(() => listPrototypeVoiceProfiles());
+const refreshIntervalMs = 3_000;
+
+export function useVoiceProfiles(token: string) {
+  const [profiles, setProfiles] = useState<VoiceProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const reload = async () => {
+    const nextProfiles = await listVoiceProfiles("/api/voice-profiles", token);
+    setProfiles(nextProfiles);
+    return nextProfiles;
+  };
 
   useEffect(() => {
-    const reload = () => setProfiles(listPrototypeVoiceProfiles());
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === "aicut.voice-profiles.prototype.v1") {
-        reload();
+    let disposed = false;
+    const load = async () => {
+      try {
+        const nextProfiles = await listVoiceProfiles("/api/voice-profiles", token);
+        if (!disposed) {
+          setProfiles(nextProfiles);
+        }
+      } catch {
+        // The caller surfaces save actions; background polling should stay quiet.
+      } finally {
+        if (!disposed) {
+          setLoading(false);
+        }
       }
     };
-
-    window.addEventListener(voiceProfilesChangedEvent, reload);
-    window.addEventListener("storage", onStorage);
+    void load();
+    const timer = window.setInterval(() => void load(), refreshIntervalMs);
     return () => {
-      window.removeEventListener(voiceProfilesChangedEvent, reload);
-      window.removeEventListener("storage", onStorage);
+      disposed = true;
+      window.clearInterval(timer);
     };
-  }, []);
+  }, [token]);
 
-  return profiles;
+  return { profiles, loading, reload };
 }

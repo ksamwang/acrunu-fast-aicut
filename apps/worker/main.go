@@ -25,6 +25,8 @@ func main() {
 	defer productAssetService.Close()
 	assetEmbeddingService := services.NewConfiguredAssetEmbeddingService(context.Background(), cfg, productAssetService.Service, systemConfigService.Service, modelProviderService.Service, logger)
 	defer assetEmbeddingService.Close()
+	voiceoverService := services.NewConfiguredVoiceoverService(context.Background(), cfg, logger)
+	defer voiceoverService.Close()
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
 	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(context.Background(), systemConfigService.Service, modelProviderService.Service, cfg), nil)
@@ -39,7 +41,7 @@ func main() {
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
 		assetProcessingService,
-	)
+	).WithVoiceoverService(voiceoverService.Service)
 
 	if cfg.QueueBackend == "file" {
 		logger.Info("worker starting", "queue_backend", cfg.QueueBackend, "storage_root", cfg.StorageRoot)
