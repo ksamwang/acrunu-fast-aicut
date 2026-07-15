@@ -42,11 +42,10 @@ RUN git init /opt/CosyVoice \
     && git checkout --detach FETCH_HEAD \
     && git submodule update --init --recursive --depth 1
 
-# TensorRT and DeepSpeed are optional acceleration/training dependencies. The standard
-# PyTorch inference path used by this service does not import either package.
+# TensorRT, DeepSpeed, and Whisper are optional acceleration/training/ASR dependencies.
+# The standard PyTorch inference path used by this service does not import them.
 RUN cd /opt/CosyVoice \
-    && sed -E '/^(deepspeed|tensorrt-cu12|tensorrt-cu12-bindings|tensorrt-cu12-libs)==/d' requirements.txt > requirements.runtime.txt \
-    && python -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" --upgrade pip \
+    && sed -E '/^(deepspeed|openai-whisper|tensorrt-cu12|tensorrt-cu12-bindings|tensorrt-cu12-libs)==/d' requirements.txt > requirements.runtime.txt \
     && python -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" -r requirements.runtime.txt
 
 WORKDIR /app
