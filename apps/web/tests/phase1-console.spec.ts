@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("logs in and synchronizes Hash routes for core pages", async ({ page }) => {
+test("uses the workbench and finished library through Hash routes", async ({ page }) => {
   let assetSellingPoints = [
     {
       id: "sp-1",
@@ -438,23 +438,48 @@ test("logs in and synchronizes Hash routes for core pages", async ({ page }) => 
   await page.getByTestId("login-submit").click();
   await expect(page.getByTestId("console-app")).toBeVisible();
 
-  await expect(page.getByText("Smart Light")).toBeVisible();
+  await expect(page.getByTestId("workbench-page")).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "工作台" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "成品库" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "任务" })).toHaveCount(0);
+
+  await page.getByTestId("workbench-product-select").click();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("workbench-generate")).toBeEnabled();
+  await page.getByTestId("workbench-generate").click();
+  await expect(page.getByText("文案 01")).toBeVisible();
+  await page.getByRole("button", { name: "确认文案" }).click();
+  await expect(page.getByTestId("workbench-start-tasks")).toHaveText("开始 1 条任务");
+  await page.getByTestId("workbench-start-tasks").click();
+  await expect(page.getByText("进行中")).toBeVisible();
+
+  await page.evaluate(() => {
+    const raw = window.localStorage.getItem("aicut.workbench.prototype.store.v1");
+    const store = raw ? JSON.parse(raw) : { runs: [], finished_works: [] };
+    store.runs = store.runs.map((run: { started_at: string }) => ({
+      ...run,
+      started_at: new Date(Date.now() - 12_000).toISOString()
+    }));
+    window.localStorage.setItem("aicut.workbench.prototype.store.v1", JSON.stringify(store));
+  });
+
+  await page.getByRole("menuitem", { name: "成品库" }).click();
+  await expect(page.getByTestId("finished-library-page")).toBeVisible();
+  const submitButton = page.getByRole("button", { name: "提交", exact: true });
+  await expect(submitButton).toBeVisible();
+  await submitButton.click();
+  await expect(page.getByText("暂无待提交成品")).toBeVisible();
+
   await page.getByRole("menuitem", { name: "素材" }).click();
   await expect(page.getByTestId("assets-page")).toBeVisible();
   await expect(page.getByText("clean-shot.mp4")).toBeVisible();
   await expect(page.getByText("mute-shot.mp4")).toBeVisible();
 
   await page.evaluate(() => {
-    window.location.hash = "#/tasks";
+    window.location.hash = "#/finished";
   });
-  await expect(page.getByTestId("tasks-page")).toBeVisible();
+  await expect(page.getByTestId("finished-library-page")).toBeVisible();
   await page.reload();
-  await expect(page.getByTestId("tasks-page")).toBeVisible();
-  await expect(page.getByText("task-1")).toBeVisible();
-  await expect(page.getByText("task-extract-1")).toBeVisible();
-  await expect(page.getByText("task-asset-analyze")).toBeVisible();
-  await page.getByRole("button", { name: "task-asset-analyze" }).click();
-  await expect(page.getByTestId("task-detail-modal")).toBeVisible();
-  await expect(page.getByText("mock provider failed")).toBeVisible();
-  await expect(page.getByText("\"asset_id\": \"asset-1\"")).toBeVisible();
+  await expect(page.getByTestId("finished-library-page")).toBeVisible();
 });

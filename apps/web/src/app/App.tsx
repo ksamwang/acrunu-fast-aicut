@@ -3,10 +3,11 @@ import { AppShell } from "./AppShell";
 import { normalizeViewForRole, readHashView, writeHashView, type ViewKey } from "./routes";
 import { AssetsPage } from "../features/assets/AssetsPage";
 import { LoginPage } from "../features/auth/LoginPage";
+import { FinishedLibraryPage } from "../features/finished/FinishedLibraryPage";
 import { PreprocessPage } from "../features/preprocess/PreprocessPage";
 import { ProductManagementPage } from "../features/products/ProductsPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
-import { TasksPage } from "../features/tasks/TasksPage";
+import { WorkbenchPage } from "../features/workbench/WorkbenchPage";
 import { roleLabels, translateValue } from "../shared/lib/labels";
 import { clearStoredSession, readStoredSession, storeSession } from "../shared/lib/session-storage";
 import type { Session } from "../shared/types/auth";
@@ -42,10 +43,11 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
       onNavigate={navigateView}
       onLogout={onLogout}
     >
+      {view === "workbench" && <WorkbenchPage token={session.token} />}
+      {view === "finished" && <FinishedLibraryPage token={session.token} />}
       {view === "products" && <ProductManagementPage token={session.token} />}
       {view === "preprocess" && <PreprocessPage token={session.token} />}
       {view === "assets" && <AssetsPage token={session.token} />}
-      {view === "tasks" && <TasksPage token={session.token} />}
       {view === "settings" && session.user.role === "admin" && <SettingsPage token={session.token} />}
     </AppShell>
   );
