@@ -105,9 +105,9 @@ async def synthesize(
         raise HTTPException(status_code=400, detail=f"text must not exceed {MAX_TEXT_LENGTH} characters")
 
     try:
-        from cosyvoice.utils.file_utils import load_wav
-
-        prompt_wav = load_wav(prompt_audio.file, 16_000)
+        # CosyVoice3 performs its own sample-rate conversion and expects a readable
+        # file object here, rather than a pre-decoded tensor.
+        prompt_wav = prompt_audio.file
         if mode == "zero_shot":
             if not prompt_text or not prompt_text.strip():
                 raise HTTPException(status_code=400, detail="prompt_text is required for zero_shot synthesis")
