@@ -6,6 +6,8 @@ import { formatDuration } from "../../shared/lib/format";
 import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { listProducts, listSellingPoints } from "../products/api";
+import { VoiceProfilePicker } from "../voice-profiles/VoiceProfilePicker";
+import { useVoiceProfiles } from "../voice-profiles/useVoiceProfiles";
 import {
   clearWorkbenchVariants,
   generatePrototypeScripts,
@@ -36,6 +38,7 @@ export function WorkbenchPage({ token }: { token: string }) {
   const [generating, setGenerating] = useState(false);
   const [regeneratingVariantID, setRegeneratingVariantID] = useState<string | null>(null);
   const defaultedProductIDRef = useRef("");
+  const voiceProfiles = useVoiceProfiles();
 
   const sellingPoints = useResource<SellingPoint[]>(
     draft.product_id ? `/api/products/${draft.product_id}/selling-points` : null,
@@ -51,6 +54,11 @@ export function WorkbenchPage({ token }: { token: string }) {
   const activeVariant = draft.variants.find((variant) => variant.id === draft.active_variant_id) ?? draft.variants[0] ?? null;
   const confirmedVariants = draft.variants.filter((variant) => variant.status === "confirmed");
   const canGenerate = Boolean(selectedProduct) && (selectedSellingPoints.length > 0 || draft.custom_selling_points.length > 0);
+  const availableVoiceProfiles = useMemo(
+    () => voiceProfiles.filter((profile) => profile.status === "enabled"),
+    [voiceProfiles]
+  );
+  const selectedVoiceProfile = availableVoiceProfiles.find((profile) => profile.id === draft.voice_profile_id) ?? null;
 
   useEffect(() => {
     saveWorkbenchDraft(draft);
@@ -71,6 +79,17 @@ export function WorkbenchPage({ token }: { token: string }) {
         : current
     );
   }, [draft.product_id, sellingPoints.data, sellingPoints.loading]);
+
+  useEffect(() => {
+    const fallbackProfile = availableVoiceProfiles.find((profile) => profile.is_default) ?? availableVoiceProfiles[0];
+    if (!fallbackProfile) {
+      return;
+    }
+    setDraft((current) => {
+      const existingProfile = availableVoiceProfiles.find((profile) => profile.id === current.voice_profile_id);
+      return existingProfile ? current : { ...current, voice_profile_id: fallbackProfile.id };
+    });
+  }, [availableVoiceProfiles]);
 
   const setProduct = (productID: string) => {
     const apply = () => {
@@ -187,7 +206,11 @@ export function WorkbenchPage({ token }: { token: string }) {
     if (!selectedProduct || confirmedVariants.length === 0) {
       return;
     }
-    const started = startPrototypeWorks(selectedProduct, confirmedVariants);
+    if (!selectedVoiceProfile) {
+      message.warning("请选择音色");
+      return;
+    }
+    const started = startPrototypeWorks(selectedProduct, confirmedVariants, selectedVoiceProfile);
     const nextDraft = clearWorkbenchVariants(draft);
     saveWorkbenchDraft(nextDraft);
     setDraft(nextDraft);
@@ -271,6 +294,14 @@ export function WorkbenchPage({ token }: { token: string }) {
             precision={0}
             value={draft.variant_count}
             onChange={(value) => setDraft((current) => ({ ...current, variant_count: Number(value ?? 1) }))}
+          />
+        </div>
+        <div className="workbench-field workbench-voice-field">
+          <Typography.Text className="workbench-field-label">音色</Typography.Text>
+          <VoiceProfilePicker
+            profiles={voiceProfiles}
+            value={draft.voice_profile_id}
+            onChange={(voiceProfileID) => setDraft((current) => ({ ...current, voice_profile_id: voiceProfileID }))}
           />
         </div>
         <Button
@@ -396,12 +427,12 @@ export function WorkbenchPage({ token }: { token: string }) {
       </main>
 
       <footer className="workbench-footer">
-        <Typography.Text>已确认 {confirmedVariants.length} 条</Typography.Text>
+        <Typography.Text>已确认 {confirmedVariants.length} 条{selectedVoiceProfile ? ` · ${selectedVoiceProfile.name}` : ""}</Typography.Text>
         <Button
           type="primary"
           data-testid="workbench-start-tasks"
           icon={<Clapperboard size={17} />}
-          disabled={confirmedVariants.length === 0}
+          disabled={confirmedVariants.length === 0 || !selectedVoiceProfile}
           onClick={startTasks}
         >
           开始 {confirmedVariants.length} 条任务

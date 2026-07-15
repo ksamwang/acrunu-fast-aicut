@@ -41,6 +41,7 @@ export type WorkbenchDraft = {
   product_id: string;
   selling_point_ids: string[];
   custom_selling_points: string[];
+  voice_profile_id: string;
   variant_count: number;
   variants: ScriptVariant[];
   active_variant_id: string;
@@ -54,6 +55,8 @@ export type PrototypeRun = {
   product_name: string;
   product_cover_url?: string;
   script_variant_id: string;
+  voice_profile_id?: string;
+  voice_profile_name?: string;
   hook: string;
   script_text: string;
   duration_ms: number;
@@ -75,6 +78,8 @@ export type FinishedWork = {
   product_cover_url?: string;
   title: string;
   hook: string;
+  voice_profile_id?: string;
+  voice_profile_name?: string;
   script_text: string;
   duration_ms: number;
   status: FinishedWorkStatus;

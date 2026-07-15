@@ -75,6 +75,12 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
                 <dt>旁白</dt>
                 <dd>{narrationSegments.length} 句</dd>
               </div>
+              {work.voice_profile_name ? (
+                <div>
+                  <dt>音色</dt>
+                  <dd>{work.voice_profile_name}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>完成时间</dt>
                 <dd>{formatDateTime(work.completed_at ?? work.created_at)}</dd>

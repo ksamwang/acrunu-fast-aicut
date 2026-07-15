@@ -9,6 +9,7 @@ import type {
   WorkbenchDraft
 } from "../../shared/types/generation";
 import type { Product, SellingPoint } from "../../shared/types/product";
+import type { VoiceProfile } from "../../shared/types/voice";
 import { productReferenceImage } from "../products/product-reference";
 
 type PrototypeStore = {
@@ -44,6 +45,7 @@ const emptyDraft: WorkbenchDraft = {
   product_id: "",
   selling_point_ids: [],
   custom_selling_points: [],
+  voice_profile_id: "",
   variant_count: 3,
   variants: [],
   active_variant_id: ""
@@ -274,6 +276,8 @@ function createDemoWorks(): FinishedWork[] {
     product_name: "束裤带",
     title: demo.title,
     hook: demo.hook,
+    voice_profile_id: "voice-prototype-warm-female",
+    voice_profile_name: "温和女声",
     script_text: demo.scriptText,
     duration_ms: demo.durationMs,
     status: "completed" as const,
@@ -315,6 +319,8 @@ function workFromRun(run: PrototypeRun, completedAt?: string): FinishedWork {
     product_cover_url: run.product_cover_url,
     title: run.hook,
     hook: run.hook,
+    voice_profile_id: run.voice_profile_id,
+    voice_profile_name: run.voice_profile_name,
     script_text: run.script_text,
     duration_ms: run.duration_ms,
     status: completed ? "completed" : "generating",
@@ -421,7 +427,7 @@ function readStore() {
 }
 
 export function loadWorkbenchDraft(): WorkbenchDraft {
-  return readJSON<WorkbenchDraft>(draftStorageKey, emptyDraft);
+  return { ...emptyDraft, ...readJSON<Partial<WorkbenchDraft>>(draftStorageKey, emptyDraft) };
 }
 
 export function saveWorkbenchDraft(draft: WorkbenchDraft) {
@@ -437,7 +443,7 @@ export async function generatePrototypeScripts(input: GenerateScriptsInput): Pro
   return Array.from({ length: input.count }, (_, index) => generateVariant(input, index + 1));
 }
 
-export function startPrototypeWorks(product: Product, variants: ScriptVariant[]): FinishedWork[] {
+export function startPrototypeWorks(product: Product, variants: ScriptVariant[], voiceProfile: VoiceProfile): FinishedWork[] {
   const store = readStore();
   const coverURL = productReferenceImage(product);
   const persistentCoverURL = coverURL.startsWith("data:") ? "" : coverURL;
@@ -448,6 +454,8 @@ export function startPrototypeWorks(product: Product, variants: ScriptVariant[])
     product_name: product.name,
     product_cover_url: persistentCoverURL || undefined,
     script_variant_id: variant.id,
+    voice_profile_id: voiceProfile.id,
+    voice_profile_name: voiceProfile.name,
     hook: variant.hook,
     script_text: variant.script_text,
     duration_ms: variant.estimated_duration_ms,

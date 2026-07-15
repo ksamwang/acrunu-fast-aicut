@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import { useResource } from "../../shared/hooks/use-resource";
 import type { ModelCapabilitySettings, ModelDiscoveryResult, ModelProvider, ModelSelectOption, RuntimeSettings } from "../../shared/types/settings";
+import { VoiceProfilesSettingsPanel } from "../voice-profiles/VoiceProfilesSettingsPanel";
 import { deleteModelProvider, discoverModels, getModelSettings, getRuntimeSettings, listModelProviders, saveModelProvider, saveModelSettings, saveRuntimeSettings as persistRuntimeSettings, testModelProvider } from "./api";
 import "./styles.css";
 
@@ -21,7 +22,7 @@ export function SettingsPage({ token }: { token: string }) {
   const [savingCapabilities, setSavingCapabilities] = useState(false);
   const [savingRuntime, setSavingRuntime] = useState(false);
   const [lastModelCount, setLastModelCount] = useState<number | null>(null);
-  const [settingsTab, setSettingsTab] = useState<"providers" | "models" | "runtime">("providers");
+  const [settingsTab, setSettingsTab] = useState<"providers" | "models" | "voices" | "runtime">("providers");
 
   const providers = providersResource.data ?? [];
   const providerOptions = providers.map((provider) => ({ value: provider.id, label: provider.name }));
@@ -196,10 +197,11 @@ export function SettingsPage({ token }: { token: string }) {
       <Tabs
         className="settings-top-tabs"
         activeKey={settingsTab}
-        onChange={(key) => setSettingsTab(key as "providers" | "models" | "runtime")}
+        onChange={(key) => setSettingsTab(key as "providers" | "models" | "voices" | "runtime")}
         items={[
           { key: "providers", label: "模型供应商" },
           { key: "models", label: "默认模型" },
+          { key: "voices", label: "旁白音色" },
           { key: "runtime", label: "运行控制" }
         ]}
       />
@@ -300,6 +302,13 @@ export function SettingsPage({ token }: { token: string }) {
             {lastModelCount !== null && <Typography.Text type="secondary">最近一次拉取到 {lastModelCount} 个模型。</Typography.Text>}
           </Space>
         </Form>
+      </Card>
+
+      <Card
+        className="settings-tab-panel"
+        style={{ display: settingsTab === "voices" ? undefined : "none" }}
+      >
+        <VoiceProfilesSettingsPanel />
       </Card>
 
       <Modal

@@ -78,6 +78,48 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       return;
     }
 
+    if (url.includes("/api/admin/model-providers")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: [] })
+      });
+      return;
+    }
+
+    if (url.includes("/api/admin/model-settings")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            llm: { capability: "llm", provider_id: "", model: "" },
+            vlm: { capability: "vlm", provider_id: "", model: "" },
+            embedding: { capability: "embedding", provider_id: "", model: "", dimension: 1024 }
+          }
+        })
+      });
+      return;
+    }
+
+    if (url.includes("/api/admin/runtime-settings")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            llm_max_concurrency: 1,
+            vlm_max_concurrency: 1,
+            asr_max_concurrency: 1,
+            tts_max_concurrency: 1,
+            render_max_concurrency: 1,
+            task_max_queued_per_user: 1,
+            task_max_running_per_user: 1,
+            vlm_timeout_seconds: 30,
+            vlm_max_retries: 0
+          }
+        })
+      });
+      return;
+    }
+
     if (url.includes("/api/assets/asset-1/frames")) {
       await route.fulfill({
         contentType: "application/json",
@@ -443,6 +485,29 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByRole("menuitem", { name: "成品库" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "任务" })).toHaveCount(0);
 
+  const voiceSelector = page.getByTestId("workbench-voice-selector");
+  await expect(voiceSelector).toContainText("温和女声");
+  await voiceSelector.getByRole("button", { name: "选择音色" }).click();
+  const voiceModal = page.getByTestId("voice-profile-modal");
+  await expect(voiceModal.getByTestId("voice-profile-option-voice-prototype-warm-female")).toBeVisible();
+  await expect(voiceModal.getByTestId("voice-profile-option-voice-prototype-clear-male")).toBeVisible();
+  await expect(voiceModal.getByTestId("voice-profile-option-voice-prototype-bright-female")).toBeVisible();
+  await voiceModal.getByTestId("voice-profile-option-voice-prototype-clear-male").click();
+  await expect(voiceSelector).toContainText("清晰男声");
+  await page.reload();
+  await expect(page.getByTestId("workbench-voice-selector")).toContainText("清晰男声");
+
+  await page.getByRole("menuitem", { name: "设置" }).click();
+  const voicesTab = page.getByRole("tab", { name: "旁白音色" });
+  await expect(voicesTab).toBeVisible();
+  await voicesTab.click();
+  const voiceSettings = page.getByTestId("voice-profiles-settings");
+  await expect(voiceSettings).toBeVisible();
+  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-prototype-warm-female")).toBeVisible();
+  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-prototype-clear-male")).toBeVisible();
+  await expect(voiceSettings.getByTestId("voice-profile-settings-voice-prototype-bright-female")).toBeVisible();
+  await page.getByRole("menuitem", { name: "工作台" }).click();
+
   await page.getByRole("menuitem", { name: "成品库" }).click();
   const demoWork = page.getByTestId("finished-work-demo-finished-cuff-strap-01");
   await expect(demoWork).toBeVisible();
@@ -497,6 +562,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     window.location.hash = `#/finished/${work.id}`;
   });
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
+  await expect(page.getByText("清晰男声", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
+  await expect(page.getByText("清晰男声", { exact: true })).toBeVisible();
 });
