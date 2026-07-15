@@ -1,6 +1,8 @@
 import io
 import logging
 import os
+import shutil
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -104,17 +106,22 @@ async def synthesize(
     if len(normalized_text) > MAX_TEXT_LENGTH:
         raise HTTPException(status_code=400, detail=f"text must not exceed {MAX_TEXT_LENGTH} characters")
 
+    prompt_path: Path | None = None
     try:
-        # CosyVoice3 performs its own sample-rate conversion and expects a readable
-        # file object here, rather than a pre-decoded tensor.
-        prompt_wav = prompt_audio.file
+        # CosyVoice reads the reference twice for speaker features and speech tokens.
+        # Materializing the upload gives both reads a fresh, seekable source.
+        suffix = Path(prompt_audio.filename or "prompt.wav").suffix or ".wav"
+        with tempfile.NamedTemporaryFile(prefix="aicut-tts-", suffix=suffix, delete=False) as prompt_file:
+            shutil.copyfileobj(prompt_audio.file, prompt_file)
+            prompt_path = Path(prompt_file.name)
+
         if mode == "zero_shot":
             if not prompt_text or not prompt_text.strip():
                 raise HTTPException(status_code=400, detail="prompt_text is required for zero_shot synthesis")
             output = model.inference_zero_shot(
                 normalized_text,
                 with_system_prompt(prompt_text),
-                prompt_wav,
+                str(prompt_path),
                 stream=False,
             )
         else:
@@ -123,7 +130,7 @@ async def synthesize(
             output = model.inference_instruct2(
                 normalized_text,
                 with_system_prompt(instruction),
-                prompt_wav,
+                str(prompt_path),
                 stream=False,
             )
 
@@ -140,6 +147,8 @@ async def synthesize(
         raise HTTPException(status_code=500, detail="CosyVoice synthesis failed") from exc
     finally:
         await prompt_audio.close()
+        if prompt_path is not None:
+            prompt_path.unlink(missing_ok=True)
 
     return Response(
         content=wav_buffer.getvalue(),
