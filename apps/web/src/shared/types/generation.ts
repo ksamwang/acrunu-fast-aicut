@@ -6,6 +6,22 @@ export type EditingIntentBeat = {
   source_type: "visual_only" | "talking_head" | "mixed";
 };
 
+export type NarrationSegment = {
+  id: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+};
+
+export type EditPlanBeat = {
+  id: string;
+  start_ms: number;
+  end_ms: number;
+  label: string;
+  visual_goal: string;
+  source_type: "visual_only" | "talking_head" | "mixed";
+};
+
 export type ScriptVariantStatus = "draft" | "confirmed";
 
 export type ScriptVariant = {
@@ -45,6 +61,8 @@ export type PrototypeRun = {
   progress: number;
   stage_label: string;
   started_at: string;
+  editing_intent?: string;
+  beats?: EditingIntentBeat[];
 };
 
 export type FinishedWorkStatus = "generating" | "completed";
@@ -64,4 +82,8 @@ export type FinishedWork = {
   stage_label: string;
   created_at: string;
   completed_at?: string;
+  editing_intent?: string;
+  narration_segments?: NarrationSegment[];
+  edit_plan?: EditPlanBeat[];
+  is_demo?: boolean;
 };

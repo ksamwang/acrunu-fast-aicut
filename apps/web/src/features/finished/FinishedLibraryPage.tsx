@@ -1,25 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Empty, Input, Modal, Progress, Segmented, Select, Tag, Tooltip, Typography } from "antd";
-import { Clapperboard, Eye, LoaderCircle, Play } from "lucide-react";
+import { Button, Empty, Input, Progress, Segmented, Select, Tag } from "antd";
+import { Eye, LoaderCircle, Play } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
-import { formatDateTime, formatDuration } from "../../shared/lib/format";
+import { formatDuration } from "../../shared/lib/format";
 import type { FinishedWork, FinishedWorkStatus } from "../../shared/types/generation";
 import type { Product } from "../../shared/types/product";
 import { listProducts } from "../products/api";
 import { listPrototypeFinishedWorks } from "../workbench/prototype-api";
+import { FinishedWorkDetail } from "./FinishedWorkDetail";
+import { FinishedWorkVisual } from "./FinishedWorkVisual";
 import "./styles.css";
 
 type StatusFilter = "all" | FinishedWorkStatus;
 
-function FinishedWorkVisual({ work, compact = false }: { work: FinishedWork; compact?: boolean }) {
-  return work.product_cover_url ? (
-    <img src={work.product_cover_url} alt={`${work.product_name}成品预览`} />
-  ) : (
-    <div className={`finished-work-fallback${compact ? " is-compact" : ""}`}>
-      <Clapperboard size={compact ? 26 : 36} />
-      <span>{work.product_name}</span>
-    </div>
-  );
+function readFinishedWorkID() {
+  const match = window.location.hash.match(/^#\/finished\/([^/?#]+)/);
+  if (!match) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return "";
+  }
+}
+
+function writeFinishedWorkID(workID: string) {
+  window.location.hash = `#/finished/${encodeURIComponent(workID)}`;
 }
 
 function emptyDescription(status: StatusFilter) {
@@ -32,17 +39,38 @@ function emptyDescription(status: StatusFilter) {
   return "暂无成品";
 }
 
+function formatCardDate(value?: string) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${month}-${day} ${hours}:${minutes}`;
+}
+
 export function FinishedLibraryPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token, [], listProducts);
   const [works, setWorks] = useState<FinishedWork[]>(() => listPrototypeFinishedWorks());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [productID, setProductID] = useState<string | undefined>();
   const [keyword, setKeyword] = useState("");
-  const [previewingWork, setPreviewingWork] = useState<FinishedWork | null>(null);
+  const [selectedWorkID, setSelectedWorkID] = useState(readFinishedWorkID);
 
   useEffect(() => {
     const timer = window.setInterval(() => setWorks(listPrototypeFinishedWorks()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const syncSelectedWork = () => setSelectedWorkID(readFinishedWorkID());
+    window.addEventListener("hashchange", syncSelectedWork);
+    return () => window.removeEventListener("hashchange", syncSelectedWork);
   }, []);
 
   const filteredWorks = useMemo(() => {
@@ -63,6 +91,22 @@ export function FinishedLibraryPage({ token }: { token: string }) {
         .includes(normalizedKeyword);
     });
   }, [keyword, productID, statusFilter, works]);
+
+  const selectedWork = selectedWorkID ? works.find((work) => work.id === selectedWorkID) : undefined;
+
+  if (selectedWorkID) {
+    if (selectedWork) {
+      return <FinishedWorkDetail work={selectedWork} onBack={() => { window.location.hash = "#/finished"; }} />;
+    }
+    return (
+      <div className="finished-detail-page">
+        <div className="finished-detail-missing">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到成品" />
+          <Button onClick={() => { window.location.hash = "#/finished"; }}>返回成品库</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="finished-library-page" data-testid="finished-library-page">
@@ -96,82 +140,52 @@ export function FinishedLibraryPage({ token }: { token: string }) {
             {filteredWorks.map((work) => {
               const isGenerating = work.status === "generating";
               return (
-                <article className={`finished-work-card${isGenerating ? " is-generating" : ""}`} key={work.id} data-status={work.status}>
-                  {isGenerating ? (
-                    <div className="finished-work-media is-generating" aria-label={`${work.title}正在生成`}>
-                      <FinishedWorkVisual work={work} />
-                      <span className="finished-work-media-scrim" />
+                <article
+                  className={`finished-work-card${isGenerating ? " is-generating" : ""}`}
+                  key={work.id}
+                  data-status={work.status}
+                  data-testid={`finished-work-${work.id}`}
+                >
+                  <button
+                    type="button"
+                    className={`finished-work-media${isGenerating ? " is-generating" : ""}`}
+                    aria-label={`查看 ${work.title}`}
+                    onClick={() => writeFinishedWorkID(work.id)}
+                  >
+                    <FinishedWorkVisual work={work} />
+                    <span className="finished-work-overlay-top">
+                      <span className="finished-work-overlay-labels">
+                        <Tag className="finished-work-product">{work.product_name}</Tag>
+                        {work.is_demo ? <Tag>示例</Tag> : null}
+                      </span>
+                      <Tag className="finished-work-status" color={isGenerating ? "processing" : "green"}>
+                        {isGenerating ? "生成中" : "已完成"}
+                      </Tag>
+                    </span>
+                    {isGenerating ? (
                       <span className="finished-work-generation-state">
                         <LoaderCircle size={22} />
                         <span>{work.stage_label}</span>
                       </span>
-                      <span className="finished-work-duration">{formatDuration(work.duration_ms)}</span>
-                      <Tag className="finished-work-status" color="processing">生成中</Tag>
-                      <span className="finished-work-progress">
-                        <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#2f8c83" />
-                        <span>{work.progress}%</span>
-                      </span>
-                    </div>
-                  ) : (
-                    <button type="button" className="finished-work-media" onClick={() => setPreviewingWork(work)}>
-                      <FinishedWorkVisual work={work} />
-                      <span className="finished-work-media-scrim" />
+                    ) : (
                       <span className="finished-work-play"><Play size={18} fill="currentColor" /></span>
-                      <span className="finished-work-duration">{formatDuration(work.duration_ms)}</span>
-                      <Tag className="finished-work-status" color="green">已完成</Tag>
-                    </button>
-                  )}
-                  <div className="finished-work-body">
-                    <Tag className="finished-work-product">{work.product_name}</Tag>
-                    <Typography.Text className="finished-work-title">{work.title}</Typography.Text>
-                    <Typography.Paragraph className="finished-work-script" ellipsis={{ rows: 2 }}>
-                      {work.script_text}
-                    </Typography.Paragraph>
-                    <div className="finished-work-meta">
-                      <span>{isGenerating ? `开始于 ${formatDateTime(work.created_at)}` : `完成于 ${formatDateTime(work.completed_at ?? work.created_at)}`}</span>
-                    </div>
-                    {!isGenerating ? (
-                      <div className="finished-work-actions">
-                        <Tooltip title="预览成品">
-                          <Button
-                            type="text"
-                            aria-label="预览成品"
-                            icon={<Eye size={17} />}
-                            onClick={() => setPreviewingWork(work)}
-                          />
-                        </Tooltip>
-                      </div>
-                    ) : null}
-                  </div>
+                    )}
+                    <span className="finished-work-overlay-bottom">
+                      <span className="finished-work-overlay-title">{work.title}</span>
+                      <span className="finished-work-overlay-script">{work.script_text}</span>
+                      <span className="finished-work-overlay-meta">
+                        <span>{formatDuration(work.duration_ms)}</span>
+                        <span>{isGenerating ? `${work.progress}% · ${work.stage_label}` : `完成 ${formatCardDate(work.completed_at ?? work.created_at)}`}</span>
+                      </span>
+                      {isGenerating ? <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#4fc1b2" /> : null}
+                    </span>
+                  </button>
                 </article>
               );
             })}
           </div>
         )}
       </main>
-
-      <Modal
-        open={previewingWork !== null}
-        width={720}
-        footer={null}
-        title={previewingWork?.title}
-        onCancel={() => setPreviewingWork(null)}
-        className="finished-preview-modal"
-      >
-        {previewingWork ? (
-          <div className="finished-preview-content">
-            <div className="finished-preview-stage">
-              <FinishedWorkVisual work={previewingWork} />
-              <span className="finished-preview-play"><Play size={26} fill="currentColor" /></span>
-            </div>
-            <div className="finished-preview-meta">
-              <Tag>{previewingWork.product_name}</Tag>
-              <Typography.Text type="secondary">{formatDuration(previewingWork.duration_ms)}</Typography.Text>
-              <Typography.Paragraph>{previewingWork.script_text}</Typography.Paragraph>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
     </div>
   );
 }

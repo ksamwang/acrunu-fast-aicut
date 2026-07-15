@@ -443,6 +443,19 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByRole("menuitem", { name: "成品库" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "任务" })).toHaveCount(0);
 
+  await page.getByRole("menuitem", { name: "成品库" }).click();
+  const demoWork = page.getByTestId("finished-work-demo-finished-cuff-strap-01");
+  await expect(demoWork).toBeVisible();
+  const demoDetailButton = demoWork.getByRole("button");
+  await expect(demoDetailButton).toHaveCount(1);
+  await demoDetailButton.click();
+  await expect(page.getByTestId("finished-work-detail")).toBeVisible();
+  await expect(page.getByText("字幕", { exact: true })).toBeVisible();
+  await expect(page.getByText("初步镜头编排", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "返回成品库" }).click();
+  await expect(page.getByTestId("finished-library-page")).toBeVisible();
+  await page.getByRole("menuitem", { name: "工作台" }).click();
+
   await page.getByTestId("workbench-product-select").click();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
@@ -470,7 +483,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await page.reload();
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
   await expect(page.locator('[data-status="completed"]')).toBeVisible();
-  await expect(page.getByRole("button", { name: "预览成品" })).toBeVisible();
+  await expect(page.locator('[data-status="completed"] button')).toBeVisible();
 
   await page.getByRole("menuitem", { name: "素材" }).click();
   await expect(page.getByTestId("assets-page")).toBeVisible();
@@ -478,9 +491,12 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByText("mute-shot.mp4")).toBeVisible();
 
   await page.evaluate(() => {
-    window.location.hash = "#/finished";
+    const raw = window.localStorage.getItem("aicut.workbench.prototype.store.v1");
+    const store = raw ? JSON.parse(raw) : { finished_works: [] };
+    const work = store.finished_works.find((item: { is_demo?: boolean }) => !item.is_demo);
+    window.location.hash = `#/finished/${work.id}`;
   });
-  await expect(page.getByTestId("finished-library-page")).toBeVisible();
+  await expect(page.getByTestId("finished-work-detail")).toBeVisible();
   await page.reload();
-  await expect(page.getByTestId("finished-library-page")).toBeVisible();
+  await expect(page.getByTestId("finished-work-detail")).toBeVisible();
 });

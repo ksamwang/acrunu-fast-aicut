@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "./AppShell";
-import { normalizeViewForRole, readHashView, writeHashView, type ViewKey } from "./routes";
+import { hashTargetsView, normalizeViewForRole, readHashView, writeHashView, type ViewKey } from "./routes";
 import { AssetsPage } from "../features/assets/AssetsPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { FinishedLibraryPage } from "../features/finished/FinishedLibraryPage";
@@ -19,7 +19,7 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
     const syncViewFromHash = () => {
       const nextView = readHashView(session.user.role);
       setView(nextView);
-      if (window.location.hash !== `#/${nextView}`) {
+      if (!hashTargetsView(nextView)) {
         writeHashView(nextView);
       }
     };

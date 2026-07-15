@@ -1,4 +1,13 @@
-import type { FinishedWork, FinishedWorkStatus, PrototypeRun, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
+import type {
+  EditPlanBeat,
+  EditingIntentBeat,
+  FinishedWork,
+  FinishedWorkStatus,
+  NarrationSegment,
+  PrototypeRun,
+  ScriptVariant,
+  WorkbenchDraft
+} from "../../shared/types/generation";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { productReferenceImage } from "../products/product-reference";
 
@@ -73,6 +82,90 @@ function durationFromText(text: string) {
   return Math.max(8000, Math.round((text.replace(/\s/g, "").length / 4.2) * 1000));
 }
 
+function defaultEditingIntent(productName: string) {
+  return `以真实使用情境建立关注，再用产品动作和结果画面回应“${productName}”的核心价值。`;
+}
+
+function defaultBeats(productName: string): EditingIntentBeat[] {
+  return [
+    {
+      id: createID("fallback-beat"),
+      label: "开头",
+      selling_point: "使用痛点",
+      visual_goal: "用真实场景快速建立需要解决的问题。",
+      source_type: "mixed"
+    },
+    {
+      id: createID("fallback-beat"),
+      label: "展示",
+      selling_point: productName,
+      visual_goal: "用产品特写和实际动作说明核心用法。",
+      source_type: "visual_only"
+    },
+    {
+      id: createID("fallback-beat"),
+      label: "结果",
+      selling_point: "使用体验",
+      visual_goal: "展示使用后的状态与直观结果。",
+      source_type: "mixed"
+    }
+  ];
+}
+
+function createNarrationSegments(scriptText: string, durationMs: number): NarrationSegment[] {
+  const fragments = (scriptText.match(/[^。！？!?]+[。！？!?]?/g) ?? [])
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+  const lines = fragments.length > 0 ? fragments : [scriptText.trim() || "旁白内容待生成"];
+  const totalWeight = lines.reduce((sum, line) => sum + Math.max(line.length, 1), 0);
+  let cursor = 0;
+
+  return lines.map((text, index) => {
+    const remainingCount = lines.length - index - 1;
+    const remainingDuration = Math.max(0, durationMs - cursor);
+    const reservedDuration = remainingCount * 620;
+    const idealDuration = Math.round((durationMs * Math.max(text.length, 1)) / totalWeight);
+    const segmentDuration = index === lines.length - 1
+      ? remainingDuration
+      : Math.max(620, Math.min(idealDuration, Math.max(620, remainingDuration - reservedDuration)));
+    const endMs = Math.min(durationMs, cursor + segmentDuration);
+    const segment: NarrationSegment = {
+      id: createID("narration"),
+      start_ms: cursor,
+      end_ms: endMs,
+      text
+    };
+    cursor = endMs;
+    return segment;
+  });
+}
+
+function createEditPlan(beats: EditingIntentBeat[], durationMs: number): EditPlanBeat[] {
+  const sliceDuration = Math.max(1, Math.round(durationMs / beats.length));
+  return beats.map((beat, index) => ({
+    id: createID("edit-plan"),
+    start_ms: index * sliceDuration,
+    end_ms: index === beats.length - 1 ? durationMs : Math.min(durationMs, (index + 1) * sliceDuration),
+    label: beat.label,
+    visual_goal: beat.visual_goal,
+    source_type: beat.source_type
+  }));
+}
+
+function withPrototypeDetail(work: FinishedWork): FinishedWork {
+  const beats = work.edit_plan?.length
+    ? undefined
+    : defaultBeats(work.product_name);
+  return {
+    ...work,
+    editing_intent: work.editing_intent || defaultEditingIntent(work.product_name),
+    narration_segments: work.narration_segments?.length
+      ? work.narration_segments
+      : createNarrationSegments(work.script_text, work.duration_ms),
+    edit_plan: work.edit_plan?.length ? work.edit_plan : createEditPlan(beats ?? defaultBeats(work.product_name), work.duration_ms)
+  };
+}
+
 function generateVariant(input: GenerateScriptsInput, order: number): ScriptVariant {
   const points = pointNames(input);
   const primary = points[order % Math.max(points.length, 1)] || "日常使用体验";
@@ -140,6 +233,61 @@ function emptyStore(): PrototypeStore {
   return { runs: [], finished_works: [] };
 }
 
+function createDemoWorks(): FinishedWork[] {
+  const demos = [
+    {
+      id: "demo-finished-cuff-strap-01",
+      title: "裤脚不蹭链条，骑行更利落",
+      hook: "骑车时，裤脚总蹭链条怎么办？",
+      scriptText: "骑车的时候最怕裤脚蹭到链条。把束裤带绕住裤脚，一贴就稳，骑行时更利落。大面积反光条，晚上出门也更安心。",
+      durationMs: 22600,
+      createdAt: "2026-07-15T08:40:00.000Z",
+      completedAt: "2026-07-15T08:42:00.000Z",
+      editingIntent: "先以裤脚蹭链条的骑行痛点切入，再展示束裤带的一贴固定和夜间反光效果。",
+      beats: [
+        { id: "demo-beat-01", label: "痛点", selling_point: "裤脚蹭链条", visual_goal: "用骑行中的裤脚和链条建立真实痛点。", source_type: "mixed" as const },
+        { id: "demo-beat-02", label: "固定", selling_point: "一贴就稳", visual_goal: "近景展示绕住裤脚和贴合动作。", source_type: "visual_only" as const },
+        { id: "demo-beat-03", label: "结果", selling_point: "骑行更利落", visual_goal: "展示整理后的骑行状态和夜间反光细节。", source_type: "mixed" as const }
+      ]
+    },
+    {
+      id: "demo-finished-cuff-strap-02",
+      title: "一条束裤带，收好骑行细节",
+      hook: "出门骑车，口袋里放这一条就够了。",
+      scriptText: "它不只用来绑裤脚，水壶和修车工具也能随手固定。高弹力设计不会勒腿，收起来轻巧不占地方。需要的时候拿出来，骑行准备就更从容。",
+      durationMs: 20400,
+      createdAt: "2026-07-14T08:40:00.000Z",
+      completedAt: "2026-07-14T08:42:00.000Z",
+      editingIntent: "通过口袋收纳和多个使用场景，强调一条束裤带的轻量与多用途。",
+      beats: [
+        { id: "demo-beat-04", label: "收纳", selling_point: "轻巧不占地方", visual_goal: "从口袋中取出产品，建立轻量感。", source_type: "visual_only" as const },
+        { id: "demo-beat-05", label: "多用", selling_point: "多个固定场景", visual_goal: "依次展示裤脚、水壶和工具固定动作。", source_type: "mixed" as const },
+        { id: "demo-beat-06", label: "收束", selling_point: "骑行更从容", visual_goal: "以准备完成后出发的画面收束。", source_type: "visual_only" as const }
+      ]
+    }
+  ];
+
+  return demos.map((demo) => ({
+    id: demo.id,
+    run_id: demo.id,
+    product_id: "demo-cuff-strap",
+    product_name: "束裤带",
+    title: demo.title,
+    hook: demo.hook,
+    script_text: demo.scriptText,
+    duration_ms: demo.durationMs,
+    status: "completed" as const,
+    progress: 100,
+    stage_label: "已完成",
+    created_at: demo.createdAt,
+    completed_at: demo.completedAt,
+    editing_intent: demo.editingIntent,
+    narration_segments: createNarrationSegments(demo.scriptText, demo.durationMs),
+    edit_plan: createEditPlan(demo.beats, demo.durationMs),
+    is_demo: true
+  }));
+}
+
 function stageForElapsed(elapsedMs: number): Pick<PrototypeRun, "status" | "progress" | "stage_label"> {
   if (elapsedMs < 1800) {
     return { status: "preparing", progress: 18, stage_label: "准备素材约束" };
@@ -158,6 +306,7 @@ function stageForElapsed(elapsedMs: number): Pick<PrototypeRun, "status" | "prog
 
 function workFromRun(run: PrototypeRun, completedAt?: string): FinishedWork {
   const completed = run.status === "completed";
+  const beats = run.beats?.length ? run.beats : defaultBeats(run.product_name);
   return {
     id: createID("finished"),
     run_id: run.id,
@@ -172,7 +321,10 @@ function workFromRun(run: PrototypeRun, completedAt?: string): FinishedWork {
     progress: run.progress,
     stage_label: run.stage_label,
     created_at: run.started_at,
-    completed_at: completed ? completedAt ?? nowISO() : undefined
+    completed_at: completed ? completedAt ?? nowISO() : undefined,
+    editing_intent: run.editing_intent || defaultEditingIntent(run.product_name),
+    narration_segments: createNarrationSegments(run.script_text, run.duration_ms),
+    edit_plan: createEditPlan(beats, run.duration_ms)
   };
 }
 
@@ -181,19 +333,22 @@ function normalizeStore(value: PersistedPrototypeStore): { store: PrototypeStore
   let changed = !Array.isArray(value.runs) || !Array.isArray(value.finished_works);
   const finishedWorks = (Array.isArray(value.finished_works) ? value.finished_works : []).map((work) => {
     const completed = work.status !== "generating";
-    const normalized: FinishedWork = {
+    const normalized = withPrototypeDetail({
       ...work,
       status: completed ? "completed" : "generating",
       progress: completed ? 100 : Math.max(0, Math.min(99, Number(work.progress) || 0)),
       stage_label: completed ? "已完成" : work.stage_label || "准备生成",
       created_at: work.created_at,
       completed_at: completed ? work.completed_at ?? work.submitted_at ?? work.created_at : undefined
-    };
+    });
     if (
       work.status !== normalized.status ||
       work.progress !== normalized.progress ||
       work.stage_label !== normalized.stage_label ||
       work.completed_at !== normalized.completed_at ||
+      !work.editing_intent ||
+      !work.narration_segments?.length ||
+      !work.edit_plan?.length ||
       "submitted_at" in work
     ) {
       changed = true;
@@ -254,8 +409,12 @@ function reconcileStore(store: PrototypeStore) {
 function readStore() {
   const saved = readJSON<PersistedPrototypeStore>(storeStorageKey, emptyStore());
   const normalized = normalizeStore(saved);
-  const reconciled = reconcileStore(normalized.store);
-  if (normalized.changed || reconciled.changed) {
+  const shouldSeedDemo = normalized.store.runs.length === 0 && normalized.store.finished_works.length === 0;
+  const seededStore = shouldSeedDemo
+    ? { ...normalized.store, finished_works: createDemoWorks() }
+    : normalized.store;
+  const reconciled = reconcileStore(seededStore);
+  if (normalized.changed || shouldSeedDemo || reconciled.changed) {
     writeJSON(storeStorageKey, reconciled.store);
   }
   return reconciled.store;
@@ -295,13 +454,16 @@ export function startPrototypeWorks(product: Product, variants: ScriptVariant[])
     status: "preparing" as const,
     progress: 8,
     stage_label: "准备素材约束",
-    started_at: startedAt
+    started_at: startedAt,
+    editing_intent: variant.editing_intent,
+    beats: variant.beats
   }));
   const works = runs.map((run) => workFromRun(run));
+  const existingWorks = store.finished_works.filter((work) => !work.is_demo);
   writeJSON(storeStorageKey, {
     ...store,
     runs: [...runs, ...store.runs],
-    finished_works: [...works, ...store.finished_works]
+    finished_works: [...works, ...existingWorks]
   });
   return works;
 }

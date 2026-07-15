@@ -24,3 +24,8 @@ export function writeHashView(view: ViewKey) {
     window.location.hash = nextHash;
   }
 }
+
+export function hashTargetsView(view: ViewKey) {
+  const raw = window.location.hash.replace(/^#\/?/, "");
+  return raw === view || raw.startsWith(`${view}/`) || raw.startsWith(`${view}?`);
+}
