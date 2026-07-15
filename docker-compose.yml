@@ -97,8 +97,8 @@ services:
         HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
         http_proxy: ${MODEL_DOWNLOAD_PROXY:-}
         https_proxy: ${MODEL_DOWNLOAD_PROXY:-}
-        NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker
-        no_proxy: localhost,127.0.0.1,postgres,redis,api,worker
+        NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker,asr,tts,renderer
+        no_proxy: localhost,127.0.0.1,postgres,redis,api,worker,asr,tts,renderer
     container_name: aicut-asr
     restart: unless-stopped
     environment:
@@ -108,7 +108,7 @@ services:
       MODELSCOPE_CACHE: /models
       HTTP_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
       HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
-      NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker
+      NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker,asr,tts,renderer
     ports:
       - "${ASR_BIND_ADDR:-127.0.0.1}:${ASR_PORT:-10096}:10096"
     volumes:
@@ -120,6 +120,70 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10m
+
+  tts:
+    build:
+      context: .
+      dockerfile: deploy/tts/Dockerfile
+      args:
+        TTS_BASE_IMAGE: ${TTS_BASE_IMAGE:-pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime}
+        APT_MIRROR: ${TTS_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/ubuntu}
+        PIP_INDEX_URL: ${TTS_PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        COSYVOICE_REPOSITORY: ${COSYVOICE_REPOSITORY:-https://github.com/FunAudioLLM/CosyVoice.git}
+        COSYVOICE_COMMIT: ${COSYVOICE_COMMIT:-074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc}
+        HTTP_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+        HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+        http_proxy: ${MODEL_DOWNLOAD_PROXY:-}
+        https_proxy: ${MODEL_DOWNLOAD_PROXY:-}
+        NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker,asr,tts,renderer
+        no_proxy: localhost,127.0.0.1,postgres,redis,api,worker,asr,tts,renderer
+    container_name: aicut-tts
+    restart: unless-stopped
+    environment:
+      TTS_PORT: 50000
+      COSYVOICE_MODEL_ID: ${COSYVOICE_MODEL_ID:-FunAudioLLM/Fun-CosyVoice3-0.5B-2512}
+      COSYVOICE_MODEL_DIR: ${COSYVOICE_MODEL_DIR:-/models/Fun-CosyVoice3-0.5B-2512}
+      COSYVOICE_FP16: ${COSYVOICE_FP16:-true}
+      MODELSCOPE_CACHE: /models/cache
+      HTTP_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+      HTTPS_PROXY: ${MODEL_DOWNLOAD_PROXY:-}
+      NO_PROXY: localhost,127.0.0.1,postgres,redis,api,worker,asr,tts,renderer
+    ports:
+      - "${TTS_BIND_ADDR:-127.0.0.1}:${TTS_PORT:-50000}:50000"
+    volumes:
+      - tts-models:/models
+    gpus: all
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:50000/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 30m
+
+  renderer:
+    build:
+      context: .
+      dockerfile: deploy/remotion/Dockerfile
+    container_name: aicut-renderer
+    restart: unless-stopped
+    init: true
+    environment:
+      RENDER_PORT: 3001
+      RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
+      RENDER_OUTPUT_ROOT: /app/storage/renders/remotion
+      CHROME_PATH: /usr/bin/chromium
+    ports:
+      - "${RENDER_BIND_ADDR:-127.0.0.1}:${RENDER_PORT:-3001}:3001"
+    volumes:
+      - ./storage:/app/storage
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then((response) => { if (!response.ok) process.exit(1) })"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 2m
 
   prometheus:
     image: prom/prometheus:v3.3.1
@@ -186,3 +250,4 @@ volumes:
   prometheus-data:
   grafana-data:
   asr-models:
+  tts-models:

@@ -1,0 +1,16 @@
+{
+  "name": "aicut-remotion-renderer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.489",
+    "@remotion/renderer": "4.0.489",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.489"
+  }
+}

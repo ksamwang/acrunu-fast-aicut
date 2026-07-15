@@ -169,7 +169,7 @@ go run .\apps\worker\main.go
 
 ## 服务端部署
 
-开发阶段可以用脚本将当前已提交的代码同步到服务器，并重建服务端 `api` 和 `worker` 容器。
+开发阶段可以用脚本将当前已提交的代码同步到服务器，并按需重建服务端容器。
 
 先提交本地改动：
 
@@ -191,6 +191,16 @@ git commit -m "更新说明"
 - 用户：`deploy`
 - 远程目录：`/opt/acrunu-fast-aicut`
 - 重建服务：`api`、`worker`
+
+首次部署 CosyVoice3 和 Remotion 时，指定媒体服务：
+
+```powershell
+.\scripts\deploy-server.ps1 -Services tts,renderer
+```
+
+CosyVoice 首次启动会下载模型并加载到 GPU，健康检查最多允许 30 分钟；Remotion 仅使用 CPU 并将 smoke render 写入 `storage/renders/remotion`。两项服务默认仅绑定服务器回环地址，后续由 Docker 内的 API / worker 调用，不对浏览器暴露。
+
+运行状态和验证方式见 [媒体服务部署说明](./docs/media-services.md)。
 
 如果本次包含数据库迁移，可以执行：
 

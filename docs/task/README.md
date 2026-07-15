@@ -15,6 +15,7 @@
 - [已确认任务清单：素材预处理与素材库边界](./confirmed-material-library-checklist.md)
 - [Web 前端工程化拆分任务清单](./web-frontend-refactor-checklist.md)
 - [预处理 ASR 接入：第 1-2 阶段任务清单](./preprocess-asr-integration-checklist.md)
+- [CosyVoice3 与 Remotion 部署说明](../media-services.md)
 
 说明：
 - `phase-3.md` 当前不作为最近这轮素材库与预处理讨论的依据
