@@ -174,7 +174,7 @@ services:
       RENDER_OUTPUT_ROOT: /app/storage/renders/remotion
       CHROME_PATH: /usr/bin/chromium
     ports:
-      - "${RENDER_BIND_ADDR:-127.0.0.1}:${RENDER_PORT:-3001}:3001"
+      - "${RENDER_BIND_ADDR:-127.0.0.1}:${RENDER_PORT:-3002}:3001"
     volumes:
       - ./storage:/app/storage
     shm_size: 1gb

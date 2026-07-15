@@ -35,7 +35,7 @@ COSYVOICE_FP16=true
 TTS_BIND_ADDR=127.0.0.1
 TTS_PORT=50000
 RENDER_BIND_ADDR=127.0.0.1
-RENDER_PORT=3001
+RENDER_PORT=3002
 RENDER_CONCURRENCY=1
 ```
 
@@ -49,14 +49,14 @@ Run these commands on the server after `docker compose up` returns:
 cd /home/acrunu/acrunu-fast-aicut
 docker compose ps tts renderer
 curl --fail http://127.0.0.1:50000/healthz
-curl --fail http://127.0.0.1:3001/healthz
+curl --fail http://127.0.0.1:3002/healthz
 nvidia-smi
 ```
 
 The Remotion renderer can be exercised without any product asset or edit plan:
 
 ```sh
-curl --fail --request POST http://127.0.0.1:3001/v1/render \
+curl --fail --request POST http://127.0.0.1:3002/v1/render \
   --header 'Content-Type: application/json' \
   --data '{"title":"AICUT renderer smoke test","duration_in_frames":30,"fps":30}'
 ```
