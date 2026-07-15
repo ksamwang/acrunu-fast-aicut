@@ -116,82 +116,6 @@
   background: var(--workbench-canvas);
 }
 
-.workbench-runs {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
-  min-height: 70px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--workbench-border);
-  background: #fffaf2;
-}
-
-.workbench-runs-heading {
-  display: grid;
-  gap: 1px;
-  min-width: 54px;
-  color: var(--workbench-orange);
-  font-size: 13px;
-}
-
-.workbench-runs-heading .ant-typography-secondary {
-  color: #9a5b35;
-  font-variant-numeric: tabular-nums;
-}
-
-.workbench-run-list {
-  display: flex;
-  min-width: 0;
-  gap: 8px;
-  overflow: auto hidden;
-}
-
-.workbench-run {
-  display: grid;
-  grid-template-columns: auto minmax(150px, 1fr) 100px;
-  flex: 0 0 min(420px, 100%);
-  gap: 9px;
-  align-items: center;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid #f1d9c2;
-  border-radius: 6px;
-  background: #ffffff;
-}
-
-.workbench-run-icon {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  color: var(--workbench-orange);
-  background: #fff0df;
-}
-
-.workbench-run-copy {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.workbench-run-copy .ant-typography {
-  min-width: 0;
-}
-
-.workbench-run-copy .ant-typography-secondary {
-  color: #8c6a58;
-  font-size: 12px;
-}
-
-.workbench-run .ant-progress-inner {
-  border-radius: 2px;
-}
-
-.workbench-run .ant-progress-bg {
-  background: var(--workbench-orange) !important;
-}
-
 .workbench-empty-state {
   display: grid;
   min-height: 0;
@@ -511,14 +435,6 @@
     padding: 18px;
   }
 
-  .workbench-runs {
-    grid-template-columns: 1fr;
-    gap: 7px;
-  }
-
-  .workbench-run {
-    flex-basis: 290px;
-  }
 }
 
 @media (max-width: 560px) {

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, Empty, Input, Modal, Segmented, Select, Tag, Tooltip, Typography, message } from "antd";
-import { Check, Clapperboard, Eye, Play, Send } from "lucide-react";
+import { Button, Empty, Input, Modal, Progress, Segmented, Select, Tag, Tooltip, Typography } from "antd";
+import { Clapperboard, Eye, LoaderCircle, Play } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDateTime, formatDuration } from "../../shared/lib/format";
 import type { FinishedWork, FinishedWorkStatus } from "../../shared/types/generation";
 import type { Product } from "../../shared/types/product";
 import { listProducts } from "../products/api";
-import { listPrototypeFinishedWorks, submitPrototypeFinishedWorks } from "../workbench/prototype-api";
+import { listPrototypeFinishedWorks } from "../workbench/prototype-api";
 import "./styles.css";
 
 type StatusFilter = "all" | FinishedWorkStatus;
@@ -22,13 +22,22 @@ function FinishedWorkVisual({ work, compact = false }: { work: FinishedWork; com
   );
 }
 
+function emptyDescription(status: StatusFilter) {
+  if (status === "generating") {
+    return "暂无生成中的成品";
+  }
+  if (status === "completed") {
+    return "暂无已完成成品";
+  }
+  return "暂无成品";
+}
+
 export function FinishedLibraryPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token, [], listProducts);
   const [works, setWorks] = useState<FinishedWork[]>(() => listPrototypeFinishedWorks());
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ready_to_submit");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [productID, setProductID] = useState<string | undefined>();
   const [keyword, setKeyword] = useState("");
-  const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
   const [previewingWork, setPreviewingWork] = useState<FinishedWork | null>(null);
 
   useEffect(() => {
@@ -55,22 +64,6 @@ export function FinishedLibraryPage({ token }: { token: string }) {
     });
   }, [keyword, productID, statusFilter, works]);
 
-  const selectableWorks = filteredWorks.filter((work) => work.status === "ready_to_submit");
-
-  const toggleSelected = (workID: string, checked: boolean) => {
-    setSelectedIDs((current) => (checked ? Array.from(new Set([...current, workID])) : current.filter((id) => id !== workID)));
-  };
-
-  const submitWorks = (workIDs: string[]) => {
-    const eligibleIDs = workIDs.filter((workID) => works.some((work) => work.id === workID && work.status === "ready_to_submit"));
-    if (eligibleIDs.length === 0) {
-      return;
-    }
-    setWorks(submitPrototypeFinishedWorks(eligibleIDs));
-    setSelectedIDs((current) => current.filter((workID) => !eligibleIDs.includes(workID)));
-    message.success(`已提交 ${eligibleIDs.length} 条成品`);
-  };
-
   return (
     <div className="finished-library-page" data-testid="finished-library-page">
       <section className="finished-toolbar" aria-label="成品筛选">
@@ -84,49 +77,50 @@ export function FinishedLibraryPage({ token }: { token: string }) {
         <Segmented<StatusFilter>
           value={statusFilter}
           options={[
-            { label: "待提交", value: "ready_to_submit" },
-            { label: "已提交", value: "submitted" },
-            { label: "全部", value: "all" }
+            { label: "全部", value: "all" },
+            { label: "生成中", value: "generating" },
+            { label: "已完成", value: "completed" }
           ]}
           onChange={(value) => setStatusFilter(value)}
         />
         <Input value={keyword} allowClear placeholder="搜索成品" onChange={(event) => setKeyword(event.target.value)} />
-        {selectedIDs.length > 0 ? (
-          <Button type="primary" icon={<Send size={16} />} onClick={() => submitWorks(selectedIDs)}>
-            提交 {selectedIDs.length} 条
-          </Button>
-        ) : null}
       </section>
 
       <main className="finished-work-scroll">
         {filteredWorks.length === 0 ? (
           <div className="finished-empty-state">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={statusFilter === "submitted" ? "暂无已提交成品" : "暂无待提交成品"} />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDescription(statusFilter)} />
           </div>
         ) : (
           <div className="finished-waterfall">
             {filteredWorks.map((work) => {
-              const selected = selectedIDs.includes(work.id);
-              const isReady = work.status === "ready_to_submit";
+              const isGenerating = work.status === "generating";
               return (
-                <article className={`finished-work-card${selected ? " is-selected" : ""}`} key={work.id}>
-                  {isReady ? (
-                    <Checkbox
-                      className="finished-work-select"
-                      checked={selected}
-                      aria-label={`选择 ${work.title}`}
-                      onChange={(event) => toggleSelected(work.id, event.target.checked)}
-                    />
-                  ) : null}
-                  <button type="button" className="finished-work-media" onClick={() => setPreviewingWork(work)}>
-                    <FinishedWorkVisual work={work} />
-                    <span className="finished-work-media-scrim" />
-                    <span className="finished-work-play"><Play size={18} fill="currentColor" /></span>
-                    <span className="finished-work-duration">{formatDuration(work.duration_ms)}</span>
-                    <Tag className="finished-work-status" color={isReady ? "gold" : "green"}>
-                      {isReady ? "待提交" : "已提交"}
-                    </Tag>
-                  </button>
+                <article className={`finished-work-card${isGenerating ? " is-generating" : ""}`} key={work.id} data-status={work.status}>
+                  {isGenerating ? (
+                    <div className="finished-work-media is-generating" aria-label={`${work.title}正在生成`}>
+                      <FinishedWorkVisual work={work} />
+                      <span className="finished-work-media-scrim" />
+                      <span className="finished-work-generation-state">
+                        <LoaderCircle size={22} />
+                        <span>{work.stage_label}</span>
+                      </span>
+                      <span className="finished-work-duration">{formatDuration(work.duration_ms)}</span>
+                      <Tag className="finished-work-status" color="processing">生成中</Tag>
+                      <span className="finished-work-progress">
+                        <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#2f8c83" />
+                        <span>{work.progress}%</span>
+                      </span>
+                    </div>
+                  ) : (
+                    <button type="button" className="finished-work-media" onClick={() => setPreviewingWork(work)}>
+                      <FinishedWorkVisual work={work} />
+                      <span className="finished-work-media-scrim" />
+                      <span className="finished-work-play"><Play size={18} fill="currentColor" /></span>
+                      <span className="finished-work-duration">{formatDuration(work.duration_ms)}</span>
+                      <Tag className="finished-work-status" color="green">已完成</Tag>
+                    </button>
+                  )}
                   <div className="finished-work-body">
                     <Tag className="finished-work-product">{work.product_name}</Tag>
                     <Typography.Text className="finished-work-title">{work.title}</Typography.Text>
@@ -134,26 +128,20 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                       {work.script_text}
                     </Typography.Paragraph>
                     <div className="finished-work-meta">
-                      <span>{formatDateTime(work.created_at)}</span>
-                      {work.submitted_at ? <span>{formatDateTime(work.submitted_at)}</span> : null}
+                      <span>{isGenerating ? `开始于 ${formatDateTime(work.created_at)}` : `完成于 ${formatDateTime(work.completed_at ?? work.created_at)}`}</span>
                     </div>
-                    <div className="finished-work-actions">
-                      <Tooltip title="预览成品">
-                        <Button
-                          type="text"
-                          aria-label="预览成品"
-                          icon={<Eye size={17} />}
-                          onClick={() => setPreviewingWork(work)}
-                        />
-                      </Tooltip>
-                      {isReady ? (
-                        <Button type="primary" size="small" icon={<Send size={15} />} onClick={() => submitWorks([work.id])}>
-                          提交
-                        </Button>
-                      ) : (
-                        <span className="finished-work-submitted"><Check size={15} /> 已提交</span>
-                      )}
-                    </div>
+                    {!isGenerating ? (
+                      <div className="finished-work-actions">
+                        <Tooltip title="预览成品">
+                          <Button
+                            type="text"
+                            aria-label="预览成品"
+                            icon={<Eye size={17} />}
+                            onClick={() => setPreviewingWork(work)}
+                          />
+                        </Tooltip>
+                      </div>
+                    ) : null}
                   </div>
                 </article>
               );

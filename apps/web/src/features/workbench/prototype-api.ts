@@ -1,10 +1,23 @@
-import type { FinishedWork, PrototypeRun, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
+import type { FinishedWork, FinishedWorkStatus, PrototypeRun, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { productReferenceImage } from "../products/product-reference";
 
 type PrototypeStore = {
   runs: PrototypeRun[];
   finished_works: FinishedWork[];
+};
+
+type PersistedFinishedWork = Omit<FinishedWork, "status" | "progress" | "stage_label" | "completed_at"> & {
+  status?: FinishedWorkStatus | "ready_to_submit" | "submitted";
+  progress?: number;
+  stage_label?: string;
+  completed_at?: string;
+  submitted_at?: string;
+};
+
+type PersistedPrototypeStore = {
+  runs?: PrototypeRun[];
+  finished_works?: PersistedFinishedWork[];
 };
 
 type GenerateScriptsInput = {
@@ -140,7 +153,54 @@ function stageForElapsed(elapsedMs: number): Pick<PrototypeRun, "status" | "prog
   if (elapsedMs < runDurationMs) {
     return { status: "rendering", progress: 86, stage_label: "生成成品" };
   }
-  return { status: "completed", progress: 100, stage_label: "已进入成品库" };
+  return { status: "completed", progress: 100, stage_label: "已完成" };
+}
+
+function workFromRun(run: PrototypeRun, completedAt?: string): FinishedWork {
+  const completed = run.status === "completed";
+  return {
+    id: createID("finished"),
+    run_id: run.id,
+    product_id: run.product_id,
+    product_name: run.product_name,
+    product_cover_url: run.product_cover_url,
+    title: run.hook,
+    hook: run.hook,
+    script_text: run.script_text,
+    duration_ms: run.duration_ms,
+    status: completed ? "completed" : "generating",
+    progress: run.progress,
+    stage_label: run.stage_label,
+    created_at: run.started_at,
+    completed_at: completed ? completedAt ?? nowISO() : undefined
+  };
+}
+
+function normalizeStore(value: PersistedPrototypeStore): { store: PrototypeStore; changed: boolean } {
+  const runs = Array.isArray(value.runs) ? value.runs : [];
+  let changed = !Array.isArray(value.runs) || !Array.isArray(value.finished_works);
+  const finishedWorks = (Array.isArray(value.finished_works) ? value.finished_works : []).map((work) => {
+    const completed = work.status !== "generating";
+    const normalized: FinishedWork = {
+      ...work,
+      status: completed ? "completed" : "generating",
+      progress: completed ? 100 : Math.max(0, Math.min(99, Number(work.progress) || 0)),
+      stage_label: completed ? "已完成" : work.stage_label || "准备生成",
+      created_at: work.created_at,
+      completed_at: completed ? work.completed_at ?? work.submitted_at ?? work.created_at : undefined
+    };
+    if (
+      work.status !== normalized.status ||
+      work.progress !== normalized.progress ||
+      work.stage_label !== normalized.stage_label ||
+      work.completed_at !== normalized.completed_at ||
+      "submitted_at" in work
+    ) {
+      changed = true;
+    }
+    return normalized;
+  });
+  return { store: { runs, finished_works: finishedWorks }, changed };
 }
 
 function reconcileStore(store: PrototypeStore) {
@@ -157,33 +217,45 @@ function reconcileStore(store: PrototypeStore) {
     changed = true;
     return { ...run, ...stage };
   });
-  const finishedWorks = [...store.finished_works];
+  const finishedWorks = store.finished_works.map((work) => {
+    const run = runs.find((candidate) => candidate.id === work.run_id);
+    if (!run) {
+      return work;
+    }
+    const completed = run.status === "completed";
+    const next: FinishedWork = {
+      ...work,
+      status: completed ? "completed" : "generating",
+      progress: run.progress,
+      stage_label: run.stage_label,
+      completed_at: completed ? work.completed_at ?? nowISO() : undefined
+    };
+    if (
+      next.status !== work.status ||
+      next.progress !== work.progress ||
+      next.stage_label !== work.stage_label ||
+      next.completed_at !== work.completed_at
+    ) {
+      changed = true;
+      return next;
+    }
+    return work;
+  });
   for (const run of runs) {
-    if (run.status !== "completed" || finishedWorks.some((work) => work.run_id === run.id)) {
+    if (finishedWorks.some((work) => work.run_id === run.id)) {
       continue;
     }
     changed = true;
-    finishedWorks.unshift({
-      id: createID("finished"),
-      run_id: run.id,
-      product_id: run.product_id,
-      product_name: run.product_name,
-      product_cover_url: run.product_cover_url,
-      title: run.hook,
-      hook: run.hook,
-      script_text: run.script_text,
-      duration_ms: run.duration_ms,
-      status: "ready_to_submit",
-      created_at: nowISO()
-    });
+    finishedWorks.unshift(workFromRun(run));
   }
   return { store: { runs, finished_works: finishedWorks }, changed };
 }
 
 function readStore() {
-  const saved = readJSON<PrototypeStore>(storeStorageKey, emptyStore());
-  const reconciled = reconcileStore(saved);
-  if (reconciled.changed) {
+  const saved = readJSON<PersistedPrototypeStore>(storeStorageKey, emptyStore());
+  const normalized = normalizeStore(saved);
+  const reconciled = reconcileStore(normalized.store);
+  if (normalized.changed || reconciled.changed) {
     writeJSON(storeStorageKey, reconciled.store);
   }
   return reconciled.store;
@@ -206,11 +278,7 @@ export async function generatePrototypeScripts(input: GenerateScriptsInput): Pro
   return Array.from({ length: input.count }, (_, index) => generateVariant(input, index + 1));
 }
 
-export function listPrototypeRuns(): PrototypeRun[] {
-  return readStore().runs;
-}
-
-export function startPrototypeRuns(product: Product, variants: ScriptVariant[]): PrototypeRun[] {
+export function startPrototypeWorks(product: Product, variants: ScriptVariant[]): FinishedWork[] {
   const store = readStore();
   const coverURL = productReferenceImage(product);
   const persistentCoverURL = coverURL.startsWith("data:") ? "" : coverURL;
@@ -229,22 +297,15 @@ export function startPrototypeRuns(product: Product, variants: ScriptVariant[]):
     stage_label: "准备素材约束",
     started_at: startedAt
   }));
-  writeJSON(storeStorageKey, { ...store, runs: [...runs, ...store.runs] });
-  return runs;
+  const works = runs.map((run) => workFromRun(run));
+  writeJSON(storeStorageKey, {
+    ...store,
+    runs: [...runs, ...store.runs],
+    finished_works: [...works, ...store.finished_works]
+  });
+  return works;
 }
 
 export function listPrototypeFinishedWorks(): FinishedWork[] {
   return readStore().finished_works;
-}
-
-export function submitPrototypeFinishedWorks(ids: string[]): FinishedWork[] {
-  const store = readStore();
-  const submittedAt = nowISO();
-  const next = store.finished_works.map((work) =>
-    ids.includes(work.id) && work.status === "ready_to_submit"
-      ? { ...work, status: "submitted" as const, submitted_at: submittedAt }
-      : work
-  );
-  writeJSON(storeStorageKey, { ...store, finished_works: next });
-  return next;
 }

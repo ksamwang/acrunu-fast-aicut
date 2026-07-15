@@ -452,7 +452,10 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await page.getByRole("button", { name: "确认文案" }).click();
   await expect(page.getByTestId("workbench-start-tasks")).toHaveText("开始 1 条任务");
   await page.getByTestId("workbench-start-tasks").click();
-  await expect(page.getByText("进行中")).toBeVisible();
+  await expect(page.getByTestId("finished-library-page")).toBeVisible();
+  await expect(page.locator('[data-status="generating"]')).toBeVisible();
+  await expect(page.getByText("待提交", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("已提交", { exact: true })).toHaveCount(0);
 
   await page.evaluate(() => {
     const raw = window.localStorage.getItem("aicut.workbench.prototype.store.v1");
@@ -464,12 +467,10 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     window.localStorage.setItem("aicut.workbench.prototype.store.v1", JSON.stringify(store));
   });
 
-  await page.getByRole("menuitem", { name: "成品库" }).click();
+  await page.reload();
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
-  const submitButton = page.getByRole("button", { name: "提交", exact: true });
-  await expect(submitButton).toBeVisible();
-  await submitButton.click();
-  await expect(page.getByText("暂无待提交成品")).toBeVisible();
+  await expect(page.locator('[data-status="completed"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "预览成品" })).toBeVisible();
 
   await page.getByRole("menuitem", { name: "素材" }).click();
   await expect(page.getByTestId("assets-page")).toBeVisible();

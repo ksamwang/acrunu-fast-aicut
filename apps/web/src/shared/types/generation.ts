@@ -47,7 +47,7 @@ export type PrototypeRun = {
   started_at: string;
 };
 
-export type FinishedWorkStatus = "ready_to_submit" | "submitted";
+export type FinishedWorkStatus = "generating" | "completed";
 
 export type FinishedWork = {
   id: string;
@@ -60,6 +60,8 @@ export type FinishedWork = {
   script_text: string;
   duration_ms: number;
   status: FinishedWorkStatus;
+  progress: number;
+  stage_label: string;
   created_at: string;
-  submitted_at?: string;
+  completed_at?: string;
 };

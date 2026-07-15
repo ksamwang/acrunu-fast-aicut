@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Empty, Input, InputNumber, Modal, Progress, Select, Tag, Tooltip, Typography, message } from "antd";
+import { Button, Empty, Input, InputNumber, Modal, Select, Tag, Tooltip, Typography, message } from "antd";
 import { Check, CheckCircle2, Circle, Clapperboard, Plus, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
-import type { PrototypeRun, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
+import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { listProducts, listSellingPoints } from "../products/api";
 import {
   clearWorkbenchVariants,
   generatePrototypeScripts,
-  listPrototypeRuns,
   loadWorkbenchDraft,
   saveWorkbenchDraft,
-  startPrototypeRuns
+  startPrototypeWorks
 } from "./prototype-api";
 import "./styles.css";
 
@@ -36,7 +35,6 @@ export function WorkbenchPage({ token }: { token: string }) {
   const [customSellingPointInput, setCustomSellingPointInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const [regeneratingVariantID, setRegeneratingVariantID] = useState<string | null>(null);
-  const [runs, setRuns] = useState<PrototypeRun[]>(() => listPrototypeRuns());
   const defaultedProductIDRef = useRef("");
 
   const sellingPoints = useResource<SellingPoint[]>(
@@ -52,17 +50,11 @@ export function WorkbenchPage({ token }: { token: string }) {
   const selectedSellingPoints = availableSellingPoints.filter((point) => draft.selling_point_ids.includes(point.id));
   const activeVariant = draft.variants.find((variant) => variant.id === draft.active_variant_id) ?? draft.variants[0] ?? null;
   const confirmedVariants = draft.variants.filter((variant) => variant.status === "confirmed");
-  const activeRuns = runs.filter((run) => run.status !== "completed");
   const canGenerate = Boolean(selectedProduct) && (selectedSellingPoints.length > 0 || draft.custom_selling_points.length > 0);
 
   useEffect(() => {
     saveWorkbenchDraft(draft);
   }, [draft]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setRuns(listPrototypeRuns()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (!draft.product_id || sellingPoints.loading || defaultedProductIDRef.current === draft.product_id) {
@@ -195,10 +187,12 @@ export function WorkbenchPage({ token }: { token: string }) {
     if (!selectedProduct || confirmedVariants.length === 0) {
       return;
     }
-    const started = startPrototypeRuns(selectedProduct, confirmedVariants);
-    setRuns((current) => [...started, ...current]);
-    setDraft((current) => clearWorkbenchVariants(current));
+    const started = startPrototypeWorks(selectedProduct, confirmedVariants);
+    const nextDraft = clearWorkbenchVariants(draft);
+    saveWorkbenchDraft(nextDraft);
+    setDraft(nextDraft);
     message.success(`已开始 ${started.length} 条任务`);
+    window.location.hash = "#/finished";
   };
 
   const productOptions = useMemo(
@@ -293,27 +287,6 @@ export function WorkbenchPage({ token }: { token: string }) {
       </section>
 
       <main className="workbench-main">
-        {activeRuns.length > 0 ? (
-          <section className="workbench-runs" aria-label="进行中">
-            <div className="workbench-runs-heading">
-              <Typography.Text>进行中</Typography.Text>
-              <Typography.Text type="secondary">{activeRuns.length}</Typography.Text>
-            </div>
-            <div className="workbench-run-list">
-              {activeRuns.map((run) => (
-                <div className="workbench-run" key={run.id}>
-                  <div className="workbench-run-icon"><Clapperboard size={18} /></div>
-                  <div className="workbench-run-copy">
-                    <Typography.Text ellipsis>{run.hook}</Typography.Text>
-                    <Typography.Text type="secondary">{run.product_name} · {run.stage_label}</Typography.Text>
-                  </div>
-                  <Progress percent={run.progress} showInfo={false} size="small" />
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         {draft.variants.length === 0 ? (
           <div className="workbench-empty-state">
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成文案" />
