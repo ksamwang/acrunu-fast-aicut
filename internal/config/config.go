@@ -47,7 +47,7 @@ func Load() Config {
 		VLMBaseURL:          env("VLM_BASE_URL", env("OPENAI_COMPATIBLE_BASE_URL", "")),
 		VLMAPIKey:           env("VLM_API_KEY", env("OPENAI_COMPATIBLE_API_KEY", "")),
 		VLMMaxTokens:        envInt("VLM_MAX_TOKENS", 8192),
-		ModelGatewayTimeout: time.Duration(envInt("MODEL_GATEWAY_TIMEOUT_SECONDS", 120)) * time.Second,
+		ModelGatewayTimeout: time.Duration(envInt("MODEL_GATEWAY_TIMEOUT_SECONDS", 300)) * time.Second,
 		VLMMaxRetries:       envInt("VLM_MAX_RETRIES", 2),
 	}
 }

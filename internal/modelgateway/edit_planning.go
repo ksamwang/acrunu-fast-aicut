@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 )
 
-const defaultEditPlanMaxTokens = 8192
+const maximumEditPlanOutputTokens = 3072
 
 type EditPlanCandidate struct {
 	ID              string  `json:"id"`
@@ -88,25 +89,36 @@ type OpenAICompatibleEditPlanner struct {
 	apiKey    string
 	model     string
 	maxTokens int
+	timeout   time.Duration
 	client    *http.Client
+	logger    *slog.Logger
 }
 
 func NewOpenAICompatibleEditPlanner(cfg Config) *OpenAICompatibleEditPlanner {
 	maxTokens := cfg.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultEditPlanMaxTokens
+	if maxTokens <= 0 || maxTokens > maximumEditPlanOutputTokens {
+		maxTokens = maximumEditPlanOutputTokens
 	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 120 * time.Second
+		timeout = 300 * time.Second
 	}
 	return &OpenAICompatibleEditPlanner{
 		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		apiKey:    strings.TrimSpace(cfg.APIKey),
 		model:     strings.TrimSpace(cfg.Model),
 		maxTokens: maxTokens,
+		timeout:   timeout,
 		client:    &http.Client{Timeout: timeout},
+		logger:    slog.Default(),
 	}
+}
+
+func (p *OpenAICompatibleEditPlanner) WithLogger(logger *slog.Logger) *OpenAICompatibleEditPlanner {
+	if logger != nil {
+		p.logger = logger
+	}
+	return p
 }
 
 func (p *OpenAICompatibleEditPlanner) PlanEdits(ctx context.Context, input EditPlanInput) (EditPlanResult, error) {
@@ -146,6 +158,7 @@ func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBu
 	if err != nil {
 		return err
 	}
+	startedAt := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, joinOpenAICompatibleURL(p.baseURL, "/v1/chat/completions"), bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -158,13 +171,16 @@ func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBu
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		p.logRequestFailure(promptBundle.Prompts[0].Name, len(body), startedAt, err)
 		return normalizeEditPlanRequestError(ctx, err)
 	}
 	defer resp.Body.Close()
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 	if err != nil {
+		p.logRequestFailure(promptBundle.Prompts[0].Name, len(body), startedAt, err)
 		return normalizeEditPlanRequestError(ctx, err)
 	}
+	p.logRequestResult(promptBundle.Prompts[0].Name, len(body), len(responseBody), startedAt, resp.StatusCode)
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError
 		return NewError(
@@ -192,6 +208,36 @@ func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBu
 		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode edit planner JSON output failed: %v", err), false, err)
 	}
 	return nil
+}
+
+func (p *OpenAICompatibleEditPlanner) logRequestResult(promptName string, requestBytes int, responseBytes int, startedAt time.Time, statusCode int) {
+	logger := p.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Info("llm planner request completed",
+		slog.String("prompt", promptName),
+		slog.String("model", p.model),
+		slog.Int("request_bytes", requestBytes),
+		slog.Int("response_bytes", responseBytes),
+		slog.Int("status_code", statusCode),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+	)
+}
+
+func (p *OpenAICompatibleEditPlanner) logRequestFailure(promptName string, requestBytes int, startedAt time.Time, err error) {
+	logger := p.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Warn("llm planner request failed",
+		slog.String("prompt", promptName),
+		slog.String("model", p.model),
+		slog.Int("request_bytes", requestBytes),
+		slog.Int64("timeout_ms", p.timeout.Milliseconds()),
+		slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+		slog.String("error", err.Error()),
+	)
 }
 
 func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequirement) error {

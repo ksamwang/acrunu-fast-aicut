@@ -12,11 +12,13 @@ import (
 )
 
 type planningCandidateStore struct {
-	call int
+	call   int
+	inputs []CandidateSearchInput
 }
 
 func (s *planningCandidateStore) SearchCandidates(_ context.Context, input CandidateSearchInput) ([]AssetCandidate, error) {
 	s.call++
+	s.inputs = append(s.inputs, input)
 	return []AssetCandidate{{
 		ID:                      fmt.Sprintf("candidate-%d", s.call),
 		AssetID:                 fmt.Sprintf("asset-%d", s.call),
@@ -146,6 +148,14 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	if plan.Clips[0].AssetID != "asset-1" || plan.Clips[1].AssetID != "asset-2" || !plan.Clips[1].UseOriginalAudio {
 		t.Fatalf("candidate mapping or audio policy was not retained %#v", plan.Clips)
 	}
+	if len(store.inputs) != 3 {
+		t.Fatalf("expected one candidate query per visual beat, got %d", len(store.inputs))
+	}
+	for _, candidateInput := range store.inputs {
+		if candidateInput.Limit != editPlannerCandidatesPerVisualBeat {
+			t.Fatalf("expected bounded candidate limit %d, got %#v", editPlannerCandidatesPerVisualBeat, candidateInput)
+		}
+	}
 	var artifacts struct {
 		VisualBeats   []VisualBeat   `json:"visual_beats"`
 		CandidateSets []CandidateSet `json:"candidate_sets"`
@@ -273,5 +283,37 @@ func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
 	candidate := input.Requirements[0].Candidates[0]
 	if input.Requirements[0].VisualBeatID != "visual-1" || candidate.SemanticSummary != "画面描述：手部将束裤带魔术贴快速粘合。" || candidate.SemanticScore != 0.92 {
 		t.Fatalf("candidate semantic evidence was not preserved %#v", candidate)
+	}
+}
+
+func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
+	candidates := make([]AssetCandidate, 0, editPlannerCandidatesPerVisualBeat+1)
+	for index := 0; index < editPlannerCandidatesPerVisualBeat+1; index++ {
+		candidates = append(candidates, AssetCandidate{
+			ID:              fmt.Sprintf("candidate-%d", index+1),
+			SourceType:      "visual_only",
+			SourceInMs:      0,
+			SourceOutMs:     2000,
+			SemanticSummary: strings.Repeat("镜", maximumPlannerCandidateSemanticSummaryRunes+20),
+		})
+	}
+	input := buildPlannerInput("束裤带", "固定裤脚。", []CandidateSet{{
+		Requirement: ShotRequirement{
+			VisualBeatID:       "visual-1",
+			NarrationSegmentID: "narration-1",
+			StartMs:            0,
+			EndMs:              1000,
+			NarrationText:      "固定裤脚。",
+			VisualGoal:         "展示固定动作",
+			SourceType:         "visual_only",
+		},
+		Candidates: candidates,
+	}})
+	got := input.Requirements[0].Candidates
+	if len(got) != editPlannerCandidatesPerVisualBeat || got[len(got)-1].ID != "candidate-6" {
+		t.Fatalf("expected first %d candidates, got %#v", editPlannerCandidatesPerVisualBeat, got)
+	}
+	if len([]rune(got[0].SemanticSummary)) != maximumPlannerCandidateSemanticSummaryRunes {
+		t.Fatalf("expected %d-rune summary, got %q", maximumPlannerCandidateSemanticSummaryRunes, got[0].SemanticSummary)
 	}
 }

@@ -56,3 +56,12 @@ func TestLoadUsesTTSDefaults(t *testing.T) {
 		t.Fatalf("unexpected default TTS timeout %s", cfg.TTSRequestTimeout)
 	}
 }
+
+func TestLoadUsesDefaultModelGatewayTimeout(t *testing.T) {
+	t.Setenv("MODEL_GATEWAY_TIMEOUT_SECONDS", "")
+
+	cfg := Load()
+	if cfg.ModelGatewayTimeout != 300*time.Second {
+		t.Fatalf("unexpected default model gateway timeout %s", cfg.ModelGatewayTimeout)
+	}
+}

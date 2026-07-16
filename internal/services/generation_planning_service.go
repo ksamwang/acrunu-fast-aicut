@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,6 +16,11 @@ import (
 var (
 	ErrGenerationPlanInput      = errors.New("invalid generation planning input")
 	ErrNoEligibleAssetCandidate = errors.New("no eligible asset candidate")
+)
+
+const (
+	editPlannerCandidatesPerVisualBeat          = 6
+	maximumPlannerCandidateSemanticSummaryRunes = 120
 )
 
 type GenerateEditPlanInput struct {
@@ -33,6 +39,7 @@ type GenerationPlanningService struct {
 	fallbackConfig       config.Config
 	planner              modelgateway.EditPlanner
 	visualPlanner        modelgateway.VisualPlanner
+	logger               *slog.Logger
 }
 
 func NewGenerationPlanningService(
@@ -52,6 +59,7 @@ func NewGenerationPlanningService(
 		systemConfigService:  systemConfigs,
 		modelProviderService: modelProviders,
 		fallbackConfig:       fallback,
+		logger:               slog.Default(),
 	}
 }
 
@@ -65,6 +73,13 @@ func (s *GenerationPlanningService) WithPlanner(planner modelgateway.EditPlanner
 func (s *GenerationPlanningService) WithVisualPlanner(planner modelgateway.VisualPlanner) *GenerationPlanningService {
 	if planner != nil {
 		s.visualPlanner = planner
+	}
+	return s
+}
+
+func (s *GenerationPlanningService) WithLogger(logger *slog.Logger) *GenerationPlanningService {
+	if logger != nil {
+		s.logger = logger
 	}
 	return s
 }
@@ -149,7 +164,7 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	candidateSets, err := s.candidateService.Retrieve(ctx, run.ProductID, requirements, defaultCandidatesPerNarrationSegment)
+	candidateSets, err := s.candidateService.Retrieve(ctx, run.ProductID, requirements, editPlannerCandidatesPerVisualBeat)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -170,7 +185,13 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	result, err := planner.PlanEdits(ctx, buildPlannerInput(product.Name, work.ScriptText, candidateSets))
+	plannerInput := buildPlannerInput(product.Name, work.ScriptText, candidateSets)
+	s.logger.Info("generation edit planner request",
+		slog.String("generation_run_id", run.ID),
+		slog.Int("visual_beat_count", len(plannerInput.Requirements)),
+		slog.Int("candidate_count", plannerCandidateCount(plannerInput)),
+	)
+	result, err := planner.PlanEdits(ctx, plannerInput)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -207,7 +228,11 @@ func (s *GenerationPlanningService) resolvePlanner(ctx context.Context) (modelga
 	if strings.TrimSpace(cfg.Model) == "" || strings.TrimSpace(cfg.BaseURL) == "" {
 		return nil, "", "", ErrLLMNotConfigured
 	}
-	return modelgateway.NewEditPlanner(cfg), cfg.Provider, cfg.Model, nil
+	planner := modelgateway.NewEditPlanner(cfg)
+	if openAICompatible, ok := planner.(*modelgateway.OpenAICompatibleEditPlanner); ok {
+		openAICompatible.WithLogger(s.logger)
+	}
+	return planner, cfg.Provider, cfg.Model, nil
 }
 
 func (s *GenerationPlanningService) resolveVisualPlanner(ctx context.Context) (modelgateway.VisualPlanner, string, string, error) {
@@ -221,7 +246,11 @@ func (s *GenerationPlanningService) resolveVisualPlanner(ctx context.Context) (m
 	if strings.TrimSpace(cfg.Model) == "" || strings.TrimSpace(cfg.BaseURL) == "" {
 		return nil, "", "", ErrLLMNotConfigured
 	}
-	return modelgateway.NewVisualPlanner(cfg), cfg.Provider, cfg.Model, nil
+	planner := modelgateway.NewVisualPlanner(cfg)
+	if openAICompatible, ok := planner.(*modelgateway.OpenAICompatibleEditPlanner); ok {
+		openAICompatible.WithLogger(s.logger)
+	}
+	return planner, cfg.Provider, cfg.Model, nil
 }
 
 func (s *GenerationPlanningService) persistPlanFailure(ctx context.Context, plan EditPlan, cause error) error {
@@ -307,14 +336,18 @@ func validateCandidateSets(sets []CandidateSet) error {
 func buildPlannerInput(productName string, scriptText string, sets []CandidateSet) modelgateway.EditPlanInput {
 	requirements := make([]modelgateway.EditPlanRequirement, 0, len(sets))
 	for _, set := range sets {
-		candidates := make([]modelgateway.EditPlanCandidate, 0, len(set.Candidates))
-		for _, candidate := range set.Candidates {
+		candidateCount := len(set.Candidates)
+		if candidateCount > editPlannerCandidatesPerVisualBeat {
+			candidateCount = editPlannerCandidatesPerVisualBeat
+		}
+		candidates := make([]modelgateway.EditPlanCandidate, 0, candidateCount)
+		for _, candidate := range set.Candidates[:candidateCount] {
 			candidates = append(candidates, modelgateway.EditPlanCandidate{
 				ID:              candidate.ID,
 				SourceType:      candidate.SourceType,
 				SourceInMs:      candidate.SourceInMs,
 				SourceOutMs:     candidate.SourceOutMs,
-				SemanticSummary: candidate.SemanticSummary,
+				SemanticSummary: truncatePlannerCandidateSummary(candidate.SemanticSummary),
 				SemanticScore:   candidate.SemanticScore,
 			})
 		}
@@ -335,6 +368,23 @@ func buildPlannerInput(productName string, scriptText string, sets []CandidateSe
 		ScriptText:   scriptText,
 		Requirements: requirements,
 	}
+}
+
+func plannerCandidateCount(input modelgateway.EditPlanInput) int {
+	total := 0
+	for _, requirement := range input.Requirements {
+		total += len(requirement.Candidates)
+	}
+	return total
+}
+
+func truncatePlannerCandidateSummary(summary string) string {
+	summary = strings.TrimSpace(summary)
+	runes := []rune(summary)
+	if len(runes) <= maximumPlannerCandidateSemanticSummaryRunes {
+		return summary
+	}
+	return string(runes[:maximumPlannerCandidateSemanticSummaryRunes-3]) + "..."
 }
 
 func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet) ([]EditPlanClip, error) {

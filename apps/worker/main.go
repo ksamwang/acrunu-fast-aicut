@@ -62,7 +62,7 @@ func main() {
 			systemConfigService.Service,
 			modelProviderService.Service,
 			cfg,
-		),
+		).WithLogger(logger),
 		queueClient,
 	)
 

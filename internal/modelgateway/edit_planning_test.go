@@ -1,16 +1,20 @@
 package modelgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
+	var logs bytes.Buffer
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
@@ -27,7 +31,7 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 		if responseFormat["type"] != "json_object" {
 			t.Fatalf("expected json output request, got %#v", responseFormat)
 		}
-		if request["max_tokens"] != float64(defaultEditPlanMaxTokens) {
+		if request["max_tokens"] != float64(maximumEditPlanOutputTokens) {
 			t.Fatalf("unexpected max_tokens %#v", request["max_tokens"])
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -36,11 +40,12 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 	defer server.Close()
 
 	planner := NewOpenAICompatibleEditPlanner(Config{
-		Provider: "openai_compatible",
-		BaseURL:  server.URL,
-		Model:    "planner-model",
-		Timeout:  time.Second,
-	})
+		Provider:  "openai_compatible",
+		BaseURL:   server.URL,
+		Model:     "planner-model",
+		MaxTokens: 8192,
+		Timeout:   time.Second,
+	}).WithLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
 	result, err := planner.PlanEdits(context.Background(), EditPlanInput{
 		ProductName: "束裤带",
 		ScriptText:  "骑行时固定裤脚，更安心。",
@@ -65,6 +70,19 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 	}
 	if len(result.Clips) != 1 || result.Clips[0].CandidateID != "candidate-1" {
 		t.Fatalf("unexpected plan result %#v", result)
+	}
+	if !strings.Contains(logs.String(), `"request_bytes"`) || !strings.Contains(logs.String(), `"duration_ms"`) {
+		t.Fatalf("expected request telemetry, got %s", logs.String())
+	}
+}
+
+func TestOpenAICompatibleEditPlannerUsesBoundedTokensAndTimeout(t *testing.T) {
+	planner := NewOpenAICompatibleEditPlanner(Config{MaxTokens: 8192})
+	if planner.maxTokens != maximumEditPlanOutputTokens {
+		t.Fatalf("expected %d max tokens, got %d", maximumEditPlanOutputTokens, planner.maxTokens)
+	}
+	if planner.timeout != 300*time.Second {
+		t.Fatalf("expected 300 second default timeout, got %s", planner.timeout)
 	}
 }
 
