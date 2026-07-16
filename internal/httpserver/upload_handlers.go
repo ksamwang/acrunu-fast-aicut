@@ -199,23 +199,28 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 func (s *Server) handleListAssets(c *gin.Context) {
 	page := parsePositiveInt(c.Query("page"), 1)
 	pageSize := parsePositiveInt(c.Query("page_size"), 20)
-	assets := s.productAssetService.ListAssets(services.AssetFilters{
-		ProductID:        c.Query("product_id"),
-		SourceType:       c.Query("source_type"),
-		Status:           c.Query("status"),
-		AnalysisStatus:   c.Query("analysis_status"),
-		UsabilityStatus:  c.Query("usability_status"),
-		ShotSize:         c.Query("shot_size"),
-		SellingPointID:   c.Query("selling_point_id"),
-		Tag:              c.Query("tag"),
-		Keyword:          c.Query("keyword"),
-		MinDurationMs:    parseOptionalInt(c.Query("min_duration_ms")),
-		MaxDurationMs:    parseOptionalInt(c.Query("max_duration_ms")),
-		HasAudio:         parseOptionalBool(c.Query("has_audio")),
-		LikelyHasSpeech:  parseOptionalBool(c.Query("likely_has_speech")),
-		ExcludeDiscarded: parseOptionalBoolDefaultFalse(c.Query("exclude_discarded")),
-		SortBy:           c.Query("sort_by"),
-	})
+	filters := assetFiltersFromRequest(c)
+	if semanticQuery := strings.TrimSpace(c.Query("semantic_query")); semanticQuery != "" {
+		result, err := s.assetEmbeddingService.SearchAssets(c.Request.Context(), services.AssetSemanticSearchInput{
+			Query:   semanticQuery,
+			Filters: filters,
+			Limit:   pageSize,
+			Offset:  (page - 1) * pageSize,
+		})
+		if err != nil {
+			Fail(c, http.StatusBadGateway, "semantic_search_failed", err.Error())
+			return
+		}
+		OK(c, assetListResponse{
+			Items:    result.Items,
+			Total:    result.Total,
+			Page:     page,
+			PageSize: pageSize,
+		})
+		return
+	}
+
+	assets := s.productAssetService.ListAssets(filters)
 
 	start := (page - 1) * pageSize
 	if start > len(assets) {
@@ -232,6 +237,26 @@ func (s *Server) handleListAssets(c *gin.Context) {
 		Page:     page,
 		PageSize: pageSize,
 	})
+}
+
+func assetFiltersFromRequest(c *gin.Context) services.AssetFilters {
+	return services.AssetFilters{
+		ProductID:        c.Query("product_id"),
+		SourceType:       c.Query("source_type"),
+		Status:           c.Query("status"),
+		AnalysisStatus:   c.Query("analysis_status"),
+		UsabilityStatus:  c.Query("usability_status"),
+		ShotSize:         c.Query("shot_size"),
+		SellingPointID:   c.Query("selling_point_id"),
+		Tag:              c.Query("tag"),
+		Keyword:          c.Query("keyword"),
+		MinDurationMs:    parseOptionalInt(c.Query("min_duration_ms")),
+		MaxDurationMs:    parseOptionalInt(c.Query("max_duration_ms")),
+		HasAudio:         parseOptionalBool(c.Query("has_audio")),
+		LikelyHasSpeech:  parseOptionalBool(c.Query("likely_has_speech")),
+		ExcludeDiscarded: parseOptionalBoolDefaultFalse(c.Query("exclude_discarded")),
+		SortBy:           c.Query("sort_by"),
+	}
 }
 
 func (s *Server) handleGetAsset(c *gin.Context) {

@@ -14,10 +14,12 @@ import (
 const defaultEditPlanMaxTokens = 8192
 
 type EditPlanCandidate struct {
-	ID          string `json:"id"`
-	SourceType  string `json:"source_type"`
-	SourceInMs  int    `json:"source_in_ms"`
-	SourceOutMs int    `json:"source_out_ms"`
+	ID              string  `json:"id"`
+	SourceType      string  `json:"source_type"`
+	SourceInMs      int     `json:"source_in_ms"`
+	SourceOutMs     int     `json:"source_out_ms"`
+	SemanticSummary string  `json:"semantic_summary"`
+	SemanticScore   float64 `json:"semantic_score"`
 }
 
 type EditPlanRequirement struct {

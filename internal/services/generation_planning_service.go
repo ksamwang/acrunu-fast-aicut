@@ -214,10 +214,12 @@ func buildPlannerInput(productName string, scriptText string, sets []CandidateSe
 		candidates := make([]modelgateway.EditPlanCandidate, 0, len(set.Candidates))
 		for _, candidate := range set.Candidates {
 			candidates = append(candidates, modelgateway.EditPlanCandidate{
-				ID:          candidate.ID,
-				SourceType:  candidate.SourceType,
-				SourceInMs:  candidate.SourceInMs,
-				SourceOutMs: candidate.SourceOutMs,
+				ID:              candidate.ID,
+				SourceType:      candidate.SourceType,
+				SourceInMs:      candidate.SourceInMs,
+				SourceOutMs:     candidate.SourceOutMs,
+				SemanticSummary: candidate.SemanticSummary,
+				SemanticScore:   candidate.SemanticScore,
 			})
 		}
 		requirements = append(requirements, modelgateway.EditPlanRequirement{

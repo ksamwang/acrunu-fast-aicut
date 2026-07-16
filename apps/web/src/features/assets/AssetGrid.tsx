@@ -8,19 +8,20 @@ type AssetGridProps = {
   loading: boolean;
   page: number;
   pageSize: number;
+  semanticQuery: string;
   productNameByID: Map<string, string>;
   onSelect: (asset: Asset) => void;
   onPageChange: (page: number, pageSize: number) => void;
 };
 
-export function AssetGrid({ assets, result, loading, page, pageSize, productNameByID, onSelect, onPageChange }: AssetGridProps) {
+export function AssetGrid({ assets, result, loading, page, pageSize, semanticQuery, productNameByID, onSelect, onPageChange }: AssetGridProps) {
   const total = result?.total ?? 0;
 
   return (
     <Card
       className="asset-grid-card"
       title="素材列表"
-      extra={<Typography.Text type="secondary">第 {result?.page ?? page} 页 / 共 {total} 条</Typography.Text>}
+      extra={<Typography.Text type="secondary">{semanticQuery ? "语义结果" : `第 ${result?.page ?? page} 页`} / 共 {total} 条</Typography.Text>}
       loading={loading}
     >
       {assets.length === 0 ? (

@@ -90,6 +90,7 @@ type Asset struct {
 	Metadata                map[string]any `json:"metadata,omitempty"`
 	ReviewerNotes           string         `json:"reviewer_notes,omitempty"`
 	AnalysisError           string         `json:"analysis_error,omitempty"`
+	SemanticScore           *float64       `json:"semantic_score,omitempty"`
 	CreatedByUserID         string         `json:"created_by_user_id"`
 	UpdatedByUserID         string         `json:"updated_by_user_id,omitempty"`
 	CreatedAt               time.Time      `json:"created_at"`

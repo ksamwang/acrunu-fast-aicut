@@ -48,7 +48,6 @@ export function AssetsPage({ token }: { token: string }) {
     usabilityStatus: "",
     shotSize: "",
     tag: "",
-    keyword: "",
     minDurationMs: "",
     maxDurationMs: "",
     hasAudio: "",
@@ -56,6 +55,8 @@ export function AssetsPage({ token }: { token: string }) {
     excludeDiscarded: "",
     sortBy: ""
   });
+  const [semanticSearchText, setSemanticSearchText] = useState("");
+  const [semanticQuery, setSemanticQuery] = useState("");
   const [assetFiltersExpanded, setAssetFiltersExpanded] = useState(false);
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(20);
@@ -99,8 +100,8 @@ export function AssetsPage({ token }: { token: string }) {
     if (filters.tag) {
       params.set("tag", filters.tag);
     }
-    if (filters.keyword) {
-      params.set("keyword", filters.keyword);
+    if (semanticQuery) {
+      params.set("semantic_query", semanticQuery);
     }
     if (filters.minDurationMs) {
       params.set("min_duration_ms", filters.minDurationMs);
@@ -124,7 +125,7 @@ export function AssetsPage({ token }: { token: string }) {
     params.set("page_size", String(assetPageSize));
     const query = params.toString();
     return query ? `/api/assets?${query}` : "/api/assets";
-  }, [assetPage, assetPageSize, filters]);
+  }, [assetPage, assetPageSize, filters, semanticQuery]);
 
   const assets = useResource<AssetListResponse>(assetPath, token, [assetPath], listAssets);
   const productNameByID = useMemo(() => {
@@ -329,15 +330,24 @@ export function AssetsPage({ token }: { token: string }) {
       <Space direction="vertical" size="middle" className="page-stack asset-library-stack">
         <Card className="asset-filter-card" bodyStyle={{ padding: 12 }}>
           <div className="asset-filter-toolbar">
-            <Input
+            <Input.Search
               data-testid="asset-filter-keyword"
-              value={filters.keyword}
+              value={semanticSearchText}
               allowClear
-              placeholder="搜索画面描述、文件名或标签"
+              enterButton
+              placeholder="一句话搜索素材"
               className="asset-filter-search"
               onChange={(event) => {
+                const nextValue = event.target.value;
+                setSemanticSearchText(nextValue);
+                if (!nextValue.trim()) {
+                  setAssetPage(1);
+                  setSemanticQuery("");
+                }
+              }}
+              onSearch={(value) => {
                 setAssetPage(1);
-                setFilters((current) => ({ ...current, keyword: event.target.value }));
+                setSemanticQuery(value.trim());
               }}
             />
             <Select
@@ -370,7 +380,6 @@ export function AssetsPage({ token }: { token: string }) {
                   usabilityStatus: "",
                   shotSize: "",
                   tag: "",
-                  keyword: "",
                   minDurationMs: "",
                   maxDurationMs: "",
                   hasAudio: "",
@@ -378,6 +387,8 @@ export function AssetsPage({ token }: { token: string }) {
                   excludeDiscarded: "",
                   sortBy: ""
                 });
+                setSemanticSearchText("");
+                setSemanticQuery("");
                 setProductForSellingPoints("");
               }}
             >
@@ -563,6 +574,7 @@ export function AssetsPage({ token }: { token: string }) {
           loading={assets.loading}
           page={assetPage}
           pageSize={assetPageSize}
+          semanticQuery={semanticQuery}
           productNameByID={productNameByID}
           onSelect={setSelectedAsset}
           onPageChange={(page, pageSize) => {

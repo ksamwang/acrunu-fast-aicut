@@ -42,11 +42,11 @@ func (p deterministicEditPlanner) PlanEdits(_ context.Context, input modelgatewa
 		}
 		result.Clips = append(result.Clips, modelgateway.EditPlanClipChoice{
 			NarrationSegmentID: requirement.NarrationSegmentID,
-			CandidateID:         candidateID,
-			SourceInMs:          requirement.Candidates[0].SourceInMs,
-			SourceOutMs:         requirement.Candidates[0].SourceInMs + (requirement.EndMs - requirement.StartMs),
-			Label:               "镜头展示",
-			VisualGoal:          "匹配旁白表达。",
+			CandidateID:        candidateID,
+			SourceInMs:         requirement.Candidates[0].SourceInMs,
+			SourceOutMs:        requirement.Candidates[0].SourceInMs + (requirement.EndMs - requirement.StartMs),
+			Label:              "镜头展示",
+			VisualGoal:         "匹配旁白表达。",
 		})
 	}
 	return result, nil
@@ -149,6 +149,33 @@ func TestGenerationPlanningServiceRejectsPlannerCandidateOutsideClosedSet(t *tes
 	}
 	if stored.Status != "failed" {
 		t.Fatalf("expected failed persisted plan, got %#v", stored)
+	}
+}
+
+func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
+	input := buildPlannerInput("束裤带", "魔术贴一粘即合。", []CandidateSet{{
+		Requirement: ShotRequirement{
+			NarrationSegmentID: "narration-1",
+			StartMs:            0,
+			EndMs:              1200,
+			NarrationText:      "魔术贴一粘即合。",
+			SellingPoint:       "魔术贴",
+			VisualGoal:         "展示快速粘合动作。",
+			SourceType:         "visual_only",
+		},
+		Candidates: []AssetCandidate{{
+			ID:              "candidate-1",
+			SourceType:      "visual_only",
+			SourceInMs:      100,
+			SourceOutMs:     1600,
+			SemanticSummary: "画面描述：手部将束裤带魔术贴快速粘合。",
+			SemanticScore:   0.92,
+		}},
+	}})
+
+	candidate := input.Requirements[0].Candidates[0]
+	if candidate.SemanticSummary != "画面描述：手部将束裤带魔术贴快速粘合。" || candidate.SemanticScore != 0.92 {
+		t.Fatalf("candidate semantic evidence was not preserved %#v", candidate)
 	}
 }
 

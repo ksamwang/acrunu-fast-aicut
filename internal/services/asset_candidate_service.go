@@ -17,6 +17,7 @@ const (
 	defaultCandidatesPerNarrationSegment = 10
 	maxCandidatesPerNarrationSegment     = 12
 	assetReusePenalty                    = 0.12
+	maxCandidateSemanticSummaryRunes     = 320
 )
 
 var ErrCandidateSearchUnavailable = errors.New("candidate search is not configured")
@@ -41,6 +42,7 @@ type AssetCandidate struct {
 	SourceOutMs             int     `json:"source_out_ms"`
 	AssetDurationMs         int     `json:"asset_duration_ms"`
 	DefaultUseOriginalAudio bool    `json:"default_use_original_audio"`
+	SemanticSummary         string  `json:"semantic_summary"`
 	SemanticScore           float64 `json:"semantic_score"`
 	DiversityScore          float64 `json:"diversity_score"`
 }
@@ -344,6 +346,18 @@ func buildCandidateQueryText(requirement ShotRequirement) string {
 	return strings.Join(parts, "；")
 }
 
+func candidateSemanticSummary(text string) string {
+	text = strings.TrimSpace(text)
+	if len(text) == 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= maxCandidateSemanticSummaryRunes {
+		return text
+	}
+	return string(runes[:maxCandidateSemanticSummaryRunes]) + "..."
+}
+
 func validateShotRequirement(requirement ShotRequirement) error {
 	if strings.TrimSpace(requirement.NarrationSegmentID) == "" {
 		return fmt.Errorf("narration segment id is required")
@@ -398,18 +412,20 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 			return nil, fmt.Errorf("candidate query embedding contains a non-finite value")
 		}
 	}
-	rows, err := s.pool.Query(ctx, `
+	distanceExpression := vectorCosineDistanceSQL("e.embedding", "$1", input.Model, input.Dimension)
+	query := fmt.Sprintf(`
 		SELECT
 			e.id::text,
 			a.id::text,
 			COALESCE(s.id::text, ''),
 			e.object_type,
+			e.text,
 			a.source_type,
 			CASE WHEN e.object_type = 'speech_segment' THEN s.start_ms ELSE 0 END AS source_in_ms,
 			CASE WHEN e.object_type = 'speech_segment' THEN s.end_ms ELSE COALESCE(a.duration_ms, 0) END AS source_out_ms,
 			COALESCE(a.duration_ms, 0),
 			a.default_use_original_audio,
-			1 - (e.embedding <=> $1::vector) AS semantic_score
+			1 - (%s) AS semantic_score
 		FROM asset_embedding_objects e
 		JOIN assets a ON a.id = e.asset_id
 		LEFT JOIN speech_segments s ON e.object_type = 'speech_segment' AND s.id = e.object_id
@@ -439,8 +455,9 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 					WHERE asp.asset_id = a.id AND asp.selling_point_id = ANY($8::uuid[])
 				)
 		  )
-		ORDER BY e.embedding <=> $1::vector ASC, e.id ASC
-		LIMIT $9`,
+		ORDER BY %s ASC, e.id ASC
+		LIMIT $9`, distanceExpression, distanceExpression)
+	rows, err := s.pool.Query(ctx, query,
 		vectorString(input.QueryEmbedding),
 		input.ProviderID,
 		input.Model,
@@ -463,6 +480,7 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 			&candidate.AssetID,
 			&candidate.SpeechSegmentID,
 			&candidate.ObjectType,
+			&candidate.SemanticSummary,
 			&candidate.SourceType,
 			&candidate.SourceInMs,
 			&candidate.SourceOutMs,
@@ -472,6 +490,7 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 		); err != nil {
 			return nil, err
 		}
+		candidate.SemanticSummary = candidateSemanticSummary(candidate.SemanticSummary)
 		candidate.DiversityScore = candidate.SemanticScore
 		items = append(items, candidate)
 	}

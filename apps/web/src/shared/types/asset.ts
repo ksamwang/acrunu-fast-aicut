@@ -30,6 +30,7 @@ export type Asset = {
   review_overrides?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   analysis_error?: string;
+  semantic_score?: number;
   updated_at?: string;
   analyzed_at?: string;
 };
