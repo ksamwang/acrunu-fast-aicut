@@ -164,7 +164,7 @@ func (s *GenerationRunService) Create(ctx context.Context, input CreateGeneratio
 		return cloneGenerationRun(run), nil
 	}
 
-	snapshot, err := json.Marshal(firstRunObject(input.ConfigSnapshot))
+	snapshot, err := generationRunSnapshotJSON(input.ConfigSnapshot)
 	if err != nil {
 		return GenerationRun{}, err
 	}
@@ -896,6 +896,14 @@ func firstRunObject(value map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	return value
+}
+
+func generationRunSnapshotJSON(value map[string]any) (string, error) {
+	encoded, err := json.Marshal(firstRunObject(value))
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func mustRunJSON(value any) json.RawMessage {

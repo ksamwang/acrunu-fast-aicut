@@ -214,19 +214,19 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 			},
 		})
 		if err != nil {
-			handleVoiceoverError(c, err)
+			s.handleVoiceoverTaskCreateError(c, "create_generation_run", err)
 			return
 		}
 		task, err := s.taskService.CreateVoiceoverGenerateTask(c.Request.Context(), user.ID, product.ID, queue.VoiceoverGeneratePayload{GenerationRunID: run.ID})
 		if err != nil {
 			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
-			handleVoiceoverError(c, err)
+			s.handleVoiceoverTaskCreateError(c, "create_generation_task", err)
 			return
 		}
 		if err := s.generationRunService.LinkTask(c.Request.Context(), run.ID, task.ID, "voiceover"); err != nil {
 			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
 			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
-			handleVoiceoverError(c, err)
+			s.handleVoiceoverTaskCreateError(c, "link_generation_task", err)
 			return
 		}
 		work, scriptVariantID, voiceoverID, err := s.voiceoverService.CreateVoiceoverWork(c.Request.Context(), services.CreateVoiceoverWorkInput{
@@ -240,13 +240,13 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		if err != nil {
 			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
 			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
-			handleVoiceoverError(c, err)
+			s.handleVoiceoverTaskCreateError(c, "create_voiceover_work", err)
 			return
 		}
 		if err := s.generationRunService.AttachVoiceoverArtifacts(c.Request.Context(), run.ID, task.ID, scriptVariantID, voiceoverID); err != nil {
 			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
 			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
-			handleVoiceoverError(c, err)
+			s.handleVoiceoverTaskCreateError(c, "attach_voiceover_artifacts", err)
 			return
 		}
 		if err := s.queueClient.EnqueueVoiceoverGenerate(queue.VoiceoverGeneratePayload{
@@ -257,7 +257,7 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		}); err != nil {
 			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
 			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
-			handleVoiceoverError(c, err)
+			s.handleVoiceoverTaskCreateError(c, "enqueue_voiceover_generate", err)
 			return
 		}
 		if generatedWork, err := s.generationRunService.GetWork(c.Request.Context(), run.ID); err == nil {
@@ -266,6 +266,11 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		works = append(works, work)
 	}
 	Created(c, works)
+}
+
+func (s *Server) handleVoiceoverTaskCreateError(c *gin.Context, stage string, err error) {
+	s.logger.Error("create voiceover task failed", "stage", stage, "error", err)
+	handleVoiceoverError(c, err)
 }
 
 func (s *Server) handleListVoiceoverWorks(c *gin.Context) {

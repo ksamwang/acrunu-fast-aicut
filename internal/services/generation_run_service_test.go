@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -45,13 +46,13 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 		Status:          "ready",
 		Clips: []EditPlanClip{{
 			NarrationSegmentID: "narration-1",
-			AssetID:             "asset-1",
-			SourceInMs:          0,
-			SourceOutMs:         1000,
-			StartMs:             0,
-			EndMs:               1000,
-			TimelineDurationMs:  1000,
-			SourceType:          "visual_only",
+			AssetID:            "asset-1",
+			SourceInMs:         0,
+			SourceOutMs:        1000,
+			StartMs:            0,
+			EndMs:              1000,
+			TimelineDurationMs: 1000,
+			SourceType:         "visual_only",
 		}},
 	}); err != nil {
 		t.Fatalf("save edit plan: %v", err)
@@ -65,5 +66,22 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 	}
 	if work.ID != run.ID || len(work.EditPlan) != 1 || work.EditPlan[0].AssetID != "asset-1" {
 		t.Fatalf("unexpected work projection %#v", work)
+	}
+}
+
+func TestGenerationRunSnapshotIsJSONText(t *testing.T) {
+	snapshot, err := generationRunSnapshotJSON(map[string]any{
+		"voice_profile_id": "profile-1",
+		"variant_index":    1,
+	})
+	if err != nil {
+		t.Fatalf("encode snapshot: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(snapshot), &decoded); err != nil {
+		t.Fatalf("snapshot is not JSON text: %v", err)
+	}
+	if decoded["voice_profile_id"] != "profile-1" || decoded["variant_index"] != float64(1) {
+		t.Fatalf("unexpected snapshot %#v", decoded)
 	}
 }
