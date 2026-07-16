@@ -27,6 +27,28 @@ func (s *recordingCandidateStore) SearchCandidates(_ context.Context, input Cand
 	}}, nil
 }
 
+type sellingPointFallbackCandidateStore struct {
+	inputs []CandidateSearchInput
+}
+
+func (s *sellingPointFallbackCandidateStore) SearchCandidates(_ context.Context, input CandidateSearchInput) ([]AssetCandidate, error) {
+	s.inputs = append(s.inputs, input)
+	if len(input.SellingPointIDs) > 0 {
+		return nil, nil
+	}
+	return []AssetCandidate{{
+		ID:                      "fallback-candidate-1",
+		AssetID:                 "asset-1",
+		ObjectType:              "shot",
+		SourceType:              "visual_only",
+		SourceInMs:              0,
+		SourceOutMs:             5000,
+		AssetDurationMs:         5000,
+		DefaultUseOriginalAudio: false,
+		SemanticScore:           0.91,
+	}}, nil
+}
+
 func TestAssetCandidateServiceAppliesRequirementFilters(t *testing.T) {
 	assets := NewProductAssetService()
 	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
@@ -66,6 +88,44 @@ func TestAssetCandidateServiceAppliesRequirementFilters(t *testing.T) {
 	}
 	if len(input.SellingPointIDs) != 1 || input.SellingPointIDs[0] != point.ID {
 		t.Fatalf("expected matched selling point id, got %#v", input.SellingPointIDs)
+	}
+}
+
+func TestAssetCandidateServiceFallsBackWhenSellingPointHasNoAnnotatedAssets(t *testing.T) {
+	assets := NewProductAssetService()
+	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
+	point, err := assets.CreateSellingPoint(product.ID, CreateSellingPointInput{Title: "魔术贴", Priority: 1})
+	if err != nil {
+		t.Fatalf("create selling point: %v", err)
+	}
+	store := &sellingPointFallbackCandidateStore{}
+	service := NewAssetCandidateService(nil, assets, NewSystemConfigService(), NewModelProviderService(), config.Config{}).
+		WithEmbedder(candidateTestEmbedder{}).
+		WithStore(store)
+
+	sets, err := service.Retrieve(context.Background(), product.ID, []ShotRequirement{{
+		NarrationSegmentID: "narration-1",
+		StartMs:            0,
+		EndMs:              1800,
+		NarrationText:      "魔术贴设计，一粘即合。",
+		SellingPoint:       "魔术贴",
+		VisualGoal:         "展示魔术贴快速粘合。",
+		SourceType:         "visual_only",
+	}}, 10)
+	if err != nil {
+		t.Fatalf("retrieve candidates: %v", err)
+	}
+	if len(store.inputs) != 2 {
+		t.Fatalf("expected strict and fallback searches, got %d", len(store.inputs))
+	}
+	if len(store.inputs[0].SellingPointIDs) != 1 || store.inputs[0].SellingPointIDs[0] != point.ID {
+		t.Fatalf("expected strict selling point search, got %#v", store.inputs[0].SellingPointIDs)
+	}
+	if len(store.inputs[1].SellingPointIDs) != 0 {
+		t.Fatalf("expected fallback search without selling point filter, got %#v", store.inputs[1].SellingPointIDs)
+	}
+	if len(sets) != 1 || len(sets[0].Candidates) != 1 || !sets[0].SellingPointFallback {
+		t.Fatalf("unexpected candidate sets %#v", sets)
 	}
 }
 

@@ -46,8 +46,9 @@ type AssetCandidate struct {
 }
 
 type CandidateSet struct {
-	Requirement ShotRequirement  `json:"requirement"`
-	Candidates  []AssetCandidate `json:"candidates"`
+	Requirement          ShotRequirement  `json:"requirement"`
+	Candidates           []AssetCandidate `json:"candidates"`
+	SellingPointFallback bool             `json:"selling_point_fallback"`
 }
 
 type CandidateSearchInput struct {
@@ -168,7 +169,7 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 		}
 
 		matchedSellingPointIDs := matchingSellingPointIDs(sellingPointIDs, requirement.SellingPoint)
-		candidates, err := s.store.SearchCandidates(ctx, CandidateSearchInput{
+		searchInput := CandidateSearchInput{
 			ProductID:         productID,
 			ProviderID:        providerID,
 			Model:             model,
@@ -178,9 +179,21 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 			SellingPointIDs:   matchedSellingPointIDs,
 			MinimumDurationMs: requirement.EndMs - requirement.StartMs,
 			Limit:             limit,
-		})
+		}
+		candidates, err := s.store.SearchCandidates(ctx, searchInput)
 		if err != nil {
 			return nil, err
+		}
+		sellingPointFallback := false
+		if len(candidates) == 0 && len(matchedSellingPointIDs) > 0 {
+			// Historical assets may not yet be annotated with selling points.
+			fallbackInput := searchInput
+			fallbackInput.SellingPointIDs = nil
+			candidates, err = s.store.SearchCandidates(ctx, fallbackInput)
+			if err != nil {
+				return nil, err
+			}
+			sellingPointFallback = true
 		}
 		candidates = rerankCandidatesForDiversity(candidates, assetUseCounts)
 		if len(candidates) > limit {
@@ -189,7 +202,11 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 		if len(candidates) > 0 {
 			assetUseCounts[candidates[0].AssetID]++
 		}
-		sets = append(sets, CandidateSet{Requirement: requirement, Candidates: candidates})
+		sets = append(sets, CandidateSet{
+			Requirement:          requirement,
+			Candidates:           candidates,
+			SellingPointFallback: sellingPointFallback,
+		})
 	}
 	return sets, nil
 }
