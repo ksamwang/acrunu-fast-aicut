@@ -109,17 +109,23 @@
   box-shadow: 0 10px 22px rgba(23, 33, 43, 0.08);
 }
 
-.finished-work-media.is-generating > img {
+.finished-work-media.is-generating > img,
+.finished-work-media.is-generating > video {
   filter: saturate(0.72) brightness(0.78);
 }
 
-.finished-work-media > img {
+.finished-work-media > img,
+.finished-work-media > video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   background: #ffffff;
+}
+
+.finished-work-media > video {
+  pointer-events: none;
 }
 
 .finished-work-media > .finished-work-fallback {
@@ -415,13 +421,15 @@
 }
 
 .finished-detail-preview > img,
+.finished-detail-preview > video,
 .finished-detail-preview > .finished-work-fallback {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.finished-detail-preview.is-generating > img {
+.finished-detail-preview.is-generating > img,
+.finished-detail-preview.is-generating > video {
   filter: saturate(0.72) brightness(0.78);
 }
 

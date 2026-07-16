@@ -182,7 +182,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                     aria-label={`查看 ${work.title}`}
                     onClick={() => writeFinishedWorkID(work.id)}
                   >
-                    <FinishedWorkVisual work={work} />
+                    <FinishedWorkVisual work={work} compact />
                     <span className="finished-work-overlay-top">
                       <span className="finished-work-overlay-labels">
                         <Tag className="finished-work-product">{work.product_name}</Tag>

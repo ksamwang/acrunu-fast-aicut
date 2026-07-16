@@ -111,6 +111,11 @@ export type FinishedWork = {
   visual_beats?: VisualBeat[];
   edit_plan?: EditPlanBeat[];
   audio_url?: string;
+  video_url?: string;
+  output_mime_type?: string;
+  output_width?: number;
+  output_height?: number;
+  output_file_size_bytes?: number;
   error_message?: string;
   is_demo?: boolean;
 };

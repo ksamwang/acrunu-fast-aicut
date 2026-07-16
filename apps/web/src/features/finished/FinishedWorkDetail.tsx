@@ -1,6 +1,7 @@
 import { Button, Progress, Tag, Tooltip, Typography } from "antd";
 import { ArrowLeft, CheckCircle2, CircleAlert, LoaderCircle, Volume2 } from "lucide-react";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
+import { subtitleDisplayText } from "../../shared/lib/subtitle";
 import type { FinishedWork } from "../../shared/types/generation";
 import { FinishedWorkVisual } from "./FinishedWorkVisual";
 
@@ -16,7 +17,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
   const narrationSegments = work.narration_segments ?? [];
   const editPlan = work.edit_plan ?? [];
   const beats = work.beats ?? [];
-  const previewCaption = narrationSegments[0]?.text;
+  const previewCaption = narrationSegments[0] ? subtitleDisplayText(narrationSegments[0].text) : "";
 
   return (
     <div className="finished-detail-page" data-testid="finished-work-detail">
@@ -38,7 +39,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
           <div className="finished-detail-preview-column">
             <div className={`finished-detail-preview${isGenerating ? " is-generating" : ""}`}>
               <FinishedWorkVisual work={work} />
-              <span className="finished-detail-preview-scrim" />
+              {!work.video_url ? <span className="finished-detail-preview-scrim" /> : null}
               {isGenerating ? (
                 <span className="finished-detail-generation-state">
                   <LoaderCircle size={22} />
@@ -49,10 +50,10 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
                   <CircleAlert size={22} />
                   <span>{work.error_message || "生成失败"}</span>
                 </span>
-              ) : (
+              ) : work.video_url ? null : (
                 <span className="finished-detail-play"><Volume2 size={23} /></span>
               )}
-              {previewCaption ? <span className="finished-detail-caption">{previewCaption}</span> : null}
+              {previewCaption && !work.video_url ? <span className="finished-detail-caption">{previewCaption}</span> : null}
             </div>
             <div className="finished-detail-timebar" aria-label="成品时间轴">
               <span>0:00</span>
@@ -61,7 +62,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
               </span>
               <span>{formatDuration(work.duration_ms)}</span>
             </div>
-            {work.audio_url ? <audio className="finished-detail-audio" controls preload="metadata" src={work.audio_url} aria-label="旁白音频" /> : null}
+            {work.audio_url && !work.video_url ? <audio className="finished-detail-audio" controls preload="metadata" src={work.audio_url} aria-label="旁白音频" /> : null}
           </div>
 
           <aside className="finished-detail-summary">
@@ -102,7 +103,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
             ) : isFailed ? (
               <span className="finished-detail-failed"><CircleAlert size={16} /> {work.error_message || "生成失败"}</span>
             ) : (
-              <span className="finished-detail-complete"><CheckCircle2 size={16} /> 旁白已完成</span>
+              <span className="finished-detail-complete"><CheckCircle2 size={16} /> 成品已完成</span>
             )}
           </aside>
         </section>
@@ -116,7 +117,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
             {narrationSegments.map((segment) => (
               <article className="finished-detail-caption-row" key={segment.id}>
                 <span className="finished-detail-caption-time">{formatTimestamp(segment.start_ms)}</span>
-                <span className="finished-detail-caption-copy">{segment.text}</span>
+                <span className="finished-detail-caption-copy">{subtitleDisplayText(segment.text)}</span>
                 <span className="finished-detail-caption-end">{formatTimestamp(segment.end_ms)}</span>
               </article>
             ))}

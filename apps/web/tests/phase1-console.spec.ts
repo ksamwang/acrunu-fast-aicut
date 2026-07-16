@@ -130,7 +130,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         { id: "beat-1", label: "开头", selling_point: "自动唤醒", visual_goal: "以回家场景建立需求。", source_type: "mixed" },
         { id: "beat-2", label: "展示", selling_point: "夜间安心", visual_goal: "展示自动亮灯和使用结果。", source_type: "visual_only" }
       ],
-      audio_url: "/storage/voiceovers/work-completed-1.wav"
+      audio_url: "/storage/voiceovers/work-completed-1.wav",
+      video_url: "/storage/renders/generations/work-completed-1/final.mp4"
     }
   ];
 
@@ -785,7 +786,10 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(completedDetailButton).toHaveCount(1);
   await completedDetailButton.click();
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
+  await expect(page.getByLabel("灯光自动唤醒，夜间更安心成品视频")).toBeVisible();
   await expect(page.getByText("字幕", { exact: true })).toBeVisible();
+  await expect(page.getByText("回到家灯光自动亮起", { exact: true })).toBeVisible();
+  await expect(page.getByText("无需摸黑找开关夜间使用更安心", { exact: true })).toBeVisible();
   await expect(page.getByText("初步镜头编排", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "返回成品库" }).click();
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
