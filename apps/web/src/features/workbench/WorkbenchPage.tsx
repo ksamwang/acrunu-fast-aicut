@@ -11,11 +11,10 @@ import { VoiceProfilePicker } from "../voice-profiles/VoiceProfilePicker";
 import { useVoiceProfiles } from "../voice-profiles/useVoiceProfiles";
 import {
   clearWorkbenchVariants,
-  generateDraftScripts,
   loadWorkbenchDraft,
   saveWorkbenchDraft
-} from "./draft-scripts";
-import { createVoiceAudition, createVoiceoverTasks, getVoiceAudition } from "./api";
+} from "./draft-store";
+import { createVoiceAudition, createVoiceoverTasks, generateWorkbenchScripts, getVoiceAudition } from "./api";
 import "./styles.css";
 
 const sourceTypeLabels = {
@@ -178,14 +177,16 @@ export function WorkbenchPage({ token }: { token: string }) {
     }
     setGenerating(true);
     try {
-      const variants = await generateDraftScripts({
-        product: selectedProduct,
-        selling_points: selectedSellingPoints,
+      const variants = await generateWorkbenchScripts({
+        product_id: selectedProduct.id,
+        selling_point_ids: draft.selling_point_ids,
         custom_selling_points: draft.custom_selling_points,
-        count: draft.variant_count
-      });
+        variant_count: draft.variant_count
+      }, token);
       setDraft((current) => ({ ...current, variants, active_variant_id: variants[0]?.id ?? "" }));
       message.success(`已生成 ${variants.length} 条文案`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "文案生成失败");
     } finally {
       setGenerating(false);
     }
@@ -212,12 +213,12 @@ export function WorkbenchPage({ token }: { token: string }) {
     }
     setRegeneratingVariantID(activeVariant.id);
     try {
-      const [replacement] = await generateDraftScripts({
-        product: selectedProduct,
-        selling_points: selectedSellingPoints,
+      const [replacement] = await generateWorkbenchScripts({
+        product_id: selectedProduct.id,
+        selling_point_ids: draft.selling_point_ids,
         custom_selling_points: draft.custom_selling_points,
-        count: 1
-      });
+        variant_count: 1
+      }, token);
       if (!replacement) {
         return;
       }
@@ -228,6 +229,8 @@ export function WorkbenchPage({ token }: { token: string }) {
         status: "draft"
       }));
       message.success("当前文案已重新生成");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "文案重新生成失败");
     } finally {
       setRegeneratingVariantID(null);
     }

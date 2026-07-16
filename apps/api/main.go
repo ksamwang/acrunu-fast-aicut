@@ -25,16 +25,23 @@ func main() {
 	defer assetEmbeddingService.Close()
 	voiceoverService := services.NewConfiguredVoiceoverService(context.Background(), cfg, logger)
 	defer voiceoverService.Close()
+	scriptGenerationService := services.NewScriptGenerationService(
+		productAssetService.Service,
+		systemConfigService.Service,
+		modelProviderService.Service,
+		cfg,
+	)
 
 	server := httpserver.New(httpserver.Options{
-		Config:                cfg,
-		Logger:                logger,
-		TaskService:           taskService.Service,
-		SystemConfigService:   systemConfigService.Service,
-		ModelProviderService:  modelProviderService.Service,
-		ProductAssetService:   productAssetService.Service,
-		AssetEmbeddingService: assetEmbeddingService.Service,
-		VoiceoverService:      voiceoverService.Service,
+		Config:                  cfg,
+		Logger:                  logger,
+		TaskService:             taskService.Service,
+		SystemConfigService:     systemConfigService.Service,
+		ModelProviderService:    modelProviderService.Service,
+		ProductAssetService:     productAssetService.Service,
+		AssetEmbeddingService:   assetEmbeddingService.Service,
+		VoiceoverService:        voiceoverService.Service,
+		ScriptGenerationService: scriptGenerationService,
 	})
 
 	if err := server.Run(); err != nil {

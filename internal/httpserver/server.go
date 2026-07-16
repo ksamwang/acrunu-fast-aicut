@@ -11,30 +11,32 @@ import (
 )
 
 type Options struct {
-	Config                config.Config
-	Logger                *slog.Logger
-	TaskService           *services.TaskService
-	SystemConfigService   *services.SystemConfigService
-	ModelProviderService  *services.ModelProviderService
-	ProductAssetService   *services.ProductAssetService
-	AssetEmbeddingService *services.AssetEmbeddingService
-	VoiceoverService      *services.VoiceoverService
+	Config                  config.Config
+	Logger                  *slog.Logger
+	TaskService             *services.TaskService
+	SystemConfigService     *services.SystemConfigService
+	ModelProviderService    *services.ModelProviderService
+	ProductAssetService     *services.ProductAssetService
+	AssetEmbeddingService   *services.AssetEmbeddingService
+	VoiceoverService        *services.VoiceoverService
+	ScriptGenerationService *services.ScriptGenerationService
 }
 
 type Server struct {
-	cfg                   config.Config
-	logger                *slog.Logger
-	engine                *gin.Engine
-	userService           *services.UserService
-	systemConfigService   *services.SystemConfigService
-	modelProviderService  *services.ModelProviderService
-	productAssetService   *services.ProductAssetService
-	assetEmbeddingService *services.AssetEmbeddingService
-	voiceoverService      *services.VoiceoverService
-	uploadTokenService    *services.UploadTokenService
-	localStore            *storage.LocalStore
-	taskService           *services.TaskService
-	queueClient           *queue.Client
+	cfg                     config.Config
+	logger                  *slog.Logger
+	engine                  *gin.Engine
+	userService             *services.UserService
+	systemConfigService     *services.SystemConfigService
+	modelProviderService    *services.ModelProviderService
+	productAssetService     *services.ProductAssetService
+	assetEmbeddingService   *services.AssetEmbeddingService
+	voiceoverService        *services.VoiceoverService
+	scriptGenerationService *services.ScriptGenerationService
+	uploadTokenService      *services.UploadTokenService
+	localStore              *storage.LocalStore
+	taskService             *services.TaskService
+	queueClient             *queue.Client
 }
 
 func New(opts Options) *Server {
@@ -68,21 +70,26 @@ func New(opts Options) *Server {
 	if voiceoverService == nil {
 		voiceoverService = services.NewVoiceoverService(opts.Config.StorageRoot, opts.Config, opts.Logger)
 	}
+	scriptGenerationService := opts.ScriptGenerationService
+	if scriptGenerationService == nil {
+		scriptGenerationService = services.NewScriptGenerationService(productAssetService, systemConfigService, modelProviderService, opts.Config)
+	}
 
 	server := &Server{
-		cfg:                   opts.Config,
-		logger:                opts.Logger,
-		engine:                gin.New(),
-		userService:           services.NewUserService(opts.Config),
-		systemConfigService:   systemConfigService,
-		modelProviderService:  modelProviderService,
-		productAssetService:   productAssetService,
-		assetEmbeddingService: assetEmbeddingService,
-		voiceoverService:      voiceoverService,
-		uploadTokenService:    services.NewUploadTokenService(),
-		localStore:            storage.NewLocalStore(opts.Config.StorageRoot),
-		taskService:           taskService,
-		queueClient:           queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
+		cfg:                     opts.Config,
+		logger:                  opts.Logger,
+		engine:                  gin.New(),
+		userService:             services.NewUserService(opts.Config),
+		systemConfigService:     systemConfigService,
+		modelProviderService:    modelProviderService,
+		productAssetService:     productAssetService,
+		assetEmbeddingService:   assetEmbeddingService,
+		voiceoverService:        voiceoverService,
+		scriptGenerationService: scriptGenerationService,
+		uploadTokenService:      services.NewUploadTokenService(),
+		localStore:              storage.NewLocalStore(opts.Config.StorageRoot),
+		taskService:             taskService,
+		queueClient:             queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
 	}
 
 	server.routes()
@@ -171,6 +178,7 @@ func (s *Server) routes() {
 	protected.POST("/uploads/tokens", s.handleCreateUploadToken)
 	protected.POST("/preprocess/asr-transcribe", s.handlePreprocessASRTranscribe)
 	protected.POST("/preprocess/vlm-label", s.handlePreprocessVLMLabel)
+	protected.POST("/workbench/scripts/generate", s.handleGenerateWorkbenchScripts)
 	protected.GET("/voice-profiles", s.handleListVoiceProfiles)
 	protected.POST("/voice-profiles/:voiceProfileID/auditions", s.handleCreateVoiceAudition)
 	protected.GET("/voice-auditions/:auditionID", s.handleGetVoiceAudition)

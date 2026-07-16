@@ -166,7 +166,8 @@ draft
 - 已新增 `#/workbench` 和 `#/finished` 路由，工作台为默认首页。
 - 已将工作台和成品库置于导航最前，普通用户导航移除了任务入口。
 - 产品和已有卖点读取现有真实接口。
-- 文案生成仍是前端 prototype；产品、卖点、手工编辑和确认流程已可用于验证工作台交互。
+- 文案生成已调用服务端 `POST /api/workbench/scripts/generate`。服务端从产品与卖点存储读取事实，通过已配置的默认 LLM 生成严格 JSON 的临时 variants；浏览器只保存用户尚未确认的可编辑草稿。
+- 文案生成会校验变体数量、必填字段、镜头意图结构、素材类型和目标卖点覆盖；缺少默认 LLM 配置时返回明确错误，不回退为前端 mock。
 - 音色配置已由服务端持久化：参考音频上传至服务端存储，创建或编辑后异步生成固定样音；浏览器只播放服务端返回的 WAV。
 - 工作台支持“试听当前文案”。试听作为 `voice_audition` 异步任务运行，不阻塞文案编辑。
 - “开始任务”已创建真实 `voiceover_generate` 任务。worker 使用服务端 CosyVoice，保存 WAV，再由 FunASR 生成连续且不重叠的 `narration_segments`。
@@ -174,8 +175,8 @@ draft
 
 尚未具备完整工作台链路，主要缺口如下：
 
-- 仍无服务端 LLM 文案生成和编排规划接口；当前文案 variants 仍由前端 prototype 生成。
-- `modelgateway` 当前提供素材分析和向量能力，尚无独立的脚本文案生成或编排规划接口。
+- 已具备服务端 LLM 文案生成接口，但临时 variants 尚不单独持久化；只有用户确认并启动旁白任务后，最终文案才会写入 `script_variants`。
+- `modelgateway` 已提供独立的 OpenAI-compatible Script Generator；尚无候选素材约束下的编排规划接口。
 - 向量已可写入，但 `AssetRepository.SearchByEmbedding` 仍返回“未实现”，尚不能进行实际候选召回。
 - 已落地 `voice_profile_preview`、`voice_audition` 与 `voiceover_generate` 三类任务，以及 `voice_profiles`、`script_variants`、`voiceovers`、`narration_segments` 和 `voice_auditions` 的持久化。
 - 尚无 `edit_plans`、`clip_segments` 和视频渲染任务；成品库暂不能播放最终视频。
@@ -206,10 +207,9 @@ Remotion 不属于首期工作台、文案或编排链路的前置依赖。
 
 ### 第一步：工作台文案阶段
 
-- 先完成前端 prototype：使用真实产品和卖点数据，通过集中 mock adapter 验证工作台和成品库交互。
-- 前端 prototype 稳定后，再以同一类型和调用边界替换为服务端 API；不得把 mock 数据散落在页面组件中。
-- 新增任务草稿和 `script_variants` 持久化。
-- 接入独立 Script Generator，生成并校验 JSON 文案与初步编排意图。
+- [x] 前端使用真实产品与卖点数据，并通过集中 mock adapter 覆盖工作台端到端交互。
+- [x] 接入服务端 Script Generator，生成并校验 JSON 文案与初步编排意图。
+- [x] 在正式旁白任务创建时持久化确认的 `script_variants`；生成阶段的临时文案只保存在浏览器草稿中。
 - 支持逐条编辑、确认、弃用和选择启动版本。
 - 工作台只承接创建和确认文案；成品库承接生成中的作品、完成后的预览和后续独立业务动作。
 

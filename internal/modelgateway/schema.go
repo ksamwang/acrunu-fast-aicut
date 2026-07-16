@@ -6,6 +6,7 @@ import (
 )
 
 const OutputSchemaVersion = "phase2.asset_analysis.v2"
+const ScriptGenerationOutputSchemaVersion = "workbench.script_generation.v1"
 
 var allowedShotSizes = map[string]struct{}{
 	"":                {},
@@ -102,4 +103,44 @@ func ValidateAnalyzeAssetResult(result AnalyzeAssetResult) error {
 		return NewError(ErrorCodeInvalidResponse, "action_description is required", false, nil)
 	}
 	return nil
+}
+
+func ScriptGenerationOutputSchema() map[string]any {
+	return map[string]any{
+		"version": ScriptGenerationOutputSchemaVersion,
+		"type":    "object",
+		"required": []string{
+			"variants",
+		},
+		"properties": map[string]any{
+			"variants": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"hook", "script_text", "editing_intent", "beats"},
+					"properties": map[string]any{
+						"hook":           map[string]any{"type": "string", "minLength": 1},
+						"script_text":    map[string]any{"type": "string", "minLength": 1},
+						"editing_intent": map[string]any{"type": "string", "minLength": 1},
+						"beats": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type":     "object",
+								"required": []string{"label", "selling_point", "visual_goal", "source_type"},
+								"properties": map[string]any{
+									"label":         map[string]any{"type": "string", "minLength": 1},
+									"selling_point": map[string]any{"type": "string", "minLength": 1},
+									"visual_goal":   map[string]any{"type": "string", "minLength": 1},
+									"source_type": map[string]any{
+										"type": "string",
+										"enum": []string{"visual_only", "talking_head", "mixed"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }

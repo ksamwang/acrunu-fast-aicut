@@ -194,6 +194,62 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       return;
     }
 
+    if (url.includes("/api/workbench/scripts/generate")) {
+      const body = route.request().postDataJSON() as { variant_count: number };
+      const variants = [
+        {
+          id: "script-1",
+          order: 1,
+          hook: "回到家，灯光自动亮起。",
+          script_text: "回到家，灯光自动亮起。无需摸黑找开关，自动唤醒让每一次归家都更安心。",
+          estimated_duration_ms: 9500,
+          editing_intent: "从昏暗归家场景切入，展示自动亮灯和安心使用的结果。",
+          beats: [
+            { id: "script-1-beat-1", label: "痛点", selling_point: "Auto Wake", visual_goal: "以昏暗归家场景建立需求。", source_type: "mixed" },
+            { id: "script-1-beat-2", label: "触发", selling_point: "Auto Wake", visual_goal: "展示设备自动亮起的瞬间。", source_type: "visual_only" },
+            { id: "script-1-beat-3", label: "结果", selling_point: "Auto Wake", visual_goal: "展示夜间使用时的安心感。", source_type: "talking_head" }
+          ],
+          status: "draft",
+          updated_at: "2026-07-15T09:05:00.000Z"
+        },
+        {
+          id: "script-2",
+          order: 2,
+          hook: "不用等你开口，灯光已经准备好了。",
+          script_text: "不用等你开口，灯光已经准备好了。自动唤醒减少夜间摸索，让回家这件小事变得更从容。",
+          estimated_duration_ms: 10200,
+          editing_intent: "以主动服务的视角开场，再强调夜间归家的便利。",
+          beats: [
+            { id: "script-2-beat-1", label: "开场", selling_point: "Auto Wake", visual_goal: "以门口进入室内的动作开场。", source_type: "mixed" },
+            { id: "script-2-beat-2", label: "展示", selling_point: "Auto Wake", visual_goal: "展示自动亮灯过程。", source_type: "visual_only" },
+            { id: "script-2-beat-3", label: "收束", selling_point: "Auto Wake", visual_goal: "以舒适稳定的夜间环境收束。", source_type: "talking_head" }
+          ],
+          status: "draft",
+          updated_at: "2026-07-15T09:05:00.000Z"
+        },
+        {
+          id: "script-3",
+          order: 3,
+          hook: "晚一步开灯，就多一分不方便。",
+          script_text: "晚一步开灯，就多一分不方便。自动唤醒在你到家时及时点亮，让夜间动线更清楚、更安心。",
+          estimated_duration_ms: 10100,
+          editing_intent: "通过夜间行动的不便建立张力，随后用自动亮灯完成问题解决。",
+          beats: [
+            { id: "script-3-beat-1", label: "冲突", selling_point: "Auto Wake", visual_goal: "用昏暗环境表现行动不便。", source_type: "talking_head" },
+            { id: "script-3-beat-2", label: "解决", selling_point: "Auto Wake", visual_goal: "展示灯光自动亮起。", source_type: "visual_only" },
+            { id: "script-3-beat-3", label: "结果", selling_point: "Auto Wake", visual_goal: "展示明亮动线带来的安心感。", source_type: "mixed" }
+          ],
+          status: "draft",
+          updated_at: "2026-07-15T09:05:00.000Z"
+        }
+      ];
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: variants.slice(0, body.variant_count) })
+      });
+      return;
+    }
+
     if (url.includes("/api/workbench/voiceover-tasks")) {
       const body = route.request().postDataJSON() as {
         product_id: string;

@@ -119,6 +119,61 @@ func ResolveEmbeddingConfigWithProviders(ctx context.Context, service *SystemCon
 	return resolved
 }
 
+func ResolveLLMScriptConfigWithProviders(ctx context.Context, service *SystemConfigService, providerService *ModelProviderService, fallback appconfig.Config) modelgateway.Config {
+	resolved := modelgateway.Config{
+		Provider:  "openai_compatible",
+		BaseURL:   fallback.VLMBaseURL,
+		APIKey:    fallback.VLMAPIKey,
+		MaxTokens: 8192,
+		Timeout:   fallback.ModelGatewayTimeout,
+	}
+	if service == nil {
+		return resolved
+	}
+	if config, err := service.Get("llm.provider"); err == nil {
+		if value := configStringValue(config.Value); value != "" {
+			resolved.Provider = value
+		}
+	}
+	if config, err := service.Get("llm.model"); err == nil {
+		resolved.Model = configStringValue(config.Value)
+	}
+	if config, err := service.Get(openAIBaseURLKey); err == nil {
+		if value := configStringValue(config.Value); value != "" {
+			resolved.BaseURL = value
+		}
+	}
+	if config, err := service.Get(openAIAPIKeyKey); err == nil {
+		if value := configStringValue(config.Value); value != "" {
+			resolved.APIKey = value
+		}
+	}
+	if config, err := service.Get("llm.max_tokens"); err == nil {
+		if value := configIntValue(config.Value); value > 0 {
+			resolved.MaxTokens = value
+		}
+	}
+	if providerService == nil {
+		return resolved
+	}
+	config, err := service.Get("llm.provider_id")
+	if err != nil {
+		return resolved
+	}
+	providerID := configStringValue(config.Value)
+	if providerID == "" {
+		return resolved
+	}
+	access, err := providerService.GetAccess(ctx, providerID)
+	if err != nil || !access.Enabled {
+		return resolved
+	}
+	resolved.Provider = access.ProviderType
+	resolved.BaseURL = access.BaseURL
+	resolved.APIKey = access.APIKey
+	return resolved
+}
+
 func configStringValue(value any) string {
 	switch typed := value.(type) {
 	case string:

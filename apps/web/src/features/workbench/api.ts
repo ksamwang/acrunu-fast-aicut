@@ -4,6 +4,20 @@ import type { VoiceAudition } from "../../shared/types/voice";
 
 type VoiceoverTaskVariant = Pick<ScriptVariant, "hook" | "script_text" | "editing_intent" | "beats">;
 
+type GenerateWorkbenchScriptsInput = {
+  product_id: string;
+  selling_point_ids: string[];
+  custom_selling_points: string[];
+  variant_count: number;
+};
+
+export function generateWorkbenchScripts(input: GenerateWorkbenchScriptsInput, token: string) {
+  return apiRequest<ScriptVariant[]>("/api/workbench/scripts/generate", {
+    method: "POST",
+    body: JSON.stringify(input)
+  }, token);
+}
+
 export function createVoiceAudition(voiceProfileID: string, text: string, token: string) {
   return apiRequest<VoiceAudition>(`/api/voice-profiles/${encodeURIComponent(voiceProfileID)}/auditions`, {
     method: "POST",
