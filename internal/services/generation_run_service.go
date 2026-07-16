@@ -168,16 +168,14 @@ func (s *GenerationRunService) Create(ctx context.Context, input CreateGeneratio
 	if err != nil {
 		return GenerationRun{}, err
 	}
-	row := s.pool.QueryRow(ctx, `
-		WITH created AS (
-			INSERT INTO generation_runs (product_id, created_by_user_id, status, stage, progress, config_snapshot)
-			VALUES ($1::uuid, NULLIF($2, '')::uuid, 'generating', 'queued', 4, $3::jsonb)
-			RETURNING id
-		)
-	`+generationRunColumns+`
-		FROM generation_runs
-		JOIN created ON created.id = generation_runs.id`, input.ProductID, input.CreatedByUserID, snapshot)
-	return scanGenerationRun(row)
+	var runID string
+	if err := s.pool.QueryRow(ctx, `
+		INSERT INTO generation_runs (product_id, created_by_user_id, status, stage, progress, config_snapshot)
+		VALUES ($1::uuid, NULLIF($2, '')::uuid, 'generating', 'queued', 4, $3::jsonb)
+		RETURNING id::text`, input.ProductID, input.CreatedByUserID, snapshot).Scan(&runID); err != nil {
+		return GenerationRun{}, err
+	}
+	return s.Get(ctx, runID)
 }
 
 func (s *GenerationRunService) Get(ctx context.Context, runID string) (GenerationRun, error) {
