@@ -16,14 +16,16 @@ The Docker stack contains two internal media services:
 
 `tts` is wired to the server-side voiceover pipeline. The browser and `local-agent` never call CosyVoice directly. The API stores reference audio, queues an asynchronous task, and the worker calls `http://tts:50000/v1/synthesize`, stores the resulting WAV, then asks FunASR for normalized `narration_segments`.
 
-`renderer` is still infrastructure-only. It is not yet called by a generation worker, and no `edit_plan` or finished video is generated in the current voiceover phase.
+The Remotion `renderer` remains infrastructure-only. Production generation currently uses the FFmpeg renderer inside the Go worker, which consumes the persisted `edit_plan` from PostgreSQL and reads source media from the shared `storage/` mount. Remotion is reserved for later template and motion-graphics work.
+
+After planning, the worker queues `generation_render`, writes the verified MP4 to `storage/renders/generations/<run_id>/final.mp4`, and marks the generation run complete. Worker startup also queues historical runs left at `plan_ready` without a render task.
 
 ## Deployment
 
-The deployment script archives committed `HEAD`, so commit the changes first. The voiceover pipeline adds database tables and task types, so deploy it with migrations:
+The deployment script archives committed `HEAD`, so commit the changes first. The render pipeline adds database fields and a task type, so deploy API and worker with migrations:
 
 ```powershell
-.\scripts\deploy-server.ps1 -RunMigrations
+.\scripts\deploy-server.ps1 -RunMigrations -Services api,worker
 ```
 
 Use `-Services tts,renderer` only when the media service images themselves also need rebuilding.

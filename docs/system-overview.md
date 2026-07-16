@@ -236,7 +236,9 @@
 - `renderer`
   - 运行 Remotion、Chromium 和 FFmpeg
   - 当前仅作为运行环境与最小 smoke render 验证，不直接承担业务时间线
-  - 后续只接收经过服务端校验的 `edit_plan`，不得直接向客户端暴露任意文件路径或渲染脚本入口
+  - 后续只接收经过服务端校验的模板化渲染参数，不得直接向客户端暴露任意文件路径或渲染脚本入口
+
+首版业务成片由 `worker` 容器内的 FFmpeg renderer 执行。API、worker 与 Remotion renderer 共享服务端 `storage/`，但浏览器和 `local-agent` 均不参与服务端成片渲染。
 
 CosyVoice 与 FunASR 共用服务器 GPU；当前部署使用半精度 CosyVoice3 模型。Remotion 默认使用 CPU，避免与模型推理竞争显存。
 
@@ -245,16 +247,20 @@ CosyVoice 与 FunASR 共用服务器 GPU；当前部署使用半精度 CosyVoice
 音色和正式旁白属于服务端生成对象，不属于 `local-agent` 预处理工作区：
 
 ```text
-browser -> API -> generation_run / generation_tasks -> worker -> CosyVoice -> WAV -> FunASR -> narration_segments -> candidate retrieval -> edit_plan
+browser -> API -> generation_run / generation_tasks -> worker -> CosyVoice -> WAV -> FunASR alignment -> narration_segments -> visual beats -> pgvector retrieval -> edit_plan -> FFmpeg render -> MP4
 ```
 
 - 浏览器只能调用受认证的音色、试听和工作台 API；不能调用 `tts` 或 `asr` 容器。
 - 参考音频、固定样音、试听 WAV 和正式旁白 WAV 均保存在服务端 `storage/` 下。
 - 音色创建或编辑、当前文案试听和正式旁白分别对应异步任务；前端通过状态轮询展示结果，不阻塞文案编辑。
-- 正式旁白完成后，FunASR 生成连续且不重叠的 `narration_segments`，它们是后续编排的真实时间轴锚点。
-- 每个确认文案对应一个 `generation_run`。该根对象聚合旁白与编排子任务，当前只有 `generating`、`completed` 和 `failed` 三种业务状态。
-- worker 根据旁白句段、beat 和产品约束检索候选素材，LLM 只能从候选闭集选择单源连续片段。候选快照、`edit_plan` 与 `clip_segments` 均持久化，供后续渲染器复核和消费。
-- 当前编排完成仍属于 `generating / plan_ready`；最终视频尚未渲染，因此成品库不会把仅有旁白或编排的任务标记为“已完成”。
+- 正式旁白完成后，FunASR 只提供时间锚点；最终 `narration_segments.text` 来自确认文案，时间段连续且不重叠。
+- 每个确认文案对应一个 `generation_run`。该根对象聚合旁白、编排与渲染子任务，对外只有 `generating`、`completed` 和 `failed` 三种业务状态。
+- worker 使用每个 `visual_beat.visual_goal` 生成查询向量，在同产品可用素材的 `shot` 向量中召回候选；卖点只作为规划上下文，不是候选硬过滤条件。
+- LLM 只能从候选闭集选择素材和合法 I/O。候选快照、`visual_beats`、`edit_plan` 与 `clip_segments` 均持久化。
+- 编排完成后自动创建 `generation_render` 子任务。FFmpeg 按 `clip_segments` 裁切、统一 9:16 画幅并拼接，以 CosyVoice WAV 为主音轨，仅在镜头明确启用时混入素材原声。
+- 字幕结构化文本保留确认文案标点；前端展示和 FFmpeg 生成 ASS 时使用无标点投影，不修改规范文案。
+- MP4 经 `ffprobe` 校验后写入 `storage/renders/generations/<run_id>/final.mp4`，并记录输出时长、尺寸、大小和 renderer 版本；只有此时任务进入 `completed`。
+- worker 启动时会补偿尚无渲染任务的 `plan_ready` 历史记录。渲染失败重试沿用旁白与编排，只重新执行渲染。
 
 ## 6. 标签体系设计
 
@@ -499,7 +505,10 @@ LLM 的输入应是受控素材集合，而不是无限上下文中的原始素�
 - `script_variants`
 - `narration_segments`
 - `edit_plans`
-- `render_jobs`
+- `visual_beats`
+- `clip_segments`
+- `generation_run_tasks`，其中包含 `voiceover`、`edit_plan` 与 `render` 子任务关联
+- `generation_runs` 上的成品输出字段
 
 ### 11.1 `assets`
 

@@ -92,7 +92,8 @@ script variant confirmed
 -> vector retrieval and structured filtering
 -> LLM candidate-grounded planning
 -> edit_plan validation
--> future render
+-> FFmpeg render
+-> completed MP4
 ```
 
 ### 3.1 主时间轴原则
@@ -170,18 +171,19 @@ draft
 - 文案生成会校验变体数量、必填字段、镜头意图结构、素材类型和目标卖点覆盖；缺少默认 LLM 配置时返回明确错误，不回退为前端 mock。
 - 音色配置已由服务端持久化：参考音频上传至服务端存储，创建或编辑后异步生成固定样音；浏览器只播放服务端返回的 WAV。
 - 工作台支持“试听当前文案”。试听作为 `voice_audition` 异步任务运行，不阻塞文案编辑。
-- “开始任务”会先创建一个 `generation_run`，再创建关联的 `voiceover_generate` 子任务。worker 使用服务端 CosyVoice，保存 WAV，再由 FunASR 生成连续且不重叠的 `narration_segments`。
-- 旁白完成后，worker 创建 `edit_plan_generate` 子任务。它根据每个 `narration_segment`、对应 beat 和产品卖点生成查询向量，在同产品的可用素材中按来源类型、时长和卖点硬过滤后进行 pgvector 候选召回。
-- LLM 只能从每个句段对应的闭集候选中选择素材与合法 I/O。服务端校验句段顺序、候选 ID、素材 I/O、单源片段时长和原声策略，并持久化候选快照、`edit_plans` 与 `clip_segments`。
-- 成品库从 `/api/workbench/works` 读取并轮询 `generating`、`completed` 和异常 `failed` 状态；详情页展示实际旁白音频、真实时长、句段和已生成编排。当前编排完成仍是 `generating / plan_ready`；只有后续渲染产物完成才应显示“已完成”。
+- “开始任务”会先创建一个 `generation_run`，再创建关联的 `voiceover_generate` 子任务。worker 使用服务端 CosyVoice 保存 WAV，FunASR 只提供时间锚点，确认文案对齐后形成连续且不重叠的 `narration_segments`。
+- 旁白完成后，worker 创建 `edit_plan_generate` 子任务。视觉规划 LLM 先把旁白句段拆成连续 `visual_beats`，每个 beat 仅使用 `visual_goal` 生成查询向量，并在同产品可用素材的 `shot` 向量中召回候选。
+- 编辑 LLM 只能从每个 visual beat 的闭集候选中选择素材与合法 I/O。服务端校验 visual beat 顺序、候选 ID、素材 I/O、单源片段时长和原声策略，并持久化候选快照、`visual_beats`、`edit_plans` 与 `clip_segments`。
+- 编排完成后自动创建 `generation_render` 子任务。worker 使用 FFmpeg 裁切拼接镜头、写入主旁白、按显式配置混入素材原声，并烧录无标点字幕。
+- 成品库从 `/api/workbench/works` 读取并轮询 `generating`、`completed` 和异常 `failed` 状态；只有 MP4 输出通过 `ffprobe` 校验并持久化后才显示“已完成”和真实视频播放器。
 
-尚未具备完整工作台链路，主要缺口如下：
+当前仍有以下后续缺口：
 
 - 已具备服务端 LLM 文案生成接口，但临时 variants 尚不单独持久化；只有用户确认并启动旁白任务后，最终文案才会写入 `script_variants`。
 - `modelgateway` 已提供 OpenAI-compatible Script Generator 与候选集约束的 `edit_plan` 规划器。
 - 候选召回通过 `asset_embedding_objects` 的 pgvector 数据执行；旧的无模型上下文 `AssetRepository.SearchByEmbedding` 占位接口已移除，避免绕过产品、provider、模型和维度约束。
-- 已落地 `voice_profile_preview`、`voice_audition`、`voiceover_generate` 与 `edit_plan_generate` 子任务，以及 `generation_runs`、`edit_plans`、`clip_segments` 等持久化。
-- 尚无视频渲染任务与最终视频输出；成品库暂不能播放最终成片。
+- 已落地 `voice_profile_preview`、`voice_audition`、`voiceover_generate`、`edit_plan_generate` 与 `generation_render` 子任务，以及 `generation_runs`、`visual_beats`、`edit_plans`、`clip_segments` 等持久化。
+- 已实现基础 FFmpeg 成片和成品库播放；后续缺口是手工时间线调整、模板化动效、复杂字幕和多版本输出。
 
 ## 6. CosyVoice3
 
@@ -201,7 +203,7 @@ CosyVoice3 已接入旁白阶段，但不是浏览器或 `local-agent` 能直接
 
 Remotion 不属于首期工作台、文案或编排链路的前置依赖。
 
-`edit_plan` 必须保持渲染器无关。首个 renderer 可以基于 FFmpeg 完成基础的素材裁切、顺序拼接、音画对齐、字幕烧录和混音。Remotion 更适合作为后续的渲染适配器，用于品牌动效、模板化视觉层和复杂动态字幕。
+`edit_plan` 保持渲染器无关。首个 renderer 已基于 FFmpeg 完成素材裁切、顺序拼接、音画对齐、字幕烧录和混音。Remotion 继续作为后续渲染适配器，用于品牌动效、模板化视觉层和复杂动态字幕。
 
 不得将 Remotion 组件参数、复杂动画或模板私有结构直接写入 `clip_segments`。
 
@@ -235,7 +237,10 @@ Remotion 不属于首期工作台、文案或编排链路的前置依赖。
 
 ### 第五步：渲染
 
-- 实现基础 FFmpeg renderer。
+- [x] 实现 `generation_render` 队列任务与渲染失败重试。
+- [x] 实现基础 FFmpeg renderer、无标点 ASS 字幕、TTS 主音轨与显式素材原声混音。
+- [x] 持久化 MP4 输出并在成品库播放。
+- [x] worker 启动时补偿已有 `plan_ready` 任务。
 - 后续按模板和动效需求评估 Remotion。
 
 ## 9. 待确认项

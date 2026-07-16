@@ -189,11 +189,11 @@ func (c *Client) EnqueueGenerationRender(payload GenerationRenderPayload) error 
 		return err
 	}
 	if c.backend == "file" {
-		return c.file.Enqueue(context.Background(), TypeGenerationRender, encodedPayload, 2)
+		return c.file.Enqueue(context.Background(), TypeGenerationRender, encodedPayload, 0)
 	}
 	if c.client == nil {
 		return fmt.Errorf("queue client is not initialized")
 	}
-	_, err = c.client.Enqueue(asynq.NewTask(TypeGenerationRender, encodedPayload), asynq.MaxRetry(2))
+	_, err = c.client.Enqueue(asynq.NewTask(TypeGenerationRender, encodedPayload), asynq.MaxRetry(0))
 	return err
 }

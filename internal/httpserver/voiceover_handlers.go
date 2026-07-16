@@ -317,7 +317,12 @@ func (s *Server) handleRetryVoiceoverWork(c *gin.Context) {
 		Fail(c, http.StatusConflict, "product_not_available", "产品不存在或已归档，无法重试")
 		return
 	}
-	if _, hasRenderTask, findErr := s.generationRunService.FindTaskByStage(ctx, run.ID, "render"); findErr == nil && hasRenderTask {
+	plan, planErr := s.generationRunService.GetEditPlan(ctx, run.ID)
+	if planErr != nil && !errors.Is(planErr, services.ErrEditPlanNotFound) {
+		handleVoiceoverError(c, planErr)
+		return
+	}
+	if planErr == nil && plan.Status == "ready" && len(plan.Clips) > 0 {
 		work, retryErr := s.retryRender(ctx, run)
 		if retryErr != nil {
 			s.handleVoiceoverTaskCreateError(c, "retry_render", retryErr)

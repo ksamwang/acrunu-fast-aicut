@@ -1004,6 +1004,9 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	work.OutputWidth = run.OutputWidth
 	work.OutputHeight = run.OutputHeight
 	work.OutputFileSizeBytes = run.OutputFileSizeBytes
+	if run.OutputDurationMs > 0 {
+		work.DurationMs = run.OutputDurationMs
+	}
 	if run.CompletedAt != nil {
 		completedAt := *run.CompletedAt
 		work.CompletedAt = &completedAt
