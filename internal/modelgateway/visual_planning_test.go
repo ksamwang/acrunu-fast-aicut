@@ -71,6 +71,22 @@ func TestValidateVisualPlanResultRejectsInvalidTimeline(t *testing.T) {
 	}
 }
 
+func TestValidateVisualPlanResultRejectsNonVisualOnlyMaterial(t *testing.T) {
+	input := VisualPlanInput{
+		ProductName: "束裤带",
+		ScriptText:  "固定裤脚。",
+		NarrationSegments: []VisualPlanNarrationSegment{{
+			ID: "n-1", StartMs: 0, EndMs: 1000, Text: "固定裤脚。",
+		}},
+	}
+	err := ValidateVisualPlanResult(VisualPlanResult{VisualBeats: []VisualPlanBeat{{
+		NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1000, Label: "口播", VisualGoal: "人物口播展示", SourceType: "talking_head",
+	}}}, input)
+	if err == nil {
+		t.Fatal("expected talking-head material to be rejected for TTS planning")
+	}
+}
+
 func TestOpenAICompatibleEditPlannerPlansVisualBeats(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

@@ -163,5 +163,5 @@ func validateVisualPlanInput(input VisualPlanInput) error {
 }
 
 func isVisualPlanSourceType(value string) bool {
-	return value == "visual_only" || value == "talking_head" || value == "mixed"
+	return value == TTSVisualSourceType
 }

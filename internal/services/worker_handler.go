@@ -100,6 +100,15 @@ func (h *WorkerHandler) HandleEditPlanGenerate(ctx context.Context, payload queu
 		if h.generationPlanning == nil {
 			return fmt.Errorf("generation planning service is not configured")
 		}
+		if h.voiceoverService != nil && h.generationRunService != nil && payload.GenerationRunID != "" {
+			run, err := h.generationRunService.Get(runCtx, payload.GenerationRunID)
+			if err != nil {
+				return err
+			}
+			if err := h.voiceoverService.EnsureCurrentNarrationSegments(runCtx, run.VoiceoverTaskID); err != nil {
+				return err
+			}
+		}
 		_, err := h.generationPlanning.Generate(runCtx, GenerateEditPlanInput{
 			GenerationRunID: payload.GenerationRunID,
 			ScriptVariantID: payload.ScriptVariantID,

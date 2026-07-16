@@ -6,7 +6,7 @@ import (
 )
 
 const OutputSchemaVersion = "phase2.asset_analysis.v2"
-const ScriptGenerationOutputSchemaVersion = "workbench.script_generation.v1"
+const ScriptGenerationOutputSchemaVersion = "workbench.script_generation.v2"
 const EditPlanOutputSchemaVersion = "workbench.edit_plan.v1"
 
 var allowedShotSizes = map[string]struct{}{
@@ -134,7 +134,7 @@ func ScriptGenerationOutputSchema() map[string]any {
 									"visual_goal":   map[string]any{"type": "string", "minLength": 1},
 									"source_type": map[string]any{
 										"type": "string",
-										"enum": []string{"visual_only", "talking_head", "mixed"},
+										"enum": []string{TTSVisualSourceType},
 									},
 								},
 							},
@@ -195,7 +195,7 @@ func VisualPlanOutputSchema() map[string]any {
 						"visual_goal":          map[string]any{"type": "string", "minLength": 1},
 						"source_type": map[string]any{
 							"type": "string",
-							"enum": []string{"visual_only", "talking_head", "mixed"},
+							"enum": []string{TTSVisualSourceType},
 						},
 					},
 				},

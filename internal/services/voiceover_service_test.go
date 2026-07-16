@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
@@ -109,7 +110,7 @@ func TestVoiceoverServiceGeneratesPreviewAuditionAndNarration(t *testing.T) {
 				Label:        "开头",
 				SellingPoint: "不蹭链条",
 				VisualGoal:   "展示裤脚固定效果。",
-				SourceType:   "visual_only",
+				SourceType:   "talking_head",
 			}},
 		},
 	})
@@ -132,6 +133,9 @@ func TestVoiceoverServiceGeneratesPreviewAuditionAndNarration(t *testing.T) {
 	}
 	if work.Status != "completed" || work.DurationMs != 2000 || work.AudioURL == "" {
 		t.Fatalf("unexpected completed work %#v", work)
+	}
+	if len(work.Beats) != 1 || work.Beats[0].SourceType != modelgateway.TTSVisualSourceType {
+		t.Fatalf("expected TTS work to retain only visual-only beats, got %#v", work.Beats)
 	}
 	if len(work.NarrationSegments) != 2 {
 		t.Fatalf("expected two narration segments, got %#v", work.NarrationSegments)
@@ -207,7 +211,7 @@ func TestNormalizeNarrationSegmentsFallsBackToOriginalScript(t *testing.T) {
 	}
 }
 
-func TestNormalizeNarrationSegmentsUsesApprovedScriptSentenceBoundaries(t *testing.T) {
+func TestNormalizeNarrationSegmentsUsesApprovedScriptPunctuationBoundaries(t *testing.T) {
 	script := "骑车时裤脚总被链条蹭脏，又难洗又尴尬？今天给大家推荐这款束裤带，它采用防蹭链条设计，高弹力材质，可自由调节，魔术贴一粘即合，牢固不脱落。夜间反光条，让后车在黑暗中也能清晰看到你，安全升级。再也不用担心裤脚问题，骑行更轻松。快来试试吧！"
 	segments := normalizeNarrationSegments([]modelgateway.ASRTranscriptSegment{
 		{StartMs: 0, EndMs: 970, Text: "骑车时"},
@@ -220,10 +224,19 @@ func TestNormalizeNarrationSegmentsUsesApprovedScriptSentenceBoundaries(t *testi
 		{StartMs: 25920, EndMs: 27320, Text: "快来试试吧"},
 	}, script, 27_320)
 	wantTexts := []string{
-		"骑车时裤脚总被链条蹭脏，又难洗又尴尬？",
-		"今天给大家推荐这款束裤带，它采用防蹭链条设计，高弹力材质，可自由调节，魔术贴一粘即合，牢固不脱落。",
-		"夜间反光条，让后车在黑暗中也能清晰看到你，安全升级。",
-		"再也不用担心裤脚问题，骑行更轻松。",
+		"骑车时裤脚总被链条蹭脏，",
+		"又难洗又尴尬？",
+		"今天给大家推荐这款束裤带，",
+		"它采用防蹭链条设计，",
+		"高弹力材质，",
+		"可自由调节，",
+		"魔术贴一粘即合，",
+		"牢固不脱落。",
+		"夜间反光条，",
+		"让后车在黑暗中也能清晰看到你，",
+		"安全升级。",
+		"再也不用担心裤脚问题，",
+		"骑行更轻松。",
 		"快来试试吧！",
 	}
 	if len(segments) != len(wantTexts) {
@@ -242,6 +255,19 @@ func TestNormalizeNarrationSegmentsUsesApprovedScriptSentenceBoundaries(t *testi
 	}
 }
 
+func TestSplitNarrationSentencesUsesConfiguredPunctuationWithoutEmptySegments(t *testing.T) {
+	got := splitNarrationSentences("甲，乙、丙；丁：戊“己”庚‘辛’壬（癸）子——丑……寅．卯·辰-巳—午《未》申<酉>戌。")
+	want := []string{
+		"甲，", "乙、", "丙；", "丁：", "戊“", "己”", "庚‘", "辛’", "壬（", "癸）", "子——", "丑……", "寅．", "卯·", "辰-", "巳—", "午《", "未》", "申<", "酉>", "戌。",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("punctuation split = %#v, want %#v", got, want)
+	}
+	if got := splitNarrationSentences("“甲”。"); !slices.Equal(got, []string{"“甲”。"}) {
+		t.Fatalf("leading punctuation must remain attached to narration text, got %#v", got)
+	}
+}
+
 func TestNormalizeNarrationSegmentsFallsBackToProportionalTimelineOnLowAlignment(t *testing.T) {
 	segments := normalizeNarrationSegments([]modelgateway.ASRTranscriptSegment{{
 		StartMs: 0,
@@ -253,6 +279,62 @@ func TestNormalizeNarrationSegmentsFallsBackToProportionalTimelineOnLowAlignment
 	}
 	if segments[0].StartMs != 0 || segments[0].EndMs != 300 || segments[1].StartMs != 300 || segments[1].EndMs != 900 {
 		t.Fatalf("expected proportional fallback bounds, got %#v", segments)
+	}
+}
+
+func TestVoiceoverServiceRefreshesLegacyNarrationSegmentsBeforePlanning(t *testing.T) {
+	storageRoot := t.TempDir()
+	transcriber := &recordingVoiceTranscriber{}
+	service := NewVoiceoverService(storageRoot, config.Config{StorageRoot: storageRoot}, nil).WithClients(
+		&recordingVoiceSynthesizer{audio: testVoiceWAV(1000, 2_000)},
+		transcriber,
+	)
+	profile := createTestVoiceProfile(t, service, "测试音色", true)
+	if err := service.ProcessVoiceProfilePreview(context.Background(), profile.ID); err != nil {
+		t.Fatalf("generate voice profile preview: %v", err)
+	}
+	work, variantID, voiceoverID, err := service.CreateVoiceoverWork(context.Background(), CreateVoiceoverWorkInput{
+		TaskID:         "legacy-narration-task",
+		ProductID:      "product-1",
+		ProductName:    "束裤带",
+		VoiceProfileID: profile.ID,
+		Variant: VoiceoverVariantInput{
+			ScriptText: "第一句，第二句。",
+			Beats: []VoiceoverBeat{{
+				Label: "展示", VisualGoal: "展示固定动作",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create voiceover work: %v", err)
+	}
+	if err := service.ProcessVoiceoverGenerate(context.Background(), queue.VoiceoverGeneratePayload{
+		TaskID: work.ID, ScriptVariantID: variantID, VoiceoverID: voiceoverID,
+	}); err != nil {
+		t.Fatalf("generate voiceover: %v", err)
+	}
+
+	service.mu.Lock()
+	service.memoryWorks[work.ID].work.NarrationSegments = []NarrationSegment{{
+		ID: "legacy", StartMs: 0, EndMs: 2000, Text: "第一句，第二句。",
+	}}
+	service.mu.Unlock()
+	if err := service.EnsureCurrentNarrationSegments(context.Background(), work.ID); err != nil {
+		t.Fatalf("refresh legacy narration segments: %v", err)
+	}
+	updated, err := service.GetVoiceoverWork(context.Background(), work.ID)
+	if err != nil {
+		t.Fatalf("get refreshed work: %v", err)
+	}
+	if len(updated.NarrationSegments) != 2 {
+		t.Fatalf("expected two refreshed narration segments, got %#v", updated.NarrationSegments)
+	}
+	got := []string{updated.NarrationSegments[0].Text, updated.NarrationSegments[1].Text}
+	if !slices.Equal(got, []string{"第一句，", "第二句。"}) {
+		t.Fatalf("unexpected refreshed narration text %#v", updated.NarrationSegments)
+	}
+	if len(transcriber.inputs) != 2 {
+		t.Fatalf("expected initial and legacy-refresh ASR calls, got %d", len(transcriber.inputs))
 	}
 }
 

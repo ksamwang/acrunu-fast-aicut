@@ -352,7 +352,7 @@ func validateEditPlanRequirements(requirements []EditPlanRequirement) error {
 		if requirement.StartMs != expectedStartMs {
 			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d does not continue the visual timeline", index+1), false, nil)
 		}
-		if requirement.SourceType != "visual_only" && requirement.SourceType != "talking_head" && requirement.SourceType != "mixed" {
+		if requirement.SourceType != TTSVisualSourceType {
 			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d source type is invalid", index+1), false, nil)
 		}
 		if _, exists := seenVisualBeats[requirement.VisualBeatID]; exists {

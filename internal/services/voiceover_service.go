@@ -841,6 +841,117 @@ func (s *VoiceoverService) GetVoiceoverWork(ctx context.Context, taskID string) 
 	return work, err
 }
 
+// EnsureCurrentNarrationSegments refreshes legacy caption boundaries from the
+// existing TTS audio without synthesizing the voiceover again.
+func (s *VoiceoverService) EnsureCurrentNarrationSegments(ctx context.Context, taskID string) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return ErrVoiceoverWorkNotFound
+	}
+	work, err := s.GetVoiceoverWork(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	targets := splitNarrationSentences(work.ScriptText)
+	if len(targets) == 0 {
+		return fmt.Errorf("narration script is required")
+	}
+	if narrationSegmentTextsMatch(work.NarrationSegments, targets) {
+		return nil
+	}
+	if s.transcriber == nil {
+		return errors.New("FunASR client is not configured")
+	}
+	if s.queries == nil {
+		return s.refreshMemoryNarrationSegments(ctx, taskID)
+	}
+	return s.refreshPersistedNarrationSegments(ctx, taskID)
+}
+
+func (s *VoiceoverService) refreshMemoryNarrationSegments(ctx context.Context, taskID string) error {
+	s.mu.RLock()
+	job, ok := s.memoryWorks[taskID]
+	if !ok {
+		s.mu.RUnlock()
+		return ErrVoiceoverWorkNotFound
+	}
+	scriptText := job.work.ScriptText
+	durationMs := job.work.DurationMs
+	voiceoverID := job.voiceoverID
+	s.mu.RUnlock()
+
+	segments, err := s.transcribeNarrationSegments(ctx, scriptText, path.Join("voiceovers", taskID, voiceoverID+".wav"), durationMs)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok = s.memoryWorks[taskID]
+	if !ok || job.voiceoverID != voiceoverID {
+		return ErrVoiceoverWorkNotFound
+	}
+	job.work.NarrationSegments = segments
+	return nil
+}
+
+func (s *VoiceoverService) refreshPersistedNarrationSegments(ctx context.Context, taskID string) error {
+	taskUUID, err := uuidParam(taskID)
+	if err != nil {
+		return ErrVoiceoverWorkNotFound
+	}
+	variant, err := s.queries.GetScriptVariantByGenerationTaskID(ctx, taskUUID)
+	if err != nil {
+		return err
+	}
+	voiceover, err := s.queries.GetVoiceoverByScriptVariantID(ctx, variant.ID)
+	if err != nil {
+		return err
+	}
+	if !voiceover.StorageKey.Valid || voiceover.DurationMs.Int32 <= 0 {
+		return fmt.Errorf("completed voiceover audio is unavailable")
+	}
+	segments, err := s.transcribeNarrationSegments(ctx, variant.ScriptText, voiceover.StorageKey.String, int(voiceover.DurationMs.Int32))
+	if err != nil {
+		return err
+	}
+	return s.persistNarrationSegments(ctx, variant.ID, voiceover.ID, segments)
+}
+
+func (s *VoiceoverService) transcribeNarrationSegments(ctx context.Context, scriptText string, storageKey string, durationMs int) ([]NarrationSegment, error) {
+	if durationMs <= 0 {
+		return nil, fmt.Errorf("voiceover duration is required")
+	}
+	audio, err := os.ReadFile(s.localStore.FullPath(storageKey))
+	if err != nil {
+		return nil, err
+	}
+	transcript, err := s.transcriber.Transcribe(ctx, modelgateway.FunASRTranscriptionInput{
+		Filename:   "voiceover.wav",
+		Audio:      bytes.NewReader(audio),
+		DurationMs: durationMs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	segments := normalizeNarrationSegments(transcript.Segments, scriptText, durationMs)
+	if len(segments) == 0 {
+		return nil, fmt.Errorf("narration segments are required")
+	}
+	return segments, nil
+}
+
+func narrationSegmentTextsMatch(segments []NarrationSegment, targets []string) bool {
+	if len(segments) != len(targets) {
+		return false
+	}
+	for index := range targets {
+		if strings.TrimSpace(segments[index].Text) != targets[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *VoiceoverService) ProcessVoiceProfilePreview(ctx context.Context, profileID string) error {
 	profile, err := s.GetVoiceProfile(ctx, profileID)
 	if err != nil {
@@ -1391,6 +1502,7 @@ func normalizeVoiceoverBeats(input []VoiceoverBeat) []VoiceoverBeat {
 		if beat.Label == "" && beat.SellingPoint == "" && beat.VisualGoal == "" {
 			continue
 		}
+		beat.SourceType = modelgateway.TTSVisualSourceType
 		beats = append(beats, beat)
 	}
 	return beats
@@ -1583,28 +1695,53 @@ func splitNarrationSentences(script string) []string {
 	}
 	items := []string{}
 	var current strings.Builder
-	for _, value := range script {
+	var prefix strings.Builder
+	runes := []rune(script)
+	for index := 0; index < len(runes); index++ {
+		if current.Len() == 0 && prefix.Len() > 0 {
+			current.WriteString(prefix.String())
+			prefix.Reset()
+		}
+		value := runes[index]
 		current.WriteRune(value)
 		if isNarrationSentenceTerminator(value) {
-			if text := strings.TrimSpace(current.String()); text != "" {
+			for index+1 < len(runes) && isNarrationSentenceTerminator(runes[index+1]) {
+				index++
+				current.WriteRune(runes[index])
+			}
+			text := strings.TrimSpace(current.String())
+			if hasNarrationContent(text) {
 				items = append(items, text)
+			} else if text != "" {
+				prefix.WriteString(text)
 			}
 			current.Reset()
 		}
 	}
 	if text := strings.TrimSpace(current.String()); text != "" {
-		items = append(items, text)
+		if hasNarrationContent(text) {
+			items = append(items, text)
+		} else {
+			prefix.WriteString(text)
+		}
+	}
+	if suffix := strings.TrimSpace(prefix.String()); suffix != "" && len(items) > 0 {
+		items[len(items)-1] += suffix
 	}
 	return items
 }
 
 func isNarrationSentenceTerminator(value rune) bool {
 	switch value {
-	case '。', '！', '？', '；', '.', '!', '?', ';':
+	case '。', '？', '！', '，', '、', '；', '：', '“', '”', '‘', '’', '（', '）', '—', '…', '．', '·', '-', '《', '》', '<', '>', '.', '?', '!', ',', ';', ':', '"', '\'', '(', ')':
 		return true
 	default:
 		return false
 	}
+}
+
+func hasNarrationContent(text string) bool {
+	return len(normalizedNarrationRunes(text)) > 0
 }
 
 func alignNarrationSentenceBounds(targets []string, input []modelgateway.ASRTranscriptSegment, durationMs int) []int {

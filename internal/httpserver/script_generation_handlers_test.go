@@ -23,9 +23,9 @@ func (scriptGenerationHandlerGenerator) GenerateScripts(_ context.Context, input
 		ScriptText:    "骑行时，裤脚总会蹭到链条。轻轻一贴，固定更稳，出发更安心。",
 		EditingIntent: "从骑行痛点切入，再展示固定动作和结果。",
 		Beats: []modelgateway.ScriptGenerationBeat{
-			{Label: "开头", SellingPoint: point, VisualGoal: "展示裤脚靠近链条。", SourceType: "mixed"},
+			{Label: "开头", SellingPoint: point, VisualGoal: "展示裤脚靠近链条。", SourceType: "visual_only"},
 			{Label: "展示", SellingPoint: point, VisualGoal: "展示贴合固定动作。", SourceType: "visual_only"},
-			{Label: "收束", SellingPoint: point, VisualGoal: "展示骑行状态。", SourceType: "mixed"},
+			{Label: "收束", SellingPoint: point, VisualGoal: "展示骑行状态。", SourceType: "visual_only"},
 		},
 	}}}, nil
 }

@@ -83,6 +83,24 @@ func (p deterministicVisualPlanner) PlanVisuals(_ context.Context, input modelga
 	return modelgateway.VisualPlanResult{VisualBeats: beats}, nil
 }
 
+func TestBuildVisualPlannerInputForcesVisualOnlyTTSMaterial(t *testing.T) {
+	input := buildVisualPlannerInput("束裤带", VoiceoverWork{
+		ScriptText: "固定裤脚。",
+		NarrationSegments: []NarrationSegment{{
+			ID: "n-1", StartMs: 0, EndMs: 1000, Text: "固定裤脚。",
+		}},
+		Beats: []VoiceoverBeat{
+			{Label: "口播", SellingPoint: "卖点一", VisualGoal: "人物口播", SourceType: "talking_head"},
+			{Label: "混剪", SellingPoint: "卖点二", VisualGoal: "人物与产品", SourceType: "mixed"},
+		},
+	})
+	for _, beat := range input.NarrativeBeats {
+		if beat.SourceType != modelgateway.TTSVisualSourceType {
+			t.Fatalf("expected TTS visual planner input to be visual-only, got %#v", input.NarrativeBeats)
+		}
+	}
+}
+
 func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	assets := NewProductAssetService()
 	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})

@@ -286,7 +286,7 @@ func buildVisualPlannerInput(productName string, work VoiceoverWork) modelgatewa
 			Label:        beat.Label,
 			SellingPoint: beat.SellingPoint,
 			VisualGoal:   beat.VisualGoal,
-			SourceType:   beat.SourceType,
+			SourceType:   modelgateway.TTSVisualSourceType,
 		})
 	}
 	return modelgateway.VisualPlanInput{

@@ -12,12 +12,13 @@ import (
 	"time"
 )
 
-const defaultScriptGenerationMaxTokens = 8192
+const (
+	defaultScriptGenerationMaxTokens = 8192
+	TTSVisualSourceType              = "visual_only"
+)
 
 var allowedScriptSourceTypes = map[string]struct{}{
-	"visual_only":  {},
-	"talking_head": {},
-	"mixed":        {},
+	TTSVisualSourceType: {},
 }
 
 type ScriptGenerationSellingPoint struct {

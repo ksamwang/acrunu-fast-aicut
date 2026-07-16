@@ -45,6 +45,11 @@ func TestScriptGenerationServiceUsesStoredProductAndSellingPoints(t *testing.T) 
 	if len(variants) != 1 || variants[0].ID == "" || variants[0].Order != 1 || variants[0].Status != "draft" || len(variants[0].Beats) != 3 {
 		t.Fatalf("unexpected generated variants %#v", variants)
 	}
+	for _, beat := range variants[0].Beats {
+		if beat.SourceType != modelgateway.TTSVisualSourceType {
+			t.Fatalf("expected visual-only TTS beat, got %#v", beat)
+		}
+	}
 	if variants[0].EstimatedDurationMs < 8000 {
 		t.Fatalf("expected estimated duration, got %d", variants[0].EstimatedDurationMs)
 	}
@@ -95,9 +100,9 @@ func validScriptGenerationResult(firstSellingPoint string, secondSellingPoint st
 		ScriptText:    "骑车时，裤脚总会蹭到链条。轻轻一贴，固定更稳，骑行更利落。",
 		EditingIntent: "从骑行痛点切入，再展示固定动作和结果。",
 		Beats: []modelgateway.ScriptGenerationBeat{
-			{Label: "开头", SellingPoint: firstSellingPoint, VisualGoal: "展示裤脚接近链条。", SourceType: "mixed"},
+			{Label: "开头", SellingPoint: firstSellingPoint, VisualGoal: "展示裤脚接近链条。", SourceType: "visual_only"},
 			{Label: "展示", SellingPoint: firstSellingPoint, VisualGoal: "展示贴合固定动作。", SourceType: "visual_only"},
-			{Label: "收束", SellingPoint: secondSellingPoint, VisualGoal: "展示骑行结果。", SourceType: "mixed"},
+			{Label: "收束", SellingPoint: secondSellingPoint, VisualGoal: "展示骑行结果。", SourceType: "visual_only"},
 		},
 	}}}
 }

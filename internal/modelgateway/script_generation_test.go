@@ -39,7 +39,7 @@ func TestOpenAICompatibleScriptGeneratorRequestsJSONOutput(t *testing.T) {
 			t.Fatalf("unexpected prompt messages %#v", messages)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"variants\":[{\"hook\":\"骑行更利落\",\"script_text\":\"裤脚总会蹭到链条？轻轻一贴，骑行更利落。\",\"editing_intent\":\"从骑行痛点切入，再展示固定效果。\",\"beats\":[{\"label\":\"开头\",\"selling_point\":\"避免蹭链条\",\"visual_goal\":\"展示裤脚靠近链条。\",\"source_type\":\"mixed\"},{\"label\":\"展示\",\"selling_point\":\"避免蹭链条\",\"visual_goal\":\"展示贴合动作。\",\"source_type\":\"visual_only\"},{\"label\":\"收束\",\"selling_point\":\"避免蹭链条\",\"visual_goal\":\"展示骑行结果。\",\"source_type\":\"mixed\"}]}]}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"variants\":[{\"hook\":\"骑行更利落\",\"script_text\":\"裤脚总会蹭到链条？轻轻一贴，骑行更利落。\",\"editing_intent\":\"从骑行痛点切入，再展示固定效果。\",\"beats\":[{\"label\":\"开头\",\"selling_point\":\"避免蹭链条\",\"visual_goal\":\"展示裤脚靠近链条。\",\"source_type\":\"visual_only\"},{\"label\":\"展示\",\"selling_point\":\"避免蹭链条\",\"visual_goal\":\"展示贴合动作。\",\"source_type\":\"visual_only\"},{\"label\":\"收束\",\"selling_point\":\"避免蹭链条\",\"visual_goal\":\"展示骑行结果。\",\"source_type\":\"visual_only\"}]}]}"}}]}`))
 	}))
 	defer server.Close()
 
@@ -65,15 +65,15 @@ func TestOpenAICompatibleScriptGeneratorRequestsJSONOutput(t *testing.T) {
 	}
 }
 
-func TestValidateScriptGenerationResultRejectsInvalidSourceType(t *testing.T) {
+func TestValidateScriptGenerationResultRejectsNonVisualOnlySourceType(t *testing.T) {
 	err := ValidateScriptGenerationResult(ScriptGenerationResult{Variants: []ScriptGenerationVariant{{
 		Hook:          "钩子",
 		ScriptText:    "一段文案",
 		EditingIntent: "一个意图",
 		Beats: []ScriptGenerationBeat{
-			{Label: "开头", SellingPoint: "卖点", VisualGoal: "画面", SourceType: "invalid"},
-			{Label: "展示", SellingPoint: "卖点", VisualGoal: "画面", SourceType: "mixed"},
-			{Label: "收束", SellingPoint: "卖点", VisualGoal: "画面", SourceType: "mixed"},
+			{Label: "开头", SellingPoint: "卖点", VisualGoal: "画面", SourceType: "talking_head"},
+			{Label: "展示", SellingPoint: "卖点", VisualGoal: "画面", SourceType: "visual_only"},
+			{Label: "收束", SellingPoint: "卖点", VisualGoal: "画面", SourceType: "visual_only"},
 		},
 	}}}, 1)
 	if err == nil {
