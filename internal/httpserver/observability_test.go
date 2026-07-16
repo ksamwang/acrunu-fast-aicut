@@ -177,6 +177,10 @@ func (failingTaskStore) CreateEditPlanGenerateTask(_ context.Context, _ string, 
 	return services.GenerationTask{}, nil
 }
 
+func (failingTaskStore) CreateGenerationRenderTask(_ context.Context, _ string, _ string, _ queue.GenerationRenderPayload) (services.GenerationTask, error) {
+	return services.GenerationTask{}, nil
+}
+
 func (failingTaskStore) GetTask(_ context.Context, _ string) (services.GenerationTask, error) {
 	return services.GenerationTask{}, nil
 }

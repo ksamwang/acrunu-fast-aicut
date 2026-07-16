@@ -18,6 +18,7 @@ type TestTaskHandler interface {
 	HandleVoiceAudition(ctx context.Context, payload VoiceAuditionPayload) error
 	HandleVoiceoverGenerate(ctx context.Context, payload VoiceoverGeneratePayload) error
 	HandleEditPlanGenerate(ctx context.Context, payload EditPlanGeneratePayload) error
+	HandleGenerationRender(ctx context.Context, payload GenerationRenderPayload) error
 }
 
 func NewServer(redisAddr string, concurrency int) *asynq.Server {
@@ -84,6 +85,13 @@ func NewServeMux(handler TestTaskHandler) *asynq.ServeMux {
 			return err
 		}
 		return handler.HandleEditPlanGenerate(ctx, payload)
+	})
+	mux.HandleFunc(TypeGenerationRender, func(ctx context.Context, task *asynq.Task) error {
+		var payload GenerationRenderPayload
+		if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+			return err
+		}
+		return handler.HandleGenerationRender(ctx, payload)
 	})
 	return mux
 }
@@ -169,6 +177,12 @@ func handleFileTask(ctx context.Context, task FileTask, handler TestTaskHandler)
 			return err
 		}
 		return handler.HandleEditPlanGenerate(ctx, payload)
+	case TypeGenerationRender:
+		var payload GenerationRenderPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			return err
+		}
+		return handler.HandleGenerationRender(ctx, payload)
 	default:
 		return nil
 	}

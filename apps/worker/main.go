@@ -38,6 +38,10 @@ func main() {
 		logger,
 	)
 	defer assetCandidateService.Close()
+	renderMaxConcurrency := 1
+	if runtimeSettings, err := services.GetRuntimeSettings(systemConfigService.Service); err == nil && runtimeSettings.RenderMaxConcurrency > 0 {
+		renderMaxConcurrency = runtimeSettings.RenderMaxConcurrency
+	}
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
 	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(context.Background(), systemConfigService.Service, modelProviderService.Service, cfg), nil)
@@ -49,6 +53,14 @@ func main() {
 		analyzer,
 		logger,
 	).WithAssetEmbeddingService(assetEmbeddingService.Service)
+	renderService := services.NewGenerationRenderService(
+		cfg.StorageRoot,
+		generationRunService.Service,
+		voiceoverService.Service,
+		productAssetService.Service,
+		renderMaxConcurrency,
+		logger,
+	)
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
 		assetProcessingService,
@@ -64,7 +76,10 @@ func main() {
 			cfg,
 		).WithLogger(logger),
 		queueClient,
-	)
+	).WithGenerationRenderer(renderService)
+	if err := workerHandler.EnqueuePendingRenders(context.Background()); err != nil {
+		logger.Error("failed to enqueue pending generation renders", "error", err)
+	}
 
 	if cfg.QueueBackend == "file" {
 		logger.Info("worker starting", "queue_backend", cfg.QueueBackend, "storage_root", cfg.StorageRoot)

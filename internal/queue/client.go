@@ -179,3 +179,21 @@ func (c *Client) EnqueueEditPlanGenerate(payload EditPlanGeneratePayload) error 
 	_, err = c.client.Enqueue(asynq.NewTask(TypeEditPlanGenerate, encodedPayload), asynq.MaxRetry(2))
 	return err
 }
+
+func (c *Client) EnqueueGenerationRender(payload GenerationRenderPayload) error {
+	if payload.TaskID == "" || payload.GenerationRunID == "" {
+		return fmt.Errorf("task id and run id are required")
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeGenerationRender, encodedPayload, 2)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeGenerationRender, encodedPayload), asynq.MaxRetry(2))
+	return err
+}

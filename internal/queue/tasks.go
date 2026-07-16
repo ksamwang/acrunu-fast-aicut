@@ -8,6 +8,7 @@ const TypeVoiceProfilePreview = "voice:profile_preview"
 const TypeVoiceAudition = "voice:audition"
 const TypeVoiceoverGenerate = "voice:generate"
 const TypeEditPlanGenerate = "edit_plan:generate"
+const TypeGenerationRender = "generation:render"
 
 const (
 	FrameExtractionModeFixedInterval = "fixed_interval"
@@ -66,4 +67,9 @@ type EditPlanGeneratePayload struct {
 	GenerationRunID string `json:"generation_run_id"`
 	ScriptVariantID string `json:"script_variant_id"`
 	VoiceoverID     string `json:"voiceover_id"`
+}
+
+type GenerationRenderPayload struct {
+	TaskID          string `json:"task_id"`
+	GenerationRunID string `json:"generation_run_id"`
 }

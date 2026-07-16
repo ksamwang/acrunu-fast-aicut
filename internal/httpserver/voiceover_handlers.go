@@ -317,6 +317,15 @@ func (s *Server) handleRetryVoiceoverWork(c *gin.Context) {
 		Fail(c, http.StatusConflict, "product_not_available", "产品不存在或已归档，无法重试")
 		return
 	}
+	if _, hasRenderTask, findErr := s.generationRunService.FindTaskByStage(ctx, run.ID, "render"); findErr == nil && hasRenderTask {
+		work, retryErr := s.retryRender(ctx, run)
+		if retryErr != nil {
+			s.handleVoiceoverTaskCreateError(c, "retry_render", retryErr)
+			return
+		}
+		OK(c, work)
+		return
+	}
 	original, err := s.voiceoverService.GetVoiceoverWork(ctx, run.VoiceoverTaskID)
 	if err != nil {
 		Fail(c, http.StatusConflict, "generation_not_retryable", "原始配音任务不完整，无法重试")
@@ -339,6 +348,26 @@ func (s *Server) handleRetryVoiceoverWork(c *gin.Context) {
 		return
 	}
 	OK(c, work)
+}
+
+func (s *Server) retryRender(ctx context.Context, run services.GenerationRun) (services.VoiceoverWork, error) {
+	if _, err := s.generationRunService.PrepareRetry(ctx, run.ID, services.GenerationRunRetryRender); err != nil {
+		return services.VoiceoverWork{}, err
+	}
+	task, err := s.taskService.CreateGenerationRenderTask(ctx, run.CreatedByUserID, run.ProductID, queue.GenerationRenderPayload{GenerationRunID: run.ID})
+	if err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, "", err)
+	}
+	if err := s.generationRunService.LinkTask(ctx, run.ID, task.ID, "render"); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	if err := s.queueClient.EnqueueGenerationRender(queue.GenerationRenderPayload{TaskID: task.ID, GenerationRunID: run.ID}); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	if err := s.generationRunService.UpdateStage(ctx, run.ID, "rendering", 90); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	return s.generationRunService.GetWork(ctx, run.ID)
 }
 
 func (s *Server) retryEditPlan(ctx context.Context, run services.GenerationRun) (services.VoiceoverWork, error) {

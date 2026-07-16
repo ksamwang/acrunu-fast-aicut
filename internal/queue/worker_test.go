@@ -58,6 +58,10 @@ func (h *stubHandler) HandleEditPlanGenerate(_ context.Context, _ EditPlanGenera
 	return nil
 }
 
+func (h *stubHandler) HandleGenerationRender(_ context.Context, _ GenerationRenderPayload) error {
+	return nil
+}
+
 func TestHandleFileTaskDispatchesAssetEmbedding(t *testing.T) {
 	payload, err := json.Marshal(AssetEmbeddingPayload{AssetID: "asset-3"})
 	if err != nil {

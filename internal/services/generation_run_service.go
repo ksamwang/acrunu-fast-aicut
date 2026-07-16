@@ -33,6 +33,7 @@ const (
 
 	generationRunTaskStageVoiceover = "voiceover"
 	generationRunTaskStageEditPlan  = "edit_plan"
+	generationRunTaskStageRender    = "render"
 )
 
 var (
@@ -46,23 +47,43 @@ type GenerationRunRetryMode string
 const (
 	GenerationRunRetryEditPlan  GenerationRunRetryMode = "edit_plan"
 	GenerationRunRetryVoiceover GenerationRunRetryMode = "voiceover"
+	GenerationRunRetryRender    GenerationRunRetryMode = "render"
 )
 
 type GenerationRun struct {
-	ID              string         `json:"id"`
-	ProductID       string         `json:"product_id"`
-	CreatedByUserID string         `json:"created_by_user_id,omitempty"`
-	VoiceoverTaskID string         `json:"voiceover_task_id,omitempty"`
-	ScriptVariantID string         `json:"script_variant_id,omitempty"`
-	VoiceoverID     string         `json:"voiceover_id,omitempty"`
-	Status          string         `json:"status"`
-	Stage           string         `json:"stage"`
-	Progress        int            `json:"progress"`
-	ErrorMessage    string         `json:"error_message,omitempty"`
-	ConfigSnapshot  map[string]any `json:"config_snapshot,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	CompletedAt     *time.Time     `json:"completed_at,omitempty"`
+	ID                  string         `json:"id"`
+	ProductID           string         `json:"product_id"`
+	CreatedByUserID     string         `json:"created_by_user_id,omitempty"`
+	VoiceoverTaskID     string         `json:"voiceover_task_id,omitempty"`
+	ScriptVariantID     string         `json:"script_variant_id,omitempty"`
+	VoiceoverID         string         `json:"voiceover_id,omitempty"`
+	Status              string         `json:"status"`
+	Stage               string         `json:"stage"`
+	Progress            int            `json:"progress"`
+	ErrorMessage        string         `json:"error_message,omitempty"`
+	ConfigSnapshot      map[string]any `json:"config_snapshot,omitempty"`
+	OutputStorageKey    string         `json:"-"`
+	OutputMimeType      string         `json:"output_mime_type,omitempty"`
+	OutputDurationMs    int            `json:"output_duration_ms,omitempty"`
+	OutputWidth         int            `json:"output_width,omitempty"`
+	OutputHeight        int            `json:"output_height,omitempty"`
+	OutputFileSizeBytes int64          `json:"output_file_size_bytes,omitempty"`
+	Renderer            string         `json:"renderer,omitempty"`
+	RenderVersion       string         `json:"render_version,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	CompletedAt         *time.Time     `json:"completed_at,omitempty"`
+}
+
+type GenerationRenderOutput struct {
+	StorageKey    string
+	MimeType      string
+	DurationMs    int
+	Width         int
+	Height        int
+	FileSizeBytes int64
+	Renderer      string
+	RenderVersion string
 }
 
 type GenerationRunTask struct {
@@ -221,6 +242,40 @@ func (s *GenerationRunService) List(ctx context.Context) ([]GenerationRun, error
 		return items, nil
 	}
 	rows, err := s.pool.Query(ctx, generationRunColumns+` FROM generation_runs ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GenerationRun{}
+	for rows.Next() {
+		run, err := scanGenerationRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, run)
+	}
+	return items, rows.Err()
+}
+
+func (s *GenerationRunService) ListByStage(ctx context.Context, stage string) ([]GenerationRun, error) {
+	if err := validateGenerationRunStage(stage); err != nil {
+		return nil, err
+	}
+	if s.pool == nil {
+		items, err := s.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		filtered := make([]GenerationRun, 0, len(items))
+		for _, item := range items {
+			if item.Stage == stage {
+				filtered = append(filtered, item)
+			}
+		}
+		return filtered, nil
+	}
+
+	rows, err := s.pool.Query(ctx, generationRunColumns+` FROM generation_runs WHERE stage = $1 ORDER BY created_at ASC`, stage)
 	if err != nil {
 		return nil, err
 	}
@@ -460,6 +515,78 @@ func (s *GenerationRunService) MarkFailed(ctx context.Context, runID string, cau
 	return nil
 }
 
+func (s *GenerationRunService) MarkRenderCompleted(ctx context.Context, runID string, output GenerationRenderOutput) error {
+	runID = normalizeID(runID)
+	output.StorageKey = strings.TrimSpace(output.StorageKey)
+	output.MimeType = strings.TrimSpace(output.MimeType)
+	output.Renderer = strings.TrimSpace(output.Renderer)
+	output.RenderVersion = strings.TrimSpace(output.RenderVersion)
+	if runID == "" {
+		return ErrGenerationRunNotFound
+	}
+	if output.StorageKey == "" || output.MimeType == "" || output.DurationMs <= 0 || output.Width <= 0 || output.Height <= 0 || output.FileSizeBytes <= 0 || output.Renderer == "" || output.RenderVersion == "" {
+		return fmt.Errorf("generation render output is incomplete")
+	}
+	if s.pool == nil {
+		s.mu.Lock()
+		run, ok := s.memoryRuns[runID]
+		if !ok {
+			s.mu.Unlock()
+			return ErrGenerationRunNotFound
+		}
+		now := time.Now()
+		run.Status = generationRunStatusCompleted
+		run.Stage = generationRunStageCompleted
+		run.Progress = 100
+		run.ErrorMessage = ""
+		run.OutputStorageKey = output.StorageKey
+		run.OutputMimeType = output.MimeType
+		run.OutputDurationMs = output.DurationMs
+		run.OutputWidth = output.Width
+		run.OutputHeight = output.Height
+		run.OutputFileSizeBytes = output.FileSizeBytes
+		run.Renderer = output.Renderer
+		run.RenderVersion = output.RenderVersion
+		run.CompletedAt = &now
+		run.UpdatedAt = now
+		s.memoryRuns[runID] = run
+		s.mu.Unlock()
+		return nil
+	}
+
+	command, err := s.pool.Exec(ctx, `
+		UPDATE generation_runs
+		SET status = 'completed', stage = 'completed', progress = 100,
+			error_message = NULL,
+			output_storage_key = $2,
+			output_mime_type = $3,
+			output_duration_ms = $4,
+			output_width = $5,
+			output_height = $6,
+			output_file_size_bytes = $7,
+			renderer = $8,
+			render_version = $9,
+			completed_at = now(), updated_at = now()
+		WHERE id = $1::uuid`,
+		runID,
+		output.StorageKey,
+		output.MimeType,
+		output.DurationMs,
+		output.Width,
+		output.Height,
+		output.FileSizeBytes,
+		output.Renderer,
+		output.RenderVersion,
+	)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return ErrGenerationRunNotFound
+	}
+	return nil
+}
+
 // PrepareRetry keeps the existing run as the user-visible finished-work item,
 // while discarding stale work links and the previous partial edit plan.
 func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, mode GenerationRunRetryMode) (GenerationRun, error) {
@@ -486,16 +613,28 @@ func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, m
 			if link.GenerationRunID != runID {
 				continue
 			}
-			if mode == GenerationRunRetryVoiceover || link.Stage == generationRunTaskStageEditPlan {
+			if mode == GenerationRunRetryVoiceover ||
+				(mode == GenerationRunRetryEditPlan && (link.Stage == generationRunTaskStageEditPlan || link.Stage == generationRunTaskStageRender)) ||
+				(mode == GenerationRunRetryRender && link.Stage == generationRunTaskStageRender) {
 				delete(s.memoryTasks, taskID)
 			}
 		}
-		delete(s.memoryPlans, runID)
+		if mode != GenerationRunRetryRender {
+			delete(s.memoryPlans, runID)
+		}
 		run.Status = generationRunStatusGenerating
 		run.Stage = stage
 		run.Progress = progress
 		run.ErrorMessage = ""
 		run.CompletedAt = nil
+		run.OutputStorageKey = ""
+		run.OutputMimeType = ""
+		run.OutputDurationMs = 0
+		run.OutputWidth = 0
+		run.OutputHeight = 0
+		run.OutputFileSizeBytes = 0
+		run.Renderer = ""
+		run.RenderVersion = ""
 		run.UpdatedAt = time.Now()
 		s.memoryRuns[runID] = run
 		s.mu.Unlock()
@@ -519,21 +658,31 @@ func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, m
 	}
 	if mode == GenerationRunRetryVoiceover {
 		_, err = tx.Exec(ctx, `DELETE FROM generation_run_tasks WHERE generation_run_id = $1::uuid`, runID)
+	} else if mode == GenerationRunRetryEditPlan {
+		_, err = tx.Exec(ctx, `
+			DELETE FROM generation_run_tasks
+			WHERE generation_run_id = $1::uuid AND stage IN ($2, $3)`, runID, generationRunTaskStageEditPlan, generationRunTaskStageRender)
 	} else {
 		_, err = tx.Exec(ctx, `
 			DELETE FROM generation_run_tasks
-			WHERE generation_run_id = $1::uuid AND stage = $2`, runID, generationRunTaskStageEditPlan)
+			WHERE generation_run_id = $1::uuid AND stage = $2`, runID, generationRunTaskStageRender)
 	}
 	if err != nil {
 		return GenerationRun{}, err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM edit_plans WHERE generation_run_id = $1::uuid`, runID); err != nil {
-		return GenerationRun{}, err
+	if mode != GenerationRunRetryRender {
+		if _, err := tx.Exec(ctx, `DELETE FROM edit_plans WHERE generation_run_id = $1::uuid`, runID); err != nil {
+			return GenerationRun{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE generation_runs
 		SET status = 'generating', stage = $2, progress = $3,
-			error_message = NULL, completed_at = NULL, updated_at = now()
+			error_message = NULL, completed_at = NULL,
+			output_storage_key = NULL, output_mime_type = NULL,
+			output_duration_ms = NULL, output_width = NULL, output_height = NULL,
+			output_file_size_bytes = NULL, renderer = NULL, render_version = NULL,
+			updated_at = now()
 		WHERE id = $1::uuid`, runID, stage, progress); err != nil {
 		return GenerationRun{}, err
 	}
@@ -848,6 +997,13 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	work.StageLabel = generationRunStageLabel(run.Stage)
 	work.Progress = run.Progress
 	work.ErrorMessage = run.ErrorMessage
+	if run.OutputStorageKey != "" {
+		work.VideoURL = publicStorageURL(run.OutputStorageKey)
+	}
+	work.OutputMimeType = run.OutputMimeType
+	work.OutputWidth = run.OutputWidth
+	work.OutputHeight = run.OutputHeight
+	work.OutputFileSizeBytes = run.OutputFileSizeBytes
 	if run.CompletedAt != nil {
 		completedAt := *run.CompletedAt
 		work.CompletedAt = &completedAt
@@ -889,7 +1045,11 @@ func editPlanWorkClips(clips []EditPlanClip) []VoiceoverEditPlanClip {
 const generationRunColumns = `
 	SELECT id::text, product_id::text, COALESCE(created_by_user_id::text, ''),
 		COALESCE(voiceover_task_id::text, ''), COALESCE(script_variant_id::text, ''), COALESCE(voiceover_id::text, ''),
-		status, stage, progress, COALESCE(error_message, ''), config_snapshot, created_at, updated_at, completed_at`
+		status, stage, progress, COALESCE(error_message, ''), config_snapshot,
+		COALESCE(output_storage_key, ''), COALESCE(output_mime_type, ''), COALESCE(output_duration_ms, 0),
+		COALESCE(output_width, 0), COALESCE(output_height, 0), COALESCE(output_file_size_bytes, 0),
+		COALESCE(renderer, ''), COALESCE(render_version, ''),
+		created_at, updated_at, completed_at`
 
 type generationRunScanner interface {
 	Scan(...any) error
@@ -911,6 +1071,14 @@ func scanGenerationRun(row generationRunScanner) (GenerationRun, error) {
 		&run.Progress,
 		&run.ErrorMessage,
 		&snapshot,
+		&run.OutputStorageKey,
+		&run.OutputMimeType,
+		&run.OutputDurationMs,
+		&run.OutputWidth,
+		&run.OutputHeight,
+		&run.OutputFileSizeBytes,
+		&run.Renderer,
+		&run.RenderVersion,
 		&run.CreatedAt,
 		&run.UpdatedAt,
 		&completedAt,
@@ -972,14 +1140,14 @@ func validateGenerationRunStage(stage string) error {
 }
 
 func validateGenerationRunTaskStage(stage string) error {
-	if stage == generationRunTaskStageVoiceover || stage == generationRunTaskStageEditPlan {
+	if stage == generationRunTaskStageVoiceover || stage == generationRunTaskStageEditPlan || stage == generationRunTaskStageRender {
 		return nil
 	}
 	return fmt.Errorf("invalid generation run task stage %q", stage)
 }
 
 func validateGenerationRunRetryMode(mode GenerationRunRetryMode) error {
-	if mode == GenerationRunRetryEditPlan || mode == GenerationRunRetryVoiceover {
+	if mode == GenerationRunRetryEditPlan || mode == GenerationRunRetryVoiceover || mode == GenerationRunRetryRender {
 		return nil
 	}
 	return fmt.Errorf("invalid generation run retry mode %q", mode)
@@ -988,6 +1156,9 @@ func validateGenerationRunRetryMode(mode GenerationRunRetryMode) error {
 func retryStage(mode GenerationRunRetryMode) (string, int) {
 	if mode == GenerationRunRetryVoiceover {
 		return generationRunStageVoicing, 8
+	}
+	if mode == GenerationRunRetryRender {
+		return generationRunStagePlanReady, 88
 	}
 	return generationRunStageRetrieving, 76
 }

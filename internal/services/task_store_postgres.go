@@ -86,6 +86,12 @@ func (s *PostgresTaskStore) CreateEditPlanGenerateTask(ctx context.Context, user
 	})
 }
 
+func (s *PostgresTaskStore) CreateGenerationRenderTask(ctx context.Context, userID string, productID string, payload queue.GenerationRenderPayload) (GenerationTask, error) {
+	return s.createTask(ctx, userID, productID, "generation_render", map[string]any{
+		"generation_run_id": payload.GenerationRunID,
+	})
+}
+
 func (s *PostgresTaskStore) createTask(ctx context.Context, userID string, productID string, taskType string, payloadSummary map[string]any) (GenerationTask, error) {
 	snapshot, err := json.Marshal(payloadSummary)
 	if err != nil {

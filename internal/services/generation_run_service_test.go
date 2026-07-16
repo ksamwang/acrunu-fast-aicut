@@ -152,3 +152,77 @@ func TestGenerationRunPrepareRetryKeepsRunAndClearsStalePlanWork(t *testing.T) {
 		t.Fatalf("expected stale voiceover task link to be removed: exists=%t err=%v", exists, err)
 	}
 }
+
+func TestGenerationRunMarksRenderOutputCompleted(t *testing.T) {
+	t.Parallel()
+	service := NewGenerationRunService(nil)
+	run, err := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	output := GenerationRenderOutput{
+		StorageKey:    "renders/generations/run/final.mp4",
+		MimeType:      "video/mp4",
+		DurationMs:    17240,
+		Width:         1080,
+		Height:        1920,
+		FileSizeBytes: 4096,
+		Renderer:      "ffmpeg",
+		RenderVersion: "ffmpeg-v1",
+	}
+	if err := service.MarkRenderCompleted(context.Background(), run.ID, output); err != nil {
+		t.Fatalf("mark render completed: %v", err)
+	}
+	completed, err := service.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("get completed run: %v", err)
+	}
+	if completed.Status != generationRunStatusCompleted || completed.Stage != generationRunStageCompleted || completed.Progress != 100 || completed.OutputStorageKey != output.StorageKey || completed.CompletedAt == nil {
+		t.Fatalf("unexpected completed run %#v", completed)
+	}
+}
+
+func TestGenerationRunRenderRetryKeepsReadyPlan(t *testing.T) {
+	t.Parallel()
+	service := NewGenerationRunService(nil)
+	run, err := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if _, err := service.SaveEditPlan(context.Background(), EditPlan{
+		GenerationRunID: run.ID,
+		ScriptVariantID: "script-1",
+		VoiceoverID:     "voiceover-1",
+		Status:          "ready",
+		VisualBeats: []VisualBeat{{
+			ID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000,
+			Label: "展示", VisualGoal: "展示产品", SourceType: "visual_only",
+		}},
+		Clips: []EditPlanClip{{
+			VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", AssetID: "asset-1",
+			SourceInMs: 0, SourceOutMs: 1000, StartMs: 0, EndMs: 1000, TimelineDurationMs: 1000,
+			SourceType: "visual_only",
+		}},
+	}); err != nil {
+		t.Fatalf("save plan: %v", err)
+	}
+	if err := service.LinkTask(context.Background(), run.ID, "render-task-1", generationRunTaskStageRender); err != nil {
+		t.Fatalf("link render task: %v", err)
+	}
+	if err := service.MarkFailed(context.Background(), run.ID, errors.New("ffmpeg failed")); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+	retried, err := service.PrepareRetry(context.Background(), run.ID, GenerationRunRetryRender)
+	if err != nil {
+		t.Fatalf("prepare render retry: %v", err)
+	}
+	if retried.Stage != generationRunStagePlanReady || retried.Progress != 88 || retried.Status != generationRunStatusGenerating {
+		t.Fatalf("unexpected render retry state %#v", retried)
+	}
+	if _, exists, err := service.FindTaskByStage(context.Background(), run.ID, generationRunTaskStageRender); err != nil || exists {
+		t.Fatalf("render task link should be cleared: exists=%t err=%v", exists, err)
+	}
+	if _, err := service.GetEditPlan(context.Background(), run.ID); err != nil {
+		t.Fatalf("ready plan must survive render retry: %v", err)
+	}
+}

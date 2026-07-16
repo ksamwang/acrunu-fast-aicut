@@ -21,7 +21,7 @@ ARG BIN_NAME
 ENV BIN_NAME=${BIN_NAME}
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+	&& apt-get install -y --no-install-recommends ca-certificates ffmpeg fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

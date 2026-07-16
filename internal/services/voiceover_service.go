@@ -142,28 +142,34 @@ type VoiceoverEditPlanClip struct {
 }
 
 type VoiceoverWork struct {
-	ID                string                  `json:"id"`
-	RunID             string                  `json:"run_id"`
-	ProductID         string                  `json:"product_id"`
-	ProductName       string                  `json:"product_name"`
-	Title             string                  `json:"title"`
-	Hook              string                  `json:"hook"`
-	VoiceProfileID    string                  `json:"voice_profile_id"`
-	VoiceProfileName  string                  `json:"voice_profile_name"`
-	ScriptText        string                  `json:"script_text"`
-	DurationMs        int                     `json:"duration_ms"`
-	Status            string                  `json:"status"`
-	Progress          int                     `json:"progress"`
-	StageLabel        string                  `json:"stage_label"`
-	ErrorMessage      string                  `json:"error_message,omitempty"`
-	CreatedAt         time.Time               `json:"created_at"`
-	CompletedAt       *time.Time              `json:"completed_at,omitempty"`
-	EditingIntent     string                  `json:"editing_intent,omitempty"`
-	Beats             []VoiceoverBeat         `json:"beats,omitempty"`
-	NarrationSegments []NarrationSegment      `json:"narration_segments,omitempty"`
-	VisualBeats       []VisualBeat            `json:"visual_beats,omitempty"`
-	EditPlan          []VoiceoverEditPlanClip `json:"edit_plan,omitempty"`
-	AudioURL          string                  `json:"audio_url,omitempty"`
+	ID                  string                  `json:"id"`
+	RunID               string                  `json:"run_id"`
+	ProductID           string                  `json:"product_id"`
+	ProductName         string                  `json:"product_name"`
+	Title               string                  `json:"title"`
+	Hook                string                  `json:"hook"`
+	VoiceProfileID      string                  `json:"voice_profile_id"`
+	VoiceProfileName    string                  `json:"voice_profile_name"`
+	ScriptText          string                  `json:"script_text"`
+	DurationMs          int                     `json:"duration_ms"`
+	Status              string                  `json:"status"`
+	Progress            int                     `json:"progress"`
+	StageLabel          string                  `json:"stage_label"`
+	ErrorMessage        string                  `json:"error_message,omitempty"`
+	CreatedAt           time.Time               `json:"created_at"`
+	CompletedAt         *time.Time              `json:"completed_at,omitempty"`
+	EditingIntent       string                  `json:"editing_intent,omitempty"`
+	Beats               []VoiceoverBeat         `json:"beats,omitempty"`
+	NarrationSegments   []NarrationSegment      `json:"narration_segments,omitempty"`
+	VisualBeats         []VisualBeat            `json:"visual_beats,omitempty"`
+	EditPlan            []VoiceoverEditPlanClip `json:"edit_plan,omitempty"`
+	AudioURL            string                  `json:"audio_url,omitempty"`
+	AudioStorageKey     string                  `json:"-"`
+	VideoURL            string                  `json:"video_url,omitempty"`
+	OutputMimeType      string                  `json:"output_mime_type,omitempty"`
+	OutputWidth         int                     `json:"output_width,omitempty"`
+	OutputHeight        int                     `json:"output_height,omitempty"`
+	OutputFileSizeBytes int64                   `json:"output_file_size_bytes,omitempty"`
 }
 
 type VoiceAudition struct {
@@ -1133,6 +1139,7 @@ func (s *VoiceoverService) processMemoryVoiceover(ctx context.Context, payload q
 	s.mu.Lock()
 	job.voiceoverStatus = "completed"
 	job.work.DurationMs = durationMs
+	job.work.AudioStorageKey = storageKey
 	job.work.AudioURL = publicStorageURL(storageKey)
 	job.work.NarrationSegments = segments
 	job.work.Status = "completed"
@@ -1370,6 +1377,7 @@ func voiceoverWorkFromRows(task db.GenerationTask, productName string, variant d
 		work.CompletedAt = &completedAt
 	}
 	if voiceover.StorageKey.Valid {
+		work.AudioStorageKey = voiceover.StorageKey.String
 		work.AudioURL = publicStorageURL(voiceover.StorageKey.String)
 	}
 	return work
