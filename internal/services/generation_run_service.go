@@ -36,8 +36,16 @@ const (
 )
 
 var (
-	ErrGenerationRunNotFound = errors.New("generation run not found")
-	ErrEditPlanNotFound      = errors.New("edit plan not found")
+	ErrGenerationRunNotFound     = errors.New("generation run not found")
+	ErrGenerationRunNotRetryable = errors.New("generation run is not retryable")
+	ErrEditPlanNotFound          = errors.New("edit plan not found")
+)
+
+type GenerationRunRetryMode string
+
+const (
+	GenerationRunRetryEditPlan  GenerationRunRetryMode = "edit_plan"
+	GenerationRunRetryVoiceover GenerationRunRetryMode = "voiceover"
 )
 
 type GenerationRun struct {
@@ -450,6 +458,89 @@ func (s *GenerationRunService) MarkFailed(ctx context.Context, runID string, cau
 		return ErrGenerationRunNotFound
 	}
 	return nil
+}
+
+// PrepareRetry keeps the existing run as the user-visible finished-work item,
+// while discarding stale work links and the previous partial edit plan.
+func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, mode GenerationRunRetryMode) (GenerationRun, error) {
+	if err := validateGenerationRunRetryMode(mode); err != nil {
+		return GenerationRun{}, err
+	}
+	runID = normalizeID(runID)
+	if runID == "" {
+		return GenerationRun{}, ErrGenerationRunNotFound
+	}
+	stage, progress := retryStage(mode)
+	if s.pool == nil {
+		s.mu.Lock()
+		run, ok := s.memoryRuns[runID]
+		if !ok {
+			s.mu.Unlock()
+			return GenerationRun{}, ErrGenerationRunNotFound
+		}
+		if run.Status != generationRunStatusFailed {
+			s.mu.Unlock()
+			return GenerationRun{}, ErrGenerationRunNotRetryable
+		}
+		for taskID, link := range s.memoryTasks {
+			if link.GenerationRunID != runID {
+				continue
+			}
+			if mode == GenerationRunRetryVoiceover || link.Stage == generationRunTaskStageEditPlan {
+				delete(s.memoryTasks, taskID)
+			}
+		}
+		delete(s.memoryPlans, runID)
+		run.Status = generationRunStatusGenerating
+		run.Stage = stage
+		run.Progress = progress
+		run.ErrorMessage = ""
+		run.CompletedAt = nil
+		run.UpdatedAt = time.Now()
+		s.memoryRuns[runID] = run
+		s.mu.Unlock()
+		return cloneGenerationRun(run), nil
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return GenerationRun{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	run, err := scanGenerationRun(tx.QueryRow(ctx, generationRunColumns+` FROM generation_runs WHERE id = $1::uuid FOR UPDATE`, runID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return GenerationRun{}, ErrGenerationRunNotFound
+	}
+	if err != nil {
+		return GenerationRun{}, err
+	}
+	if run.Status != generationRunStatusFailed {
+		return GenerationRun{}, ErrGenerationRunNotRetryable
+	}
+	if mode == GenerationRunRetryVoiceover {
+		_, err = tx.Exec(ctx, `DELETE FROM generation_run_tasks WHERE generation_run_id = $1::uuid`, runID)
+	} else {
+		_, err = tx.Exec(ctx, `
+			DELETE FROM generation_run_tasks
+			WHERE generation_run_id = $1::uuid AND stage = $2`, runID, generationRunTaskStageEditPlan)
+	}
+	if err != nil {
+		return GenerationRun{}, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM edit_plans WHERE generation_run_id = $1::uuid`, runID); err != nil {
+		return GenerationRun{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE generation_runs
+		SET status = 'generating', stage = $2, progress = $3,
+			error_message = NULL, completed_at = NULL, updated_at = now()
+		WHERE id = $1::uuid`, runID, stage, progress); err != nil {
+		return GenerationRun{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return GenerationRun{}, err
+	}
+	return s.Get(ctx, runID)
 }
 
 func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) (EditPlan, error) {
@@ -885,6 +976,20 @@ func validateGenerationRunTaskStage(stage string) error {
 		return nil
 	}
 	return fmt.Errorf("invalid generation run task stage %q", stage)
+}
+
+func validateGenerationRunRetryMode(mode GenerationRunRetryMode) error {
+	if mode == GenerationRunRetryEditPlan || mode == GenerationRunRetryVoiceover {
+		return nil
+	}
+	return fmt.Errorf("invalid generation run retry mode %q", mode)
+}
+
+func retryStage(mode GenerationRunRetryMode) (string, int) {
+	if mode == GenerationRunRetryVoiceover {
+		return generationRunStageVoicing, 8
+	}
+	return generationRunStageRetrieving, 76
 }
 
 func validateEditPlanForStorage(plan EditPlan) error {

@@ -204,6 +204,7 @@ func (s *Server) routes() {
 	protected.POST("/workbench/voiceover-tasks", s.handleCreateVoiceoverTasks)
 	protected.GET("/workbench/works", s.handleListVoiceoverWorks)
 	protected.GET("/workbench/works/:taskID", s.handleGetVoiceoverWork)
+	protected.POST("/workbench/works/:taskID/retry", s.handleRetryVoiceoverWork)
 	protected.GET("/assets", s.handleListAssets)
 	protected.GET("/assets/:assetID", s.handleGetAsset)
 	protected.GET("/assets/:assetID/frames", s.handleListAssetFrames)

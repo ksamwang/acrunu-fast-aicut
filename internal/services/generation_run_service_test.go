@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -93,5 +94,61 @@ func TestGenerationRunSnapshotIsJSONText(t *testing.T) {
 	}
 	if decoded["voice_profile_id"] != "profile-1" || decoded["variant_index"] != float64(1) {
 		t.Fatalf("unexpected snapshot %#v", decoded)
+	}
+}
+
+func TestGenerationRunPrepareRetryKeepsRunAndClearsStalePlanWork(t *testing.T) {
+	loader := staticVoiceoverWorkLoader{work: VoiceoverWork{ID: "voiceover-task-1", ProductID: "product-1", ProductName: "束裤带", Status: "completed"}}
+	service := NewGenerationRunService(loader)
+	run, err := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1", CreatedByUserID: "user-1"})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if err := service.LinkTask(context.Background(), run.ID, "voiceover-task-1", generationRunTaskStageVoiceover); err != nil {
+		t.Fatalf("link voiceover task: %v", err)
+	}
+	if err := service.LinkTask(context.Background(), run.ID, "edit-plan-task-1", generationRunTaskStageEditPlan); err != nil {
+		t.Fatalf("link edit plan task: %v", err)
+	}
+	if err := service.AttachVoiceoverArtifacts(context.Background(), run.ID, "voiceover-task-1", "script-1", "voiceover-1"); err != nil {
+		t.Fatalf("attach voiceover artifacts: %v", err)
+	}
+	if _, err := service.SaveEditPlan(context.Background(), EditPlan{
+		GenerationRunID: run.ID,
+		ScriptVariantID: "script-1",
+		VoiceoverID:     "voiceover-1",
+		Status:          "failed",
+	}); err != nil {
+		t.Fatalf("save failed plan: %v", err)
+	}
+	if err := service.MarkFailed(context.Background(), run.ID, errors.New("planner timeout")); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+
+	retried, err := service.PrepareRetry(context.Background(), run.ID, GenerationRunRetryEditPlan)
+	if err != nil {
+		t.Fatalf("prepare edit plan retry: %v", err)
+	}
+	if retried.ID != run.ID || retried.Status != generationRunStatusGenerating || retried.Stage != generationRunStageRetrieving || retried.Progress != 76 || retried.ErrorMessage != "" {
+		t.Fatalf("unexpected retried run %#v", retried)
+	}
+	if _, exists, err := service.FindTaskByStage(context.Background(), run.ID, generationRunTaskStageEditPlan); err != nil || exists {
+		t.Fatalf("expected stale edit plan task link to be removed: exists=%t err=%v", exists, err)
+	}
+	if _, exists, err := service.FindTaskByStage(context.Background(), run.ID, generationRunTaskStageVoiceover); err != nil || !exists {
+		t.Fatalf("expected successful voiceover task link to remain: exists=%t err=%v", exists, err)
+	}
+	if _, err := service.GetEditPlan(context.Background(), run.ID); !errors.Is(err, ErrEditPlanNotFound) {
+		t.Fatalf("expected previous edit plan to be cleared, got %v", err)
+	}
+
+	if err := service.MarkFailed(context.Background(), run.ID, errors.New("voiceover unavailable")); err != nil {
+		t.Fatalf("mark failed for voice retry: %v", err)
+	}
+	if _, err := service.PrepareRetry(context.Background(), run.ID, GenerationRunRetryVoiceover); err != nil {
+		t.Fatalf("prepare voiceover retry: %v", err)
+	}
+	if _, exists, err := service.FindTaskByStage(context.Background(), run.ID, generationRunTaskStageVoiceover); err != nil || exists {
+		t.Fatalf("expected stale voiceover task link to be removed: exists=%t err=%v", exists, err)
 	}
 }

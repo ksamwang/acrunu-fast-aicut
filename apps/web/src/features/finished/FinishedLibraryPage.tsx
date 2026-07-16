@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Empty, Input, Progress, Segmented, Select, Tag } from "antd";
-import { CircleAlert, LoaderCircle, Play } from "lucide-react";
+import { Button, Empty, Input, message, Progress, Segmented, Select, Tag, Tooltip } from "antd";
+import { CircleAlert, LoaderCircle, Play, RotateCcw } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import type { FinishedWork } from "../../shared/types/generation";
 import type { Product } from "../../shared/types/product";
 import { listProducts } from "../products/api";
-import { listVoiceoverWorks } from "../workbench/api";
+import { listVoiceoverWorks, retryVoiceoverWork } from "../workbench/api";
 import { FinishedWorkDetail } from "./FinishedWorkDetail";
 import { FinishedWorkVisual } from "./FinishedWorkVisual";
 import "./styles.css";
@@ -61,6 +61,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   const [productID, setProductID] = useState<string | undefined>();
   const [keyword, setKeyword] = useState("");
   const [selectedWorkID, setSelectedWorkID] = useState(readFinishedWorkID);
+  const [retryingWorkID, setRetryingWorkID] = useState<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -108,6 +109,19 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   }, [keyword, productID, statusFilter, works]);
 
   const selectedWork = selectedWorkID ? works.find((work) => work.id === selectedWorkID) : undefined;
+
+  const retryWork = async (workID: string) => {
+    setRetryingWorkID(workID);
+    try {
+      const retried = await retryVoiceoverWork(workID, token);
+      setWorks((current) => current.map((work) => (work.id === retried.id ? retried : work)));
+      message.success("已重新加入生成队列");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "重试失败");
+    } finally {
+      setRetryingWorkID(null);
+    }
+  };
 
   if (selectedWorkID) {
     if (selectedWork) {
@@ -200,6 +214,19 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                       {isGenerating ? <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#4fc1b2" /> : null}
                     </span>
                   </button>
+                  {isFailed ? (
+                    <Tooltip title="沿用当前文案和音色重新生成">
+                      <Button
+                        type="primary"
+                        className="finished-work-retry"
+                        icon={<RotateCcw size={15} />}
+                        loading={retryingWorkID === work.id}
+                        onClick={() => void retryWork(work.id)}
+                      >
+                        重试
+                      </Button>
+                    </Tooltip>
+                  ) : null}
                 </article>
               );
             })}

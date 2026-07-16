@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -291,6 +292,169 @@ func (s *Server) handleGetVoiceoverWork(c *gin.Context) {
 	OK(c, work)
 }
 
+func (s *Server) handleRetryVoiceoverWork(c *gin.Context) {
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+	ctx := c.Request.Context()
+	run, err := s.generationRunService.Get(ctx, c.Param("taskID"))
+	if err != nil {
+		handleVoiceoverError(c, err)
+		return
+	}
+	if run.Status != "failed" {
+		Fail(c, http.StatusConflict, "generation_not_retryable", "只有生成失败的成品可以重试")
+		return
+	}
+	if run.VoiceoverTaskID == "" {
+		Fail(c, http.StatusConflict, "generation_not_retryable", "原始配音任务不完整，无法重试")
+		return
+	}
+	product, err := s.productAssetService.GetProduct(run.ProductID)
+	if err != nil || product.Status == "archived" {
+		Fail(c, http.StatusConflict, "product_not_available", "产品不存在或已归档，无法重试")
+		return
+	}
+	original, err := s.voiceoverService.GetVoiceoverWork(ctx, run.VoiceoverTaskID)
+	if err != nil {
+		Fail(c, http.StatusConflict, "generation_not_retryable", "原始配音任务不完整，无法重试")
+		return
+	}
+
+	if original.Status == "completed" && original.DurationMs > 0 && len(original.NarrationSegments) > 0 && run.ScriptVariantID != "" && run.VoiceoverID != "" {
+		work, err := s.retryEditPlan(ctx, run)
+		if err != nil {
+			s.handleVoiceoverTaskCreateError(c, "retry_edit_plan", err)
+			return
+		}
+		OK(c, work)
+		return
+	}
+
+	work, err := s.retryVoiceover(ctx, user.ID, run, product, original)
+	if err != nil {
+		s.handleVoiceoverTaskCreateError(c, "retry_voiceover", err)
+		return
+	}
+	OK(c, work)
+}
+
+func (s *Server) retryEditPlan(ctx context.Context, run services.GenerationRun) (services.VoiceoverWork, error) {
+	if _, err := s.generationRunService.PrepareRetry(ctx, run.ID, services.GenerationRunRetryEditPlan); err != nil {
+		return services.VoiceoverWork{}, err
+	}
+	task, err := s.taskService.CreateEditPlanGenerateTask(ctx, run.CreatedByUserID, run.ProductID, queue.EditPlanGeneratePayload{
+		GenerationRunID: run.ID,
+		ScriptVariantID: run.ScriptVariantID,
+		VoiceoverID:     run.VoiceoverID,
+	})
+	if err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, "", err)
+	}
+	if err := s.generationRunService.LinkTask(ctx, run.ID, task.ID, "edit_plan"); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	payload := queue.EditPlanGeneratePayload{
+		TaskID:          task.ID,
+		GenerationRunID: run.ID,
+		ScriptVariantID: run.ScriptVariantID,
+		VoiceoverID:     run.VoiceoverID,
+	}
+	if err := s.queueClient.EnqueueEditPlanGenerate(payload); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	return s.generationRunService.GetWork(ctx, run.ID)
+}
+
+func (s *Server) retryVoiceover(ctx context.Context, userID string, run services.GenerationRun, product services.Product, original services.VoiceoverWork) (services.VoiceoverWork, error) {
+	if original.VoiceProfileID == "" || strings.TrimSpace(original.ScriptText) == "" {
+		return services.VoiceoverWork{}, services.ErrGenerationRunNotRetryable
+	}
+	profile, err := s.voiceoverService.GetVoiceProfile(ctx, original.VoiceProfileID)
+	if err != nil {
+		return services.VoiceoverWork{}, err
+	}
+	if profile.Status != "enabled" || profile.PreviewStatus != "ready" {
+		return services.VoiceoverWork{}, services.ErrVoiceProfileNotReady
+	}
+	if _, err := s.generationRunService.PrepareRetry(ctx, run.ID, services.GenerationRunRetryVoiceover); err != nil {
+		return services.VoiceoverWork{}, err
+	}
+	task, err := s.taskService.CreateVoiceoverGenerateTask(ctx, userID, run.ProductID, queue.VoiceoverGeneratePayload{GenerationRunID: run.ID})
+	if err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, "", err)
+	}
+	if err := s.generationRunService.LinkTask(ctx, run.ID, task.ID, "voiceover"); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	work, scriptVariantID, voiceoverID, err := s.voiceoverService.CreateVoiceoverWork(ctx, services.CreateVoiceoverWorkInput{
+		TaskID:         task.ID,
+		ProductID:      product.ID,
+		ProductName:    product.Name,
+		VoiceProfileID: original.VoiceProfileID,
+		VariantIndex:   retryVariantIndex(run.ConfigSnapshot),
+		Variant: services.VoiceoverVariantInput{
+			Hook:          original.Hook,
+			ScriptText:    original.ScriptText,
+			EditingIntent: original.EditingIntent,
+			Beats:         original.Beats,
+		},
+	})
+	if err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	if err := s.generationRunService.AttachVoiceoverArtifacts(ctx, run.ID, task.ID, scriptVariantID, voiceoverID); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	if err := s.queueClient.EnqueueVoiceoverGenerate(queue.VoiceoverGeneratePayload{
+		TaskID:          task.ID,
+		GenerationRunID: run.ID,
+		ScriptVariantID: scriptVariantID,
+		VoiceoverID:     voiceoverID,
+	}); err != nil {
+		return services.VoiceoverWork{}, s.failGenerationRetry(ctx, run.ID, task.ID, err)
+	}
+	if generated, err := s.generationRunService.GetWork(ctx, run.ID); err == nil {
+		return generated, nil
+	}
+	return work, nil
+}
+
+func (s *Server) failGenerationRetry(ctx context.Context, runID string, taskID string, cause error) error {
+	if taskID != "" {
+		_ = s.taskService.MarkFailed(ctx, taskID, cause.Error())
+	}
+	_ = s.generationRunService.MarkFailed(ctx, runID, cause)
+	return cause
+}
+
+func retryVariantIndex(snapshot map[string]any) int {
+	if snapshot == nil {
+		return 1
+	}
+	switch value := snapshot["variant_index"].(type) {
+	case int:
+		if value > 0 {
+			return value
+		}
+	case int32:
+		if value > 0 {
+			return int(value)
+		}
+	case int64:
+		if value > 0 {
+			return int(value)
+		}
+	case float64:
+		if value > 0 {
+			return int(value)
+		}
+	}
+	return 1
+}
+
 func (s *Server) enqueueVoiceProfilePreview(c *gin.Context, userID string, profileID string) error {
 	task, err := s.taskService.CreateVoiceProfilePreviewTask(c.Request.Context(), userID, queue.VoiceProfilePreviewPayload{VoiceProfileID: profileID})
 	if err != nil {
@@ -372,6 +536,8 @@ func handleVoiceoverError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, services.ErrVoiceProfileNotFound), errors.Is(err, services.ErrVoiceAuditionNotFound), errors.Is(err, services.ErrVoiceoverWorkNotFound), errors.Is(err, services.ErrGenerationRunNotFound):
 		Fail(c, http.StatusNotFound, "not_found", "未找到对应的音色或配音任务")
+	case errors.Is(err, services.ErrGenerationRunNotRetryable):
+		Fail(c, http.StatusConflict, "generation_not_retryable", "当前成品不能重试")
 	case errors.Is(err, services.ErrVoiceProfileDisabled):
 		Fail(c, http.StatusConflict, "voice_profile_disabled", "音色已停用")
 	case errors.Is(err, services.ErrVoiceProfileNotReady):

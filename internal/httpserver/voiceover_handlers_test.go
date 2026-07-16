@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
 
@@ -24,6 +26,19 @@ func (voiceoverHandlerSynthesizer) Synthesize(_ context.Context, _ modelgateway.
 		Audio:      voiceoverHandlerWAV(),
 		Model:      "test-cosyvoice",
 		SampleRate: 1000,
+	}, nil
+}
+
+type voiceoverHandlerTranscriber struct{}
+
+func (voiceoverHandlerTranscriber) Transcribe(_ context.Context, _ modelgateway.FunASRTranscriptionInput) (modelgateway.ASRTranscriptionResult, error) {
+	return modelgateway.ASRTranscriptionResult{
+		Text: "固定裤脚",
+		Segments: []modelgateway.ASRTranscriptSegment{{
+			StartMs: 0,
+			EndMs:   400,
+			Text:    "固定裤脚",
+		}},
 	}, nil
 }
 
@@ -107,6 +122,104 @@ func TestVoiceProfileHandlersCreateListAndQueueAudition(t *testing.T) {
 	server.Engine().ServeHTTP(defaultRecorder, defaultRequest)
 	if defaultRecorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", defaultRecorder.Code, defaultRecorder.Body.String())
+	}
+}
+
+func TestRetryFailedVoiceoverWorkReusesCompletedNarration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	storageRoot := t.TempDir()
+	voiceoverService := services.NewVoiceoverService(storageRoot, config.Config{StorageRoot: storageRoot}, nil).
+		WithClients(voiceoverHandlerSynthesizer{}, voiceoverHandlerTranscriber{})
+	taskService := services.NewTaskService(storageRoot)
+	productService := services.NewProductAssetService()
+	generationRuns := services.NewGenerationRunService(voiceoverService)
+	server := New(Options{
+		Config:               config.Config{StorageRoot: storageRoot, QueueBackend: "file"},
+		TaskService:          taskService,
+		VoiceoverService:     voiceoverService,
+		ProductAssetService:  productService,
+		GenerationRunService: generationRuns,
+	})
+
+	profileRequest := voiceoverProfileMultipartRequest(t, http.MethodPost, "/api/admin/voice-profiles")
+	profileRecorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(profileRecorder, profileRequest)
+	if profileRecorder.Code != http.StatusCreated {
+		t.Fatalf("create profile: %d body=%s", profileRecorder.Code, profileRecorder.Body.String())
+	}
+	var profileResponse struct {
+		Data services.VoiceProfile `json:"data"`
+	}
+	if err := json.Unmarshal(profileRecorder.Body.Bytes(), &profileResponse); err != nil {
+		t.Fatalf("decode profile: %v", err)
+	}
+	if err := voiceoverService.ProcessVoiceProfilePreview(context.Background(), profileResponse.Data.ID); err != nil {
+		t.Fatalf("generate voice profile preview: %v", err)
+	}
+
+	product := productService.CreateProduct(services.CreateProductInput{Name: "束裤带"})
+	run, err := generationRuns.Create(context.Background(), services.CreateGenerationRunInput{
+		ProductID:       product.ID,
+		CreatedByUserID: "voice-user-1",
+		ConfigSnapshot:  map[string]any{"variant_index": 1},
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	voiceTask, err := taskService.CreateVoiceoverGenerateTask(context.Background(), "voice-user-1", product.ID, queue.VoiceoverGeneratePayload{GenerationRunID: run.ID})
+	if err != nil {
+		t.Fatalf("create voice task: %v", err)
+	}
+	if err := generationRuns.LinkTask(context.Background(), run.ID, voiceTask.ID, "voiceover"); err != nil {
+		t.Fatalf("link voice task: %v", err)
+	}
+	_, scriptVariantID, voiceoverID, err := voiceoverService.CreateVoiceoverWork(context.Background(), services.CreateVoiceoverWorkInput{
+		TaskID:         voiceTask.ID,
+		ProductID:      product.ID,
+		ProductName:    product.Name,
+		VoiceProfileID: profileResponse.Data.ID,
+		VariantIndex:   1,
+		Variant: services.VoiceoverVariantInput{
+			Hook:       "裤脚不再蹭链条",
+			ScriptText: "固定裤脚，骑行更安心。",
+			Beats: []services.VoiceoverBeat{{
+				Label: "固定", VisualGoal: "展示束裤带固定裤脚", SourceType: "visual_only",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create voice work: %v", err)
+	}
+	if err := generationRuns.AttachVoiceoverArtifacts(context.Background(), run.ID, voiceTask.ID, scriptVariantID, voiceoverID); err != nil {
+		t.Fatalf("attach voice work: %v", err)
+	}
+	if err := voiceoverService.ProcessVoiceoverGenerate(context.Background(), queue.VoiceoverGeneratePayload{
+		TaskID: voiceTask.ID, GenerationRunID: run.ID, ScriptVariantID: scriptVariantID, VoiceoverID: voiceoverID,
+	}); err != nil {
+		t.Fatalf("generate source voiceover: %v", err)
+	}
+	if err := generationRuns.MarkFailed(context.Background(), run.ID, errors.New("edit planner timeout")); err != nil {
+		t.Fatalf("mark failed run: %v", err)
+	}
+
+	retryRequest := httptest.NewRequest(http.MethodPost, "/api/workbench/works/"+run.ID+"/retry", nil)
+	retryRequest.Header.Set("Authorization", voiceoverUserAuthHeader())
+	retryRecorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(retryRecorder, retryRequest)
+	if retryRecorder.Code != http.StatusOK {
+		t.Fatalf("retry failed work: %d body=%s", retryRecorder.Code, retryRecorder.Body.String())
+	}
+	var retried struct {
+		Data services.VoiceoverWork `json:"data"`
+	}
+	if err := json.Unmarshal(retryRecorder.Body.Bytes(), &retried); err != nil {
+		t.Fatalf("decode retried work: %v", err)
+	}
+	if retried.Data.ID != run.ID || retried.Data.Status != "generating" || retried.Data.StageLabel != "召回素材" || retried.Data.AudioURL == "" {
+		t.Fatalf("unexpected retried work %#v", retried.Data)
+	}
+	if _, exists, err := generationRuns.FindTaskByStage(context.Background(), run.ID, "edit_plan"); err != nil || !exists {
+		t.Fatalf("expected retried edit plan task link: exists=%t err=%v", exists, err)
 	}
 }
 

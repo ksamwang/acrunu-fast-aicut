@@ -52,3 +52,9 @@ export function listVoiceoverWorks(token: string) {
 export function getVoiceoverWork(taskID: string, token: string) {
   return apiRequest<FinishedWork>(`/api/workbench/works/${encodeURIComponent(taskID)}`, {}, token);
 }
+
+export function retryVoiceoverWork(workID: string, token: string) {
+  return apiRequest<FinishedWork>(`/api/workbench/works/${encodeURIComponent(workID)}/retry`, {
+    method: "POST"
+  }, token);
+}
