@@ -787,10 +787,12 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await completedDetailButton.click();
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
   await expect(page.getByLabel("灯光自动唤醒，夜间更安心成品视频")).toBeVisible();
-  await expect(page.getByText("字幕", { exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /概览/ })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: /字幕/ }).click();
   await expect(page.getByText("回到家灯光自动亮起", { exact: true })).toBeVisible();
   await expect(page.getByText("无需摸黑找开关夜间使用更安心", { exact: true })).toBeVisible();
-  await expect(page.getByText("初步镜头编排", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: /镜头编排/ }).click();
+  await expect(page.getByText("自动唤醒", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "返回成品库" }).click();
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
   await page.getByRole("menuitem", { name: "工作台" }).click();
