@@ -223,6 +223,74 @@ func TestRetryFailedVoiceoverWorkReusesCompletedNarration(t *testing.T) {
 	}
 }
 
+func TestCreateVoiceoverTaskSnapshotsOutputRatioAndSubtitleStyle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	storageRoot := t.TempDir()
+	voiceoverService := services.NewVoiceoverService(storageRoot, config.Config{StorageRoot: storageRoot}, nil).
+		WithClients(voiceoverHandlerSynthesizer{}, voiceoverHandlerTranscriber{})
+	productService := services.NewProductAssetService()
+	generationRuns := services.NewGenerationRunService(voiceoverService)
+	subtitleStyles := services.NewSubtitleStylePresetService()
+	server := New(Options{
+		Config:                     config.Config{StorageRoot: storageRoot, QueueBackend: "file"},
+		TaskService:                services.NewTaskService(storageRoot),
+		VoiceoverService:           voiceoverService,
+		ProductAssetService:        productService,
+		GenerationRunService:       generationRuns,
+		SubtitleStylePresetService: subtitleStyles,
+	})
+
+	profileRequest := voiceoverProfileMultipartRequest(t, http.MethodPost, "/api/admin/voice-profiles")
+	profileRecorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(profileRecorder, profileRequest)
+	if profileRecorder.Code != http.StatusCreated {
+		t.Fatalf("create profile: %d body=%s", profileRecorder.Code, profileRecorder.Body.String())
+	}
+	var profileResponse struct {
+		Data services.VoiceProfile `json:"data"`
+	}
+	if err := json.Unmarshal(profileRecorder.Body.Bytes(), &profileResponse); err != nil {
+		t.Fatalf("decode profile: %v", err)
+	}
+	if err := voiceoverService.ProcessVoiceProfilePreview(context.Background(), profileResponse.Data.ID); err != nil {
+		t.Fatalf("generate voice profile preview: %v", err)
+	}
+
+	product := productService.CreateProduct(services.CreateProductInput{Name: "束裤带"})
+	preset, err := subtitleStyles.Default(context.Background())
+	if err != nil {
+		t.Fatalf("load default subtitle style: %v", err)
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"product_id": product.ID, "voice_profile_id": profileResponse.Data.ID,
+		"output_ratio": services.OutputRatioThreeFour, "subtitle_preset_id": preset.ID,
+		"variants": []map[string]any{{
+			"hook": "固定裤脚", "script_text": "固定裤脚，骑行更安心。", "editing_intent": "展示产品使用",
+			"beats": []map[string]any{{"label": "固定", "selling_point": "防蹭", "visual_goal": "展示固定裤脚", "source_type": "visual_only"}},
+		}},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/workbench/voiceover-tasks", bytes.NewReader(payload))
+	request.Header.Set("Authorization", voiceoverUserAuthHeader())
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create voiceover task: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	runs, err := generationRuns.List(context.Background())
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("unexpected generation runs %#v err=%v", runs, err)
+	}
+	snapshot := runs[0].ConfigSnapshot
+	if snapshot["output_ratio"] != services.OutputRatioThreeFour || snapshot["output_height"] != float64(1440) || snapshot["subtitle_preset_id"] != preset.ID {
+		t.Fatalf("unexpected generation snapshot %#v", snapshot)
+	}
+	style, ok := snapshot["subtitle_style"].(map[string]any)
+	if !ok || style["vertical_offset_ratio"] != 0.1 {
+		t.Fatalf("unexpected subtitle style snapshot %#v", snapshot["subtitle_style"])
+	}
+}
+
 func voiceoverProfileMultipartRequest(t *testing.T, method string, path string) *http.Request {
 	t.Helper()
 	body := &bytes.Buffer{}

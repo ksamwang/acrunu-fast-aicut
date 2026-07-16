@@ -3,9 +3,11 @@ package ffmpeg
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -26,10 +28,29 @@ type SubtitleCue struct {
 	Text    string
 }
 
+type SubtitleStyle struct {
+	FontFamily          string
+	FontWeight          int
+	TextColor           string
+	BackgroundColor     string
+	BackgroundOpacity   float64
+	OutlineColor        string
+	OutlineWidth        float64
+	Shadow              bool
+	MaxLines            int
+	VerticalPosition    string
+	TextAlign           string
+	VerticalOffsetRatio float64
+	MaxWidthRatio       float64
+	FontSizeRatio       float64
+	MaxCharsPerLine     int
+}
+
 type RenderInput struct {
 	Clips         []RenderClip
 	NarrationPath string
 	Subtitles     []SubtitleCue
+	SubtitleStyle SubtitleStyle
 	OutputPath    string
 	WorkDir       string
 	DurationMs    int
@@ -49,7 +70,7 @@ func RenderTimeline(ctx context.Context, input RenderInput) (ProbeResult, error)
 		return ProbeResult{}, fmt.Errorf("create render output directory: %w", err)
 	}
 	if len(input.Subtitles) > 0 {
-		content := buildASS(input.Subtitles, input.Width, input.Height)
+		content := buildASS(input.Subtitles, input.Width, input.Height, input.SubtitleStyle)
 		if err := os.WriteFile(filepath.Join(input.WorkDir, subtitleFileName), []byte(content), 0644); err != nil {
 			return ProbeResult{}, fmt.Errorf("write render subtitles: %w", err)
 		}
@@ -191,27 +212,183 @@ func validateRenderInput(input RenderInput) error {
 	return nil
 }
 
-func buildASS(cues []SubtitleCue, width int, height int) string {
-	fontSize := width * 54 / 1000
-	if fontSize < 32 {
-		fontSize = 32
+func buildASS(cues []SubtitleCue, width int, height int, rawStyle SubtitleStyle) string {
+	style := normalizeSubtitleStyle(rawStyle)
+	fontSize := int(math.Round(float64(width) * style.FontSizeRatio))
+	if fontSize < 16 {
+		fontSize = 16
 	}
-	marginV := height * 9 / 100
+	marginV := int(math.Round(float64(height) * style.VerticalOffsetRatio))
+	marginH := int(math.Round(float64(width) * (1 - style.MaxWidthRatio) / 2))
+	if marginH < 0 {
+		marginH = 0
+	}
+	borderStyle := 1
+	if style.BackgroundOpacity > 0 {
+		borderStyle = 3
+	}
+	bold := 0
+	if style.FontWeight >= 600 {
+		bold = -1
+	}
+	shadow := 0
+	if style.Shadow {
+		shadow = 2
+	}
+	alignment := subtitleASSAlignment(style.VerticalPosition, style.TextAlign)
 	var content strings.Builder
 	fmt.Fprintf(&content, "[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n", width, height)
 	content.WriteString("[V4+ Styles]\n")
 	content.WriteString("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-	fmt.Fprintf(&content, "Style: Default,Noto Sans CJK SC,%d,&H00FFFFFF,&H00FFFFFF,&H00000000,&HB3000000,-1,0,0,0,100,100,0,0,3,0,0,2,56,56,%d,1\n\n", fontSize, marginV)
+	fmt.Fprintf(&content, "Style: Default,%s,%d,%s,%s,%s,%s,%d,0,0,0,100,100,0,0,%d,%.2f,%d,%d,%d,%d,%d,1\n\n",
+		style.FontFamily,
+		fontSize,
+		assColor(style.TextColor, 1),
+		assColor(style.TextColor, 1),
+		assColor(style.OutlineColor, 1),
+		assColor(style.BackgroundColor, style.BackgroundOpacity),
+		bold,
+		borderStyle,
+		style.OutlineWidth,
+		shadow,
+		alignment,
+		marginH,
+		marginH,
+		marginV,
+	)
 	content.WriteString("[Events]\n")
 	content.WriteString("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 	for _, cue := range cues {
-		text := escapeASSText(strings.TrimSpace(cue.Text))
+		text := wrapASSSubtitle(strings.TrimSpace(cue.Text), style.MaxLines, style.MaxCharsPerLine)
 		if text == "" {
 			continue
 		}
 		fmt.Fprintf(&content, "Dialogue: 0,%s,%s,Default,,0,0,0,,%s\n", formatASSTimestamp(cue.StartMs), formatASSTimestamp(cue.EndMs), text)
 	}
 	return content.String()
+}
+
+func normalizeSubtitleStyle(style SubtitleStyle) SubtitleStyle {
+	if strings.TrimSpace(style.FontFamily) == "" {
+		style = SubtitleStyle{
+			FontFamily: "Noto Sans CJK SC", FontWeight: 700, TextColor: "#FFFFFF",
+			BackgroundColor: "#000000", BackgroundOpacity: 0.3, OutlineColor: "#000000",
+			OutlineWidth: 0, MaxLines: 2, VerticalPosition: "bottom", TextAlign: "center",
+			VerticalOffsetRatio: 0.14, MaxWidthRatio: 0.84, FontSizeRatio: 0.054, MaxCharsPerLine: 16,
+		}
+	}
+	if strings.TrimSpace(style.FontFamily) == "" || strings.ContainsAny(style.FontFamily, ",\r\n") {
+		style.FontFamily = "Noto Sans CJK SC"
+	}
+	if style.FontWeight < 100 || style.FontWeight > 900 {
+		style.FontWeight = 700
+	}
+	if !validASSHexColor(style.TextColor) {
+		style.TextColor = "#FFFFFF"
+	}
+	if !validASSHexColor(style.BackgroundColor) {
+		style.BackgroundColor = "#000000"
+	}
+	if !validASSHexColor(style.OutlineColor) {
+		style.OutlineColor = "#000000"
+	}
+	if style.BackgroundOpacity < 0 || style.BackgroundOpacity > 1 {
+		style.BackgroundOpacity = 0.3
+	}
+	if style.OutlineWidth < 0 || style.OutlineWidth > 8 {
+		style.OutlineWidth = 0
+	}
+	if style.MaxLines < 1 || style.MaxLines > 3 {
+		style.MaxLines = 2
+	}
+	if style.VerticalPosition != "top" && style.VerticalPosition != "center" && style.VerticalPosition != "bottom" {
+		style.VerticalPosition = "bottom"
+	}
+	if style.TextAlign != "left" && style.TextAlign != "center" && style.TextAlign != "right" {
+		style.TextAlign = "center"
+	}
+	if style.VerticalOffsetRatio < 0 || style.VerticalOffsetRatio > 0.4 {
+		style.VerticalOffsetRatio = 0.14
+	}
+	if style.MaxWidthRatio < 0.3 || style.MaxWidthRatio > 0.96 {
+		style.MaxWidthRatio = 0.84
+	}
+	if style.FontSizeRatio < 0.02 || style.FontSizeRatio > 0.12 {
+		style.FontSizeRatio = 0.054
+	}
+	if style.MaxCharsPerLine < 4 || style.MaxCharsPerLine > 40 {
+		style.MaxCharsPerLine = 16
+	}
+	return style
+}
+
+func subtitleASSAlignment(vertical string, horizontal string) int {
+	base := 1
+	if vertical == "center" {
+		base = 4
+	} else if vertical == "top" {
+		base = 7
+	}
+	if horizontal == "center" {
+		return base + 1
+	}
+	if horizontal == "right" {
+		return base + 2
+	}
+	return base
+}
+
+func assColor(value string, opacity float64) string {
+	if !validASSHexColor(value) {
+		value = "#000000"
+	}
+	red, _ := strconv.ParseUint(value[1:3], 16, 8)
+	green, _ := strconv.ParseUint(value[3:5], 16, 8)
+	blue, _ := strconv.ParseUint(value[5:7], 16, 8)
+	if opacity < 0 {
+		opacity = 0
+	}
+	if opacity > 1 {
+		opacity = 1
+	}
+	alpha := int(math.Round((1 - opacity) * 255))
+	return fmt.Sprintf("&H%02X%02X%02X%02X", alpha, blue, green, red)
+}
+
+func validASSHexColor(value string) bool {
+	if len(value) != 7 || value[0] != '#' {
+		return false
+	}
+	_, err := strconv.ParseUint(value[1:], 16, 24)
+	return err == nil
+}
+
+func wrapASSSubtitle(text string, maxLines int, maxCharsPerLine int) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	lineCount := (len(runes) + maxCharsPerLine - 1) / maxCharsPerLine
+	if lineCount < 1 {
+		lineCount = 1
+	}
+	if lineCount > maxLines {
+		lineCount = maxLines
+	}
+	charsPerLine := (len(runes) + lineCount - 1) / lineCount
+	lines := make([]string, 0, lineCount)
+	for start := 0; start < len(runes); start += charsPerLine {
+		end := start + charsPerLine
+		if end > len(runes) {
+			end = len(runes)
+		}
+		line := strings.TrimSpace(string(runes[start:end]))
+		if line != "" {
+			lines = append(lines, escapeASSText(line))
+		}
+	}
+	return strings.Join(lines, `\N`)
 }
 
 func formatASSTimestamp(milliseconds int) string {

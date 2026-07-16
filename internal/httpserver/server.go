@@ -11,35 +11,37 @@ import (
 )
 
 type Options struct {
-	Config                  config.Config
-	Logger                  *slog.Logger
-	UserService             *services.UserService
-	TaskService             *services.TaskService
-	SystemConfigService     *services.SystemConfigService
-	ModelProviderService    *services.ModelProviderService
-	ProductAssetService     *services.ProductAssetService
-	AssetEmbeddingService   *services.AssetEmbeddingService
-	VoiceoverService        *services.VoiceoverService
-	ScriptGenerationService *services.ScriptGenerationService
-	GenerationRunService    *services.GenerationRunService
+	Config                     config.Config
+	Logger                     *slog.Logger
+	UserService                *services.UserService
+	TaskService                *services.TaskService
+	SystemConfigService        *services.SystemConfigService
+	ModelProviderService       *services.ModelProviderService
+	ProductAssetService        *services.ProductAssetService
+	AssetEmbeddingService      *services.AssetEmbeddingService
+	VoiceoverService           *services.VoiceoverService
+	ScriptGenerationService    *services.ScriptGenerationService
+	GenerationRunService       *services.GenerationRunService
+	SubtitleStylePresetService *services.SubtitleStylePresetService
 }
 
 type Server struct {
-	cfg                     config.Config
-	logger                  *slog.Logger
-	engine                  *gin.Engine
-	userService             *services.UserService
-	systemConfigService     *services.SystemConfigService
-	modelProviderService    *services.ModelProviderService
-	productAssetService     *services.ProductAssetService
-	assetEmbeddingService   *services.AssetEmbeddingService
-	voiceoverService        *services.VoiceoverService
-	scriptGenerationService *services.ScriptGenerationService
-	generationRunService    *services.GenerationRunService
-	uploadTokenService      *services.UploadTokenService
-	localStore              *storage.LocalStore
-	taskService             *services.TaskService
-	queueClient             *queue.Client
+	cfg                        config.Config
+	logger                     *slog.Logger
+	engine                     *gin.Engine
+	userService                *services.UserService
+	systemConfigService        *services.SystemConfigService
+	modelProviderService       *services.ModelProviderService
+	productAssetService        *services.ProductAssetService
+	assetEmbeddingService      *services.AssetEmbeddingService
+	voiceoverService           *services.VoiceoverService
+	scriptGenerationService    *services.ScriptGenerationService
+	generationRunService       *services.GenerationRunService
+	subtitleStylePresetService *services.SubtitleStylePresetService
+	uploadTokenService         *services.UploadTokenService
+	localStore                 *storage.LocalStore
+	taskService                *services.TaskService
+	queueClient                *queue.Client
 }
 
 func New(opts Options) *Server {
@@ -81,6 +83,10 @@ func New(opts Options) *Server {
 	if generationRunService == nil {
 		generationRunService = services.NewGenerationRunService(voiceoverService)
 	}
+	subtitleStylePresetService := opts.SubtitleStylePresetService
+	if subtitleStylePresetService == nil {
+		subtitleStylePresetService = services.NewSubtitleStylePresetService()
+	}
 
 	userService := opts.UserService
 	if userService == nil {
@@ -88,21 +94,22 @@ func New(opts Options) *Server {
 	}
 
 	server := &Server{
-		cfg:                     opts.Config,
-		logger:                  opts.Logger,
-		engine:                  gin.New(),
-		userService:             userService,
-		systemConfigService:     systemConfigService,
-		modelProviderService:    modelProviderService,
-		productAssetService:     productAssetService,
-		assetEmbeddingService:   assetEmbeddingService,
-		voiceoverService:        voiceoverService,
-		scriptGenerationService: scriptGenerationService,
-		generationRunService:    generationRunService,
-		uploadTokenService:      services.NewUploadTokenService(),
-		localStore:              storage.NewLocalStore(opts.Config.StorageRoot),
-		taskService:             taskService,
-		queueClient:             queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
+		cfg:                        opts.Config,
+		logger:                     opts.Logger,
+		engine:                     gin.New(),
+		userService:                userService,
+		systemConfigService:        systemConfigService,
+		modelProviderService:       modelProviderService,
+		productAssetService:        productAssetService,
+		assetEmbeddingService:      assetEmbeddingService,
+		voiceoverService:           voiceoverService,
+		scriptGenerationService:    scriptGenerationService,
+		generationRunService:       generationRunService,
+		subtitleStylePresetService: subtitleStylePresetService,
+		uploadTokenService:         services.NewUploadTokenService(),
+		localStore:                 storage.NewLocalStore(opts.Config.StorageRoot),
+		taskService:                taskService,
+		queueClient:                queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
 	}
 
 	server.routes()
@@ -176,6 +183,13 @@ func (s *Server) routes() {
 	voiceProfileAdmin.POST("/:voiceProfileID/default", s.handleSetDefaultVoiceProfile)
 	voiceProfileAdmin.DELETE("/:voiceProfileID", s.handleDeleteVoiceProfile)
 
+	subtitleStylesAdmin := adminGroup.Group("/subtitle-presets")
+	subtitleStylesAdmin.GET("", s.handleAdminListSubtitleStylePresets)
+	subtitleStylesAdmin.POST("", s.handleCreateSubtitleStylePreset)
+	subtitleStylesAdmin.PUT("/:presetID", s.handleUpdateSubtitleStylePreset)
+	subtitleStylesAdmin.POST("/:presetID/default", s.handleSetDefaultSubtitleStylePreset)
+	subtitleStylesAdmin.DELETE("/:presetID", s.handleDeleteSubtitleStylePreset)
+
 	protected := api.Group("")
 	protected.Use(s.authMiddleware())
 	protected.GET("/ping", func(c *gin.Context) {
@@ -199,6 +213,7 @@ func (s *Server) routes() {
 	protected.POST("/preprocess/vlm-label", s.handlePreprocessVLMLabel)
 	protected.POST("/workbench/scripts/generate", s.handleGenerateWorkbenchScripts)
 	protected.GET("/voice-profiles", s.handleListVoiceProfiles)
+	protected.GET("/subtitle-presets", s.handleListSubtitleStylePresets)
 	protected.POST("/voice-profiles/:voiceProfileID/auditions", s.handleCreateVoiceAudition)
 	protected.GET("/voice-auditions/:auditionID", s.handleGetVoiceAudition)
 	protected.POST("/workbench/voiceover-tasks", s.handleCreateVoiceoverTasks)

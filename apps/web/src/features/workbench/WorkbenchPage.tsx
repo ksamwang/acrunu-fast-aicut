@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Empty, Input, InputNumber, Modal, Select, Tag, Tooltip, Typography, message } from "antd";
-import { Check, CheckCircle2, Circle, Clapperboard, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
+import { Button, Empty, Input, InputNumber, Modal, Popover, Segmented, Select, Tag, Tooltip, Typography, message } from "antd";
+import { Captions, Check, CheckCircle2, Circle, Clapperboard, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import type { VoiceAudition } from "../../shared/types/voice";
+import type { OutputRatio, SubtitleStylePreset } from "../../shared/types/subtitle";
 import { listProducts, listSellingPoints } from "../products/api";
 import { VoiceProfilePicker } from "../voice-profiles/VoiceProfilePicker";
+import { listSubtitleStylePresets } from "../subtitles/api";
+import { SubtitleStylePreview } from "../subtitles/SubtitleStylePreview";
 import { useVoiceProfiles } from "../voice-profiles/useVoiceProfiles";
 import {
   clearWorkbenchVariants,
@@ -33,6 +36,7 @@ function activeSellingPoints(points: SellingPoint[]) {
 
 export function WorkbenchPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token, [], listProducts);
+  const subtitlePresetsResource = useResource<SubtitleStylePreset[]>("/api/subtitle-presets", token, [], listSubtitleStylePresets);
   const [draft, setDraft] = useState<WorkbenchDraft>(() => loadWorkbenchDraft());
   const [customSellingPointInput, setCustomSellingPointInput] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -62,6 +66,8 @@ export function WorkbenchPage({ token }: { token: string }) {
     [voiceProfilesResource.profiles]
   );
   const selectedVoiceProfile = availableVoiceProfiles.find((profile) => profile.id === draft.voice_profile_id) ?? null;
+  const subtitlePresets = subtitlePresetsResource.data ?? [];
+  const selectedSubtitlePreset = subtitlePresets.find((preset) => preset.id === draft.subtitle_preset_id) ?? null;
   const activeAudition = audition && activeVariant && selectedVoiceProfile
     && audition.voice_profile_id === selectedVoiceProfile.id
     && audition.text === activeVariant.script_text
@@ -98,6 +104,17 @@ export function WorkbenchPage({ token }: { token: string }) {
       return existingProfile ? current : { ...current, voice_profile_id: fallbackProfile.id };
     });
   }, [availableVoiceProfiles]);
+
+  useEffect(() => {
+    const fallbackPreset = subtitlePresets.find((preset) => preset.is_default) ?? subtitlePresets[0];
+    if (!fallbackPreset) {
+      return;
+    }
+    setDraft((current) => {
+      const existingPreset = subtitlePresets.find((preset) => preset.id === current.subtitle_preset_id);
+      return existingPreset ? current : { ...current, subtitle_preset_id: fallbackPreset.id };
+    });
+  }, [subtitlePresets]);
 
   useEffect(() => {
     if (!audition || audition.status === "completed" || audition.status === "failed") {
@@ -263,7 +280,14 @@ export function WorkbenchPage({ token }: { token: string }) {
     }
     setStartingTasks(true);
     try {
-      const works = await createVoiceoverTasks(selectedProduct.id, selectedVoiceProfile.id, confirmedVariants, token);
+      const works = await createVoiceoverTasks(
+        selectedProduct.id,
+        selectedVoiceProfile.id,
+        draft.output_ratio,
+        selectedSubtitlePreset?.id ?? "",
+        confirmedVariants,
+        token
+      );
       const nextDraft = clearWorkbenchVariants(draft);
       saveWorkbenchDraft(nextDraft);
       setDraft(nextDraft);
@@ -353,6 +377,40 @@ export function WorkbenchPage({ token }: { token: string }) {
             value={draft.variant_count}
             onChange={(value) => setDraft((current) => ({ ...current, variant_count: Number(value ?? 1) }))}
           />
+        </div>
+        <div className="workbench-field workbench-ratio-field">
+          <Typography.Text className="workbench-field-label">画幅</Typography.Text>
+          <Segmented<OutputRatio>
+            block
+            value={draft.output_ratio}
+            options={["9:16", "3:4"]}
+            onChange={(outputRatio) => setDraft((current) => ({ ...current, output_ratio: outputRatio }))}
+          />
+        </div>
+        <div className="workbench-field workbench-subtitle-field">
+          <Typography.Text className="workbench-field-label">字幕样式</Typography.Text>
+          <div className="workbench-subtitle-control">
+            <Select
+              data-testid="workbench-subtitle-preset"
+              value={draft.subtitle_preset_id || undefined}
+              placeholder="选择样式"
+              loading={subtitlePresetsResource.loading}
+              options={subtitlePresets.map((preset) => ({ value: preset.id, label: preset.name }))}
+              onChange={(presetID) => setDraft((current) => ({ ...current, subtitle_preset_id: presetID }))}
+            />
+            <Popover
+              placement="bottomRight"
+              content={selectedSubtitlePreset ? <SubtitleStylePreview preset={selectedSubtitlePreset} ratio={draft.output_ratio} compact /> : null}
+              trigger="click"
+            >
+              <Button
+                type="text"
+                aria-label="预览字幕样式"
+                icon={<Captions size={16} />}
+                disabled={!selectedSubtitlePreset}
+              />
+            </Popover>
+          </div>
         </div>
         <div className="workbench-field workbench-voice-field">
           <Typography.Text className="workbench-field-label">音色</Typography.Text>
@@ -502,7 +560,11 @@ export function WorkbenchPage({ token }: { token: string }) {
       </main>
 
       <footer className="workbench-footer">
-        <Typography.Text>已确认 {confirmedVariants.length} 条{selectedVoiceProfile ? ` · ${selectedVoiceProfile.name}` : ""}</Typography.Text>
+        <Typography.Text>
+          已确认 {confirmedVariants.length} 条
+          {selectedVoiceProfile ? ` · ${selectedVoiceProfile.name}` : ""}
+          {selectedSubtitlePreset ? ` · ${draft.output_ratio} · ${selectedSubtitlePreset.name}` : ""}
+        </Typography.Text>
         <Button
           type="primary"
           data-testid="workbench-start-tasks"

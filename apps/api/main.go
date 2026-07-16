@@ -29,6 +29,8 @@ func main() {
 	defer voiceoverService.Close()
 	generationRunService := services.NewConfiguredGenerationRunService(context.Background(), cfg, voiceoverService.Service, logger)
 	defer generationRunService.Close()
+	subtitleStylePresetService := services.NewConfiguredSubtitleStylePresetService(context.Background(), cfg, logger)
+	defer subtitleStylePresetService.Close()
 	scriptGenerationService := services.NewScriptGenerationService(
 		productAssetService.Service,
 		systemConfigService.Service,
@@ -37,17 +39,18 @@ func main() {
 	)
 
 	server := httpserver.New(httpserver.Options{
-		Config:                  cfg,
-		Logger:                  logger,
-		UserService:             userService.Service,
-		TaskService:             taskService.Service,
-		SystemConfigService:     systemConfigService.Service,
-		ModelProviderService:    modelProviderService.Service,
-		ProductAssetService:     productAssetService.Service,
-		AssetEmbeddingService:   assetEmbeddingService.Service,
-		VoiceoverService:        voiceoverService.Service,
-		ScriptGenerationService: scriptGenerationService,
-		GenerationRunService:    generationRunService.Service,
+		Config:                     cfg,
+		Logger:                     logger,
+		UserService:                userService.Service,
+		TaskService:                taskService.Service,
+		SystemConfigService:        systemConfigService.Service,
+		ModelProviderService:       modelProviderService.Service,
+		ProductAssetService:        productAssetService.Service,
+		AssetEmbeddingService:      assetEmbeddingService.Service,
+		VoiceoverService:           voiceoverService.Service,
+		ScriptGenerationService:    scriptGenerationService,
+		GenerationRunService:       generationRunService.Service,
+		SubtitleStylePresetService: subtitleStylePresetService.Service,
 	})
 
 	if err := server.Run(); err != nil {

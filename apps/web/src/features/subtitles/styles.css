@@ -1,0 +1,247 @@
+.subtitle-style-preview {
+  --subtitle-preview-aspect: 9 / 16;
+  --subtitle-preview-offset: 12%;
+  position: relative;
+  width: min(100%, 220px);
+  aspect-ratio: var(--subtitle-preview-aspect);
+  overflow: hidden;
+  border: 1px solid #33454b;
+  border-radius: 6px;
+  background: #27383e;
+}
+
+.subtitle-style-preview.is-compact {
+  width: 150px;
+  max-height: 230px;
+}
+
+.subtitle-style-preview-scene,
+.subtitle-style-preview-caption-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.subtitle-style-preview-scene {
+  overflow: hidden;
+  background: #73848a;
+}
+
+.subtitle-style-preview-horizon {
+  position: absolute;
+  inset: 42% 0 0;
+  background: #44575a;
+  border-top: 2px solid rgba(255, 255, 255, 0.22);
+}
+
+.subtitle-style-preview-subject {
+  position: absolute;
+  top: 18%;
+  left: 31%;
+  width: 38%;
+  height: 55%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 48% 48% 18% 18%;
+  background: #24363a;
+}
+
+.subtitle-style-preview-caption-layer {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--subtitle-preview-offset);
+  padding-bottom: var(--subtitle-preview-offset);
+}
+
+.subtitle-style-preview-caption {
+  position: relative;
+  z-index: 1;
+  align-self: inherit;
+  line-height: 1.45;
+}
+
+.subtitle-style-preview-caption > span {
+  padding: 0.08em 0.18em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.subtitle-style-preview-ratio {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 2;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(13, 24, 28, 0.68);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.subtitle-settings {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  min-height: 620px;
+  overflow: hidden;
+  border: 1px solid #d9e1e5;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.subtitle-preset-rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border-right: 1px solid #d9e1e5;
+  background: #f8fafb;
+}
+
+.subtitle-preset-rail-header,
+.subtitle-preset-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 50px;
+  padding: 0 12px;
+  border-bottom: 1px solid #d9e1e5;
+}
+
+.subtitle-preset-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.subtitle-preset-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #42545d;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subtitle-preset-row:hover {
+  background: #edf3f3;
+}
+
+.subtitle-preset-row.is-active {
+  border-color: #9ecfc8;
+  background: #eaf7f5;
+  color: #155e58;
+}
+
+.subtitle-preset-row .ant-tag {
+  margin: 0 0 0 3px;
+  padding-inline: 4px;
+  font-size: 10px;
+  line-height: 18px;
+}
+
+.subtitle-preset-editor {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.subtitle-preset-editor-header > div:first-child,
+.subtitle-preset-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.subtitle-preset-actions .ant-btn {
+  border-radius: 5px;
+}
+
+.subtitle-preset-editor-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.subtitle-style-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 0 14px;
+}
+
+.subtitle-style-form-grid .ant-input-number,
+.subtitle-layout-number-grid .ant-input-number {
+  width: 100%;
+}
+
+.subtitle-color-input.ant-input {
+  min-height: 32px;
+  padding: 3px 5px;
+  cursor: pointer;
+}
+
+.subtitle-layout-editor {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(220px, 320px);
+  gap: 24px;
+  align-items: start;
+  padding-top: 16px;
+  border-top: 1px solid #e3e9eb;
+}
+
+.subtitle-layout-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.subtitle-layout-controls > .ant-typography {
+  text-align: center;
+  font-size: 11px;
+}
+
+.subtitle-layout-controls .ant-form-item {
+  margin-bottom: 0;
+}
+
+.subtitle-layout-number-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+
+.subtitle-layout-preview {
+  display: grid;
+  justify-items: center;
+}
+
+@media (max-width: 980px) {
+  .subtitle-settings {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+
+  .subtitle-style-form-grid {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .subtitle-settings {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .subtitle-preset-rail {
+    max-height: 220px;
+    border-right: 0;
+    border-bottom: 1px solid #d9e1e5;
+  }
+
+  .subtitle-layout-editor {
+    grid-template-columns: 1fr;
+  }
+}

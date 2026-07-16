@@ -45,9 +45,29 @@ func TestRenderTimelineArgsBuildsContinuousVideoAndNarration(t *testing.T) {
 
 func TestBuildASSUsesCleanTextAndTransparentBackground(t *testing.T) {
 	t.Parallel()
-	content := buildASS([]SubtitleCue{{StartMs: 0, EndMs: 1230, Text: "骑行更安全"}}, 1080, 1920)
+	content := buildASS([]SubtitleCue{{StartMs: 0, EndMs: 1230, Text: "骑行更安全"}}, 1080, 1920, SubtitleStyle{})
 	if !strings.Contains(content, "&HB3000000") || !strings.Contains(content, "Dialogue: 0,0:00:00.00,0:00:01.23") || !strings.Contains(content, "骑行更安全") {
 		t.Fatalf("unexpected ASS content:\n%s", content)
+	}
+}
+
+func TestBuildASSUsesConfiguredAlignmentColorAndWrapping(t *testing.T) {
+	t.Parallel()
+	content := buildASS([]SubtitleCue{{StartMs: 0, EndMs: 2000, Text: "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"}}, 1080, 1440, SubtitleStyle{
+		FontFamily: "Noto Sans CJK SC", FontWeight: 400, TextColor: "#FFCC00",
+		BackgroundColor: "#102030", BackgroundOpacity: 0.5, OutlineColor: "#FFFFFF",
+		OutlineWidth: 1.5, MaxLines: 2, VerticalPosition: "top", TextAlign: "left",
+		VerticalOffsetRatio: 0.1, MaxWidthRatio: 0.8, FontSizeRatio: 0.05, MaxCharsPerLine: 10,
+	})
+	for _, expected := range []string{
+		"Noto Sans CJK SC,54,&H0000CCFF",
+		"&H80302010",
+		",3,1.50,0,7,108,108,144,1",
+		`一二三四五六七八九十\N甲乙丙丁戊己庚辛壬癸`,
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("configured ASS missing %q:\n%s", expected, content)
+		}
 	}
 }
 

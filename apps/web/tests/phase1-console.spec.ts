@@ -103,6 +103,28 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       updated_at: "2026-07-15T00:00:00.000Z"
     }
   ];
+  const subtitlePresets = [{
+    id: "subtitle-default",
+    name: "信息流白字",
+    font_family: "Noto Sans CJK SC",
+    font_weight: 700,
+    text_color: "#FFFFFF",
+    background_color: "#000000",
+    background_opacity: 0.3,
+    outline_color: "#000000",
+    outline_width: 0,
+    shadow: false,
+    max_lines: 2,
+    layouts: {
+      "9:16": { width: 1080, height: 1920, fps: 30, vertical_position: "bottom", text_align: "center", vertical_offset_ratio: 0.14, max_width_ratio: 0.84, font_size_ratio: 0.054, max_chars_per_line: 16 },
+      "3:4": { width: 1080, height: 1440, fps: 30, vertical_position: "bottom", text_align: "center", vertical_offset_ratio: 0.10, max_width_ratio: 0.88, font_size_ratio: 0.052, max_chars_per_line: 18 }
+    },
+    status: "enabled",
+    is_default: true,
+    version: 1,
+    created_at: "2026-07-16T00:00:00.000Z",
+    updated_at: "2026-07-16T00:00:00.000Z"
+  }];
   let generatedWorkPolls = 0;
   let finishedWorks = [
     {
@@ -200,6 +222,14 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       return;
     }
 
+    if (url.includes("/api/admin/subtitle-presets")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: subtitlePresets })
+      });
+      return;
+    }
+
     if (url.includes("/api/voice-profiles/") && url.includes("/auditions")) {
       await route.fulfill({
         status: 201,
@@ -227,6 +257,14 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ data: voiceProfiles })
+      });
+      return;
+    }
+
+    if (url.includes("/api/subtitle-presets")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: subtitlePresets })
       });
       return;
     }
@@ -291,6 +329,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       const body = route.request().postDataJSON() as {
         product_id: string;
         voice_profile_id: string;
+        output_ratio: "9:16" | "3:4";
+        subtitle_preset_id: string;
         variants: Array<{ hook: string; script_text: string; editing_intent: string; beats: unknown[] }>;
       };
       const profile = voiceProfiles.find((item) => item.id === body.voice_profile_id) ?? voiceProfiles[0];
@@ -754,6 +794,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
 
   const voiceSelector = page.getByTestId("workbench-voice-selector");
   await expect(voiceSelector).toContainText("温和女声");
+  await expect(page.getByTestId("workbench-subtitle-preset")).toContainText("信息流白字");
   await voiceSelector.getByRole("button", { name: "选择音色" }).click();
   const voiceModal = page.getByTestId("voice-profile-modal");
   await expect(voiceModal.getByTestId("voice-profile-option-voice-warm-female")).toBeVisible();
@@ -773,6 +814,9 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-warm-female")).toBeVisible();
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-clear-male")).toBeVisible();
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-bright-female")).toBeVisible();
+  await page.getByRole("tab", { name: "成片样式" }).click();
+  await expect(page.getByTestId("subtitle-style-settings")).toBeVisible();
+  await expect(page.getByLabel("信息流白字 9:16 字幕预览")).toBeVisible();
   await page.getByRole("menuitem", { name: "用户管理" }).click();
   const usersPage = page.getByTestId("users-page");
   await expect(usersPage).toBeVisible();
@@ -825,8 +869,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     window.location.hash = "#/finished/work-generated-1";
   });
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
-  await expect(page.getByText("清晰男声", { exact: true })).toBeVisible();
+  await expect(page.locator(".finished-detail-header-meta").getByText("清晰男声", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
-  await expect(page.getByText("清晰男声", { exact: true })).toBeVisible();
+  await expect(page.locator(".finished-detail-header-meta").getByText("清晰男声", { exact: true })).toBeVisible();
 });

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,7 +19,7 @@ const (
 	defaultRenderWidth  = 1080
 	defaultRenderHeight = 1920
 	defaultRenderFPS    = 30
-	ffmpegRenderVersion = "ffmpeg-v1"
+	ffmpegRenderVersion = "ffmpeg-v2"
 )
 
 type generationTimelineRenderer interface {
@@ -159,6 +160,7 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 		Clips:         renderClips,
 		NarrationPath: narrationPath,
 		Subtitles:     subtitles,
+		SubtitleStyle: renderSnapshotSubtitleStyle(run.ConfigSnapshot),
 		OutputPath:    temporaryOutput,
 		WorkDir:       workDir,
 		DurationMs:    work.DurationMs,
@@ -206,6 +208,23 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 		slog.Int64("output_size_bytes", info.Size()),
 	)
 	return nil
+}
+
+func renderSnapshotSubtitleStyle(snapshot map[string]any) ffmpeg.SubtitleStyle {
+	style := ResolvedSubtitleStyle{}
+	if raw, ok := snapshot["subtitle_style"]; ok {
+		if payload, err := json.Marshal(raw); err == nil {
+			_ = json.Unmarshal(payload, &style)
+		}
+	}
+	return ffmpeg.SubtitleStyle{
+		FontFamily: style.FontFamily, FontWeight: style.FontWeight, TextColor: style.TextColor,
+		BackgroundColor: style.BackgroundColor, BackgroundOpacity: style.BackgroundOpacity,
+		OutlineColor: style.OutlineColor, OutlineWidth: style.OutlineWidth, Shadow: style.Shadow,
+		MaxLines: style.MaxLines, VerticalPosition: style.VerticalPosition, TextAlign: style.TextAlign,
+		VerticalOffsetRatio: style.VerticalOffset, MaxWidthRatio: style.MaxWidthRatio,
+		FontSizeRatio: style.FontSizeRatio, MaxCharsPerLine: style.MaxCharsPerLine,
+	}
 }
 
 func (s *GenerationRenderService) buildRenderClips(run GenerationRun, durationMs int, clips []EditPlanClip) ([]ffmpeg.RenderClip, error) {

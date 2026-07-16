@@ -8,6 +8,8 @@ const emptyDraft: WorkbenchDraft = {
   selling_point_ids: [],
   custom_selling_points: [],
   voice_profile_id: "",
+  output_ratio: "9:16",
+  subtitle_preset_id: "",
   variant_count: 3,
   variants: [],
   active_variant_id: ""

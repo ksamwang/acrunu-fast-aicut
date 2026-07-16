@@ -32,6 +32,8 @@ export function getVoiceAudition(auditionID: string, token: string) {
 export function createVoiceoverTasks(
   productID: string,
   voiceProfileID: string,
+  outputRatio: "9:16" | "3:4",
+  subtitlePresetID: string,
   variants: VoiceoverTaskVariant[],
   token: string
 ) {
@@ -40,6 +42,8 @@ export function createVoiceoverTasks(
     body: JSON.stringify({
       product_id: productID,
       voice_profile_id: voiceProfileID,
+      output_ratio: outputRatio,
+      subtitle_preset_id: subtitlePresetID,
       variants
     })
   }, token);

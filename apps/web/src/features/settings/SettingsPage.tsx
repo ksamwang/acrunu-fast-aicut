@@ -3,6 +3,7 @@ import { Alert, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Selec
 import { useResource } from "../../shared/hooks/use-resource";
 import type { ModelCapabilitySettings, ModelDiscoveryResult, ModelProvider, ModelSelectOption, RuntimeSettings } from "../../shared/types/settings";
 import { VoiceProfilesSettingsPanel } from "../voice-profiles/VoiceProfilesSettingsPanel";
+import { SubtitleStylesSettingsPanel } from "../subtitles/SubtitleStylesSettingsPanel";
 import { deleteModelProvider, discoverModels, getModelSettings, getRuntimeSettings, listModelProviders, saveModelProvider, saveModelSettings, saveRuntimeSettings as persistRuntimeSettings, testModelProvider } from "./api";
 import "./styles.css";
 
@@ -22,7 +23,7 @@ export function SettingsPage({ token }: { token: string }) {
   const [savingCapabilities, setSavingCapabilities] = useState(false);
   const [savingRuntime, setSavingRuntime] = useState(false);
   const [lastModelCount, setLastModelCount] = useState<number | null>(null);
-  const [settingsTab, setSettingsTab] = useState<"providers" | "models" | "voices" | "runtime">("providers");
+  const [settingsTab, setSettingsTab] = useState<"providers" | "models" | "voices" | "subtitle_styles" | "runtime">("providers");
 
   const providers = providersResource.data ?? [];
   const providerOptions = providers.map((provider) => ({ value: provider.id, label: provider.name }));
@@ -197,11 +198,12 @@ export function SettingsPage({ token }: { token: string }) {
       <Tabs
         className="settings-top-tabs"
         activeKey={settingsTab}
-        onChange={(key) => setSettingsTab(key as "providers" | "models" | "voices" | "runtime")}
+        onChange={(key) => setSettingsTab(key as "providers" | "models" | "voices" | "subtitle_styles" | "runtime")}
         items={[
           { key: "providers", label: "模型供应商" },
           { key: "models", label: "默认模型" },
           { key: "voices", label: "旁白音色" },
+          { key: "subtitle_styles", label: "成片样式" },
           { key: "runtime", label: "运行控制" }
         ]}
       />
@@ -310,6 +312,13 @@ export function SettingsPage({ token }: { token: string }) {
       >
         <VoiceProfilesSettingsPanel token={token} />
       </Card>
+
+      <div
+        className="settings-tab-panel"
+        style={{ display: settingsTab === "subtitle_styles" ? undefined : "none" }}
+      >
+        <SubtitleStylesSettingsPanel token={token} />
+      </div>
 
       <Modal
         title={editingProvider ? "编辑供应商" : "新增供应商"}

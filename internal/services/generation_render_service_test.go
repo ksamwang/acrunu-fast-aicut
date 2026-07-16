@@ -30,3 +30,19 @@ func TestRenderSnapshotIntUsesBoundedValues(t *testing.T) {
 		t.Fatalf("renderSnapshotInt() = %d, want fallback 1080", got)
 	}
 }
+
+func TestRenderSnapshotSubtitleStyleDecodesResolvedConfig(t *testing.T) {
+	t.Parallel()
+	style := renderSnapshotSubtitleStyle(map[string]any{
+		"subtitle_style": map[string]any{
+			"font_family": "Noto Sans CJK SC", "font_weight": float64(700),
+			"text_color": "#FFFFFF", "background_color": "#000000", "background_opacity": 0.3,
+			"outline_color": "#000000", "outline_width": 0.0, "shadow": false, "max_lines": float64(2),
+			"vertical_position": "bottom", "text_align": "center", "vertical_offset_ratio": 0.1,
+			"max_width_ratio": 0.88, "font_size_ratio": 0.052, "max_chars_per_line": float64(18),
+		},
+	})
+	if style.FontFamily != "Noto Sans CJK SC" || style.VerticalOffsetRatio != 0.1 || style.MaxCharsPerLine != 18 {
+		t.Fatalf("unexpected decoded subtitle style %#v", style)
+	}
+}

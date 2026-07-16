@@ -31,9 +31,11 @@ type createVoiceAuditionRequest struct {
 }
 
 type createVoiceoverTasksRequest struct {
-	ProductID      string                           `json:"product_id"`
-	VoiceProfileID string                           `json:"voice_profile_id"`
-	Variants       []services.VoiceoverVariantInput `json:"variants"`
+	ProductID        string                           `json:"product_id"`
+	VoiceProfileID   string                           `json:"voice_profile_id"`
+	OutputRatio      string                           `json:"output_ratio"`
+	SubtitlePresetID string                           `json:"subtitle_preset_id"`
+	Variants         []services.VoiceoverVariantInput `json:"variants"`
 }
 
 func (s *Server) handleListVoiceProfiles(c *gin.Context) {
@@ -197,6 +199,11 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		Fail(c, http.StatusConflict, "voice_profile_not_ready", "音色样音尚未可用")
 		return
 	}
+	renderConfig, err := s.subtitleStylePresetService.Resolve(c.Request.Context(), request.SubtitlePresetID, request.OutputRatio)
+	if err != nil {
+		handleSubtitleStyleError(c, err)
+		return
+	}
 	for _, variant := range request.Variants {
 		if strings.TrimSpace(variant.ScriptText) == "" {
 			Fail(c, http.StatusBadRequest, "invalid_voiceover_tasks", "文案不能为空")
@@ -206,13 +213,13 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 
 	works := make([]services.VoiceoverWork, 0, len(request.Variants))
 	for index, variant := range request.Variants {
+		configSnapshot := renderConfig.Snapshot()
+		configSnapshot["voice_profile_id"] = request.VoiceProfileID
+		configSnapshot["variant_index"] = index + 1
 		run, err := s.generationRunService.Create(c.Request.Context(), services.CreateGenerationRunInput{
 			ProductID:       product.ID,
 			CreatedByUserID: user.ID,
-			ConfigSnapshot: map[string]any{
-				"voice_profile_id": request.VoiceProfileID,
-				"variant_index":    index + 1,
-			},
+			ConfigSnapshot:  configSnapshot,
 		})
 		if err != nil {
 			s.handleVoiceoverTaskCreateError(c, "create_generation_run", err)

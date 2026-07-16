@@ -60,6 +60,8 @@ export type WorkbenchDraft = {
   selling_point_ids: string[];
   custom_selling_points: string[];
   voice_profile_id: string;
+  output_ratio: "9:16" | "3:4";
+  subtitle_preset_id: string;
   variant_count: number;
   variants: ScriptVariant[];
   active_variant_id: string;
