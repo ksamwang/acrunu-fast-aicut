@@ -158,14 +158,45 @@ func EditPlanOutputSchema() map[string]any {
 				"type": "array",
 				"items": map[string]any{
 					"type":     "object",
-					"required": []string{"narration_segment_id", "candidate_id", "source_in_ms", "source_out_ms", "label", "visual_goal"},
+					"required": []string{"visual_beat_id", "candidate_id", "source_in_ms", "source_out_ms", "label", "visual_goal"},
+					"properties": map[string]any{
+						"visual_beat_id": map[string]any{"type": "string", "minLength": 1},
+						"candidate_id":   map[string]any{"type": "string", "minLength": 1},
+						"source_in_ms":   map[string]any{"type": "integer", "minimum": 0},
+						"source_out_ms":  map[string]any{"type": "integer", "minimum": 1},
+						"label":          map[string]any{"type": "string", "minLength": 1},
+						"visual_goal":    map[string]any{"type": "string", "minLength": 1},
+					},
+				},
+			},
+		},
+	}
+}
+
+func VisualPlanOutputSchema() map[string]any {
+	return map[string]any{
+		"version": VisualPlanPromptVersion,
+		"type":    "object",
+		"required": []string{
+			"visual_beats",
+		},
+		"properties": map[string]any{
+			"visual_beats": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"narration_segment_id", "start_ms", "end_ms", "label", "selling_point", "visual_goal", "source_type"},
 					"properties": map[string]any{
 						"narration_segment_id": map[string]any{"type": "string", "minLength": 1},
-						"candidate_id":         map[string]any{"type": "string", "minLength": 1},
-						"source_in_ms":         map[string]any{"type": "integer", "minimum": 0},
-						"source_out_ms":        map[string]any{"type": "integer", "minimum": 1},
+						"start_ms":             map[string]any{"type": "integer", "minimum": 0},
+						"end_ms":               map[string]any{"type": "integer", "minimum": 1},
 						"label":                map[string]any{"type": "string", "minLength": 1},
+						"selling_point":        map[string]any{"type": "string"},
 						"visual_goal":          map[string]any{"type": "string", "minLength": 1},
+						"source_type": map[string]any{
+							"type": "string",
+							"enum": []string{"visual_only", "talking_head", "mixed"},
+						},
 					},
 				},
 			},

@@ -136,6 +136,9 @@ func TestVoiceoverServiceGeneratesPreviewAuditionAndNarration(t *testing.T) {
 	if len(work.NarrationSegments) != 2 {
 		t.Fatalf("expected two narration segments, got %#v", work.NarrationSegments)
 	}
+	if work.NarrationSegments[0].Text != "第一句。" || work.NarrationSegments[1].Text != "第二句。" {
+		t.Fatalf("expected narration text to come from the approved script, got %#v", work.NarrationSegments)
+	}
 	if first := work.NarrationSegments[0]; first.StartMs != 0 || first.EndMs != work.NarrationSegments[1].StartMs {
 		t.Fatalf("expected continuous first segment, got %#v", work.NarrationSegments)
 	}
@@ -201,6 +204,55 @@ func TestNormalizeNarrationSegmentsFallsBackToOriginalScript(t *testing.T) {
 	segments := normalizeNarrationSegments(nil, "原始口播文本", 1_500)
 	if len(segments) != 1 || segments[0].StartMs != 0 || segments[0].EndMs != 1500 || segments[0].Text != "原始口播文本" {
 		t.Fatalf("unexpected fallback narration segments %#v", segments)
+	}
+}
+
+func TestNormalizeNarrationSegmentsUsesApprovedScriptSentenceBoundaries(t *testing.T) {
+	script := "骑车时裤脚总被链条蹭脏，又难洗又尴尬？今天给大家推荐这款束裤带，它采用防蹭链条设计，高弹力材质，可自由调节，魔术贴一粘即合，牢固不脱落。夜间反光条，让后车在黑暗中也能清晰看到你，安全升级。再也不用担心裤脚问题，骑行更轻松。快来试试吧！"
+	segments := normalizeNarrationSegments([]modelgateway.ASRTranscriptSegment{
+		{StartMs: 0, EndMs: 970, Text: "骑车时"},
+		{StartMs: 970, EndMs: 3060, Text: "裤脚总被链条蹭脏"},
+		{StartMs: 3060, EndMs: 4590, Text: "又难洗又尴尬"},
+		{StartMs: 4590, EndMs: 14280, Text: "今天给大家推荐这款束裤带它采用防蹭链条设计高弹力材质可自由调节魔术贴一粘即合"},
+		{StartMs: 14280, EndMs: 15600, Text: "牢固不脱落"},
+		{StartMs: 15600, EndMs: 22140, Text: "夜间反光条让后车在黑暗中也能清晰看到你裤夹安全升级"},
+		{StartMs: 22140, EndMs: 25920, Text: "再也不用担心裤脚问题骑行更轻松"},
+		{StartMs: 25920, EndMs: 27320, Text: "快来试试吧"},
+	}, script, 27_320)
+	wantTexts := []string{
+		"骑车时裤脚总被链条蹭脏，又难洗又尴尬？",
+		"今天给大家推荐这款束裤带，它采用防蹭链条设计，高弹力材质，可自由调节，魔术贴一粘即合，牢固不脱落。",
+		"夜间反光条，让后车在黑暗中也能清晰看到你，安全升级。",
+		"再也不用担心裤脚问题，骑行更轻松。",
+		"快来试试吧！",
+	}
+	if len(segments) != len(wantTexts) {
+		t.Fatalf("expected %d script sentences, got %#v", len(wantTexts), segments)
+	}
+	for index, want := range wantTexts {
+		if segments[index].Text != want {
+			t.Fatalf("segment %d text = %q, want %q", index+1, segments[index].Text, want)
+		}
+		if index > 0 && segments[index].StartMs != segments[index-1].EndMs {
+			t.Fatalf("segments are not continuous %#v", segments)
+		}
+	}
+	if segments[0].StartMs != 0 || segments[len(segments)-1].EndMs != 27_320 {
+		t.Fatalf("unexpected narration bounds %#v", segments)
+	}
+}
+
+func TestNormalizeNarrationSegmentsFallsBackToProportionalTimelineOnLowAlignment(t *testing.T) {
+	segments := normalizeNarrationSegments([]modelgateway.ASRTranscriptSegment{{
+		StartMs: 0,
+		EndMs:   900,
+		Text:    "完全不匹配的识别结果",
+	}}, "甲。乙乙。", 900)
+	if len(segments) != 2 {
+		t.Fatalf("expected two script sentences, got %#v", segments)
+	}
+	if segments[0].StartMs != 0 || segments[0].EndMs != 300 || segments[1].StartMs != 300 || segments[1].EndMs != 900 {
+		t.Fatalf("expected proportional fallback bounds, got %#v", segments)
 	}
 }
 

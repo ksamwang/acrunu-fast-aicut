@@ -31,7 +31,7 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 			t.Fatalf("unexpected max_tokens %#v", request["max_tokens"])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"narration_segment_id\":\"narration-1\",\"candidate_id\":\"candidate-1\",\"source_in_ms\":0,\"source_out_ms\":2000,\"label\":\"展示\",\"visual_goal\":\"展示产品使用动作\"}]}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"visual_beat_id\":\"visual-1\",\"candidate_id\":\"candidate-1\",\"source_in_ms\":0,\"source_out_ms\":1800,\"label\":\"展示\",\"visual_goal\":\"展示产品使用动作\"}]}"}}]}`))
 	}))
 	defer server.Close()
 
@@ -45,10 +45,12 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 		ProductName: "束裤带",
 		ScriptText:  "骑行时固定裤脚，更安心。",
 		Requirements: []EditPlanRequirement{{
+			VisualBeatID:       "visual-1",
 			NarrationSegmentID: "narration-1",
 			StartMs:            0,
 			EndMs:              1800,
 			NarrationText:      "骑行时固定裤脚，更安心。",
+			VisualGoal:         "展示产品使用动作",
 			SourceType:         "visual_only",
 			Candidates: []EditPlanCandidate{{
 				ID:          "candidate-1",
@@ -66,28 +68,52 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 	}
 }
 
-func TestValidateEditPlanResultRejectsRepeatedNarrationSegment(t *testing.T) {
+func TestValidateEditPlanResultAllowsRepeatedNarrationSegmentAcrossVisualBeats(t *testing.T) {
 	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{NarrationSegmentID: "narration-1", CandidateID: "candidate-1", SourceInMs: 0, SourceOutMs: 1200, Label: "开头", VisualGoal: "画面"},
-		{NarrationSegmentID: "narration-1", CandidateID: "candidate-2", SourceInMs: 0, SourceOutMs: 1200, Label: "收束", VisualGoal: "画面"},
+		{VisualBeatID: "visual-1", CandidateID: "candidate-1", SourceInMs: 0, SourceOutMs: 1000, Label: "开头", VisualGoal: "画面"},
+		{VisualBeatID: "visual-2", CandidateID: "candidate-2", SourceInMs: 0, SourceOutMs: 1000, Label: "收束", VisualGoal: "画面"},
 	}}, []EditPlanRequirement{
-		{NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", Candidates: []EditPlanCandidate{{ID: "candidate-1"}}},
-		{NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "第二句", Candidates: []EditPlanCandidate{{ID: "candidate-2"}}},
+		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1000}}},
+		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-1", StartMs: 1000, EndMs: 2000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-2", SourceOutMs: 1000}}},
 	})
-	if err == nil {
-		t.Fatal("expected repeated narration validation error")
+	if err != nil {
+		t.Fatalf("expected multiple visual beats for one narration segment to be valid: %v", err)
 	}
 }
 
-func TestValidateEditPlanResultRejectsOutOfOrderNarrationSegments(t *testing.T) {
+func TestValidateEditPlanResultRejectsOutOfOrderVisualBeats(t *testing.T) {
 	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{NarrationSegmentID: "narration-2", CandidateID: "candidate-2", SourceInMs: 0, SourceOutMs: 1200, Label: "第二段", VisualGoal: "画面"},
-		{NarrationSegmentID: "narration-1", CandidateID: "candidate-1", SourceInMs: 0, SourceOutMs: 1200, Label: "第一段", VisualGoal: "画面"},
+		{VisualBeatID: "visual-2", CandidateID: "candidate-2", SourceInMs: 0, SourceOutMs: 1000, Label: "第二段", VisualGoal: "画面"},
+		{VisualBeatID: "visual-1", CandidateID: "candidate-1", SourceInMs: 0, SourceOutMs: 1000, Label: "第一段", VisualGoal: "画面"},
 	}}, []EditPlanRequirement{
-		{NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", Candidates: []EditPlanCandidate{{ID: "candidate-1"}}},
-		{NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "第二句", Candidates: []EditPlanCandidate{{ID: "candidate-2"}}},
+		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1000}}},
+		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "第二句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-2", SourceOutMs: 1000}}},
 	})
 	if err == nil {
-		t.Fatal("expected out-of-order narration segments to be rejected")
+		t.Fatal("expected out-of-order visual beats to be rejected")
+	}
+}
+
+func TestValidateEditPlanResultRejectsMismatchedSourceDuration(t *testing.T) {
+	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{{
+		VisualBeatID: "visual-1", CandidateID: "candidate-1", SourceInMs: 0, SourceOutMs: 900, Label: "展示", VisualGoal: "画面",
+	}}}, []EditPlanRequirement{{
+		VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1200}},
+	}})
+	if err == nil {
+		t.Fatal("expected mismatched source duration to be rejected")
+	}
+}
+
+func TestValidateEditPlanResultRejectsNonContinuousVisualTimeline(t *testing.T) {
+	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
+		{VisualBeatID: "visual-1", CandidateID: "candidate-1", SourceInMs: 0, SourceOutMs: 1000, Label: "第一段", VisualGoal: "画面一"},
+		{VisualBeatID: "visual-2", CandidateID: "candidate-2", SourceInMs: 0, SourceOutMs: 900, Label: "第二段", VisualGoal: "画面二"},
+	}}, []EditPlanRequirement{
+		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面一", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1000}}},
+		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1100, EndMs: 2000, NarrationText: "第二句", VisualGoal: "画面二", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-2", SourceOutMs: 900}}},
+	})
+	if err == nil {
+		t.Fatal("expected non-continuous visual timeline to be rejected")
 	}
 }

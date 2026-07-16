@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -126,6 +127,7 @@ type NarrationSegment struct {
 
 type VoiceoverEditPlanClip struct {
 	ID                 string `json:"id"`
+	VisualBeatID       string `json:"visual_beat_id"`
 	NarrationSegmentID string `json:"narration_segment_id"`
 	AssetID            string `json:"asset_id"`
 	SpeechSegmentID    string `json:"speech_segment_id,omitempty"`
@@ -159,6 +161,7 @@ type VoiceoverWork struct {
 	EditingIntent     string                  `json:"editing_intent,omitempty"`
 	Beats             []VoiceoverBeat         `json:"beats,omitempty"`
 	NarrationSegments []NarrationSegment      `json:"narration_segments,omitempty"`
+	VisualBeats       []VisualBeat            `json:"visual_beats,omitempty"`
 	EditPlan          []VoiceoverEditPlanClip `json:"edit_plan,omitempty"`
 	AudioURL          string                  `json:"audio_url,omitempty"`
 }
@@ -1526,6 +1529,7 @@ func cloneVoiceProfile(profile VoiceProfile) VoiceProfile {
 func cloneVoiceoverWork(work VoiceoverWork) VoiceoverWork {
 	work.Beats = append([]VoiceoverBeat(nil), work.Beats...)
 	work.NarrationSegments = append([]NarrationSegment(nil), work.NarrationSegments...)
+	work.VisualBeats = cloneVisualBeats(work.VisualBeats)
 	work.EditPlan = append([]VoiceoverEditPlanClip(nil), work.EditPlan...)
 	if work.CompletedAt != nil {
 		completedAt := *work.CompletedAt
@@ -1538,6 +1542,109 @@ func normalizeNarrationSegments(input []modelgateway.ASRTranscriptSegment, fallb
 	if durationMs <= 0 {
 		return nil
 	}
+	targets := splitNarrationSentences(fallbackText)
+	if len(targets) == 0 {
+		targets = []string{"旁白"}
+	}
+	bounds := alignNarrationSentenceBounds(targets, input, durationMs)
+	result := make([]NarrationSegment, 0, len(targets))
+	for index, text := range targets {
+		if bounds[index+1] <= bounds[index] {
+			continue
+		}
+		result = append(result, NarrationSegment{
+			ID:      uuid.NewString(),
+			StartMs: bounds[index],
+			EndMs:   bounds[index+1],
+			Text:    text,
+		})
+	}
+	if len(result) == 0 {
+		return []NarrationSegment{{ID: uuid.NewString(), StartMs: 0, EndMs: durationMs, Text: targets[0]}}
+	}
+	return result
+}
+
+const (
+	minimumNarrationAlignmentCoverage = 0.60
+	maxNarrationAlignmentMatrixCells  = 1_000_000
+)
+
+type timedNarrationRune struct {
+	value   rune
+	startMs int
+	endMs   int
+}
+
+func splitNarrationSentences(script string) []string {
+	script = strings.TrimSpace(script)
+	if script == "" {
+		return nil
+	}
+	items := []string{}
+	var current strings.Builder
+	for _, value := range script {
+		current.WriteRune(value)
+		if isNarrationSentenceTerminator(value) {
+			if text := strings.TrimSpace(current.String()); text != "" {
+				items = append(items, text)
+			}
+			current.Reset()
+		}
+	}
+	if text := strings.TrimSpace(current.String()); text != "" {
+		items = append(items, text)
+	}
+	return items
+}
+
+func isNarrationSentenceTerminator(value rune) bool {
+	switch value {
+	case '。', '！', '？', '；', '.', '!', '?', ';':
+		return true
+	default:
+		return false
+	}
+}
+
+func alignNarrationSentenceBounds(targets []string, input []modelgateway.ASRTranscriptSegment, durationMs int) []int {
+	proportional := proportionalNarrationSentenceBounds(targets, durationMs)
+	targetRunes, sentenceEnds := narrationTargetRunes(targets)
+	sourceRunes := timedNarrationRunes(input, durationMs)
+	if len(targetRunes) == 0 || len(sourceRunes) == 0 || len(targetRunes)*len(sourceRunes) > maxNarrationAlignmentMatrixCells {
+		return proportional
+	}
+	mapping, coverage := alignNarrationRunes(targetRunes, sourceRunes)
+	if coverage < minimumNarrationAlignmentCoverage {
+		return proportional
+	}
+	bounds := make([]int, len(targets)+1)
+	bounds[0] = 0
+	for index := 1; index < len(targets); index++ {
+		boundary, ok := alignedNarrationBoundary(mapping, sourceRunes, sentenceEnds[index-1])
+		if !ok {
+			return proportional
+		}
+		bounds[index] = boundary
+	}
+	bounds[len(targets)] = durationMs
+	if !normalizeNarrationBounds(bounds, durationMs) {
+		return proportional
+	}
+	return bounds
+}
+
+func narrationTargetRunes(targets []string) ([]rune, []int) {
+	all := []rune{}
+	ends := make([]int, 0, len(targets))
+	for _, target := range targets {
+		all = append(all, normalizedNarrationRunes(target)...)
+		ends = append(ends, len(all))
+	}
+	return all, ends
+}
+
+func timedNarrationRunes(input []modelgateway.ASRTranscriptSegment, durationMs int) []timedNarrationRune {
 	segments := make([]modelgateway.ASRTranscriptSegment, 0, len(input))
 	for _, segment := range input {
 		segment.Text = strings.TrimSpace(segment.Text)
@@ -1554,48 +1661,143 @@ func normalizeNarrationSegments(input []modelgateway.ASRTranscriptSegment, fallb
 			segments = append(segments, segment)
 		}
 	}
-	if len(segments) == 0 {
-		text := strings.TrimSpace(fallbackText)
-		if text == "" {
-			text = "旁白"
-		}
-		return []NarrationSegment{{ID: uuid.NewString(), StartMs: 0, EndMs: durationMs, Text: text}}
-	}
 	sort.SliceStable(segments, func(i, j int) bool { return segments[i].StartMs < segments[j].StartMs })
-	if len(segments) > durationMs {
-		segments = segments[:durationMs]
-	}
-	bounds := make([]int, len(segments)+1)
-	bounds[0] = 0
-	for index := 1; index < len(segments); index++ {
-		boundary := (segments[index-1].EndMs + segments[index].StartMs) / 2
-		minimum := bounds[index-1] + 1
-		maximum := durationMs - (len(segments) - index)
-		if boundary < minimum {
-			boundary = minimum
+	items := []timedNarrationRune{}
+	for _, segment := range segments {
+		runes := normalizedNarrationRunes(segment.Text)
+		for index, value := range runes {
+			startMs := segment.StartMs + (segment.EndMs-segment.StartMs)*index/len(runes)
+			endMs := segment.StartMs + (segment.EndMs-segment.StartMs)*(index+1)/len(runes)
+			items = append(items, timedNarrationRune{value: value, startMs: startMs, endMs: endMs})
 		}
-		if boundary > maximum {
-			boundary = maximum
-		}
-		bounds[index] = boundary
 	}
-	bounds[len(segments)] = durationMs
-	result := make([]NarrationSegment, 0, len(segments))
-	for index, segment := range segments {
-		if bounds[index+1] <= bounds[index] {
+	return items
+}
+
+func normalizedNarrationRunes(text string) []rune {
+	result := []rune{}
+	for _, value := range []rune(strings.ToLower(text)) {
+		if unicode.IsSpace(value) || unicode.IsPunct(value) {
 			continue
 		}
-		result = append(result, NarrationSegment{
-			ID:      uuid.NewString(),
-			StartMs: bounds[index],
-			EndMs:   bounds[index+1],
-			Text:    segment.Text,
-		})
-	}
-	if len(result) == 0 {
-		return []NarrationSegment{{ID: uuid.NewString(), StartMs: 0, EndMs: durationMs, Text: strings.TrimSpace(fallbackText)}}
+		result = append(result, value)
 	}
 	return result
+}
+
+func alignNarrationRunes(target []rune, source []timedNarrationRune) ([]int, float64) {
+	rows := len(target) + 1
+	columns := len(source) + 1
+	table := make([][]uint16, rows)
+	for index := range table {
+		table[index] = make([]uint16, columns)
+	}
+	for left := len(target) - 1; left >= 0; left-- {
+		for right := len(source) - 1; right >= 0; right-- {
+			if target[left] == source[right].value {
+				table[left][right] = table[left+1][right+1] + 1
+				continue
+			}
+			if table[left+1][right] >= table[left][right+1] {
+				table[left][right] = table[left+1][right]
+			} else {
+				table[left][right] = table[left][right+1]
+			}
+		}
+	}
+	mapping := make([]int, len(target))
+	for index := range mapping {
+		mapping[index] = -1
+	}
+	left, right, matched := 0, 0, 0
+	for left < len(target) && right < len(source) {
+		if target[left] == source[right].value {
+			mapping[left] = right
+			matched++
+			left++
+			right++
+			continue
+		}
+		if table[left+1][right] >= table[left][right+1] {
+			left++
+		} else {
+			right++
+		}
+	}
+	return mapping, float64(matched) / float64(len(target))
+}
+
+func alignedNarrationBoundary(mapping []int, source []timedNarrationRune, targetOffset int) (int, bool) {
+	left, right := -1, -1
+	for index := targetOffset - 1; index >= 0; index-- {
+		if mapping[index] >= 0 {
+			left = mapping[index]
+			break
+		}
+	}
+	for index := targetOffset; index < len(mapping); index++ {
+		if mapping[index] >= 0 {
+			right = mapping[index]
+			break
+		}
+	}
+	switch {
+	case left >= 0 && right >= 0:
+		return (source[left].endMs + source[right].startMs) / 2, true
+	case left >= 0:
+		return source[left].endMs, true
+	case right >= 0:
+		return source[right].startMs, true
+	default:
+		return 0, false
+	}
+}
+
+func proportionalNarrationSentenceBounds(targets []string, durationMs int) []int {
+	bounds := make([]int, len(targets)+1)
+	bounds[0] = 0
+	weights := make([]int, len(targets))
+	total := 0
+	for index, target := range targets {
+		weight := len(normalizedNarrationRunes(target))
+		if weight <= 0 {
+			weight = 1
+		}
+		weights[index] = weight
+		total += weight
+	}
+	cumulative := 0
+	for index := 1; index < len(targets); index++ {
+		cumulative += weights[index-1]
+		bounds[index] = durationMs * cumulative / total
+	}
+	bounds[len(targets)] = durationMs
+	_ = normalizeNarrationBounds(bounds, durationMs)
+	return bounds
+}
+
+func normalizeNarrationBounds(bounds []int, durationMs int) bool {
+	if len(bounds) < 2 || durationMs < len(bounds)-1 {
+		return false
+	}
+	bounds[0] = 0
+	bounds[len(bounds)-1] = durationMs
+	for index := 1; index < len(bounds)-1; index++ {
+		minimum := bounds[index-1] + 1
+		maximum := durationMs - (len(bounds) - 1 - index)
+		if bounds[index] < minimum {
+			bounds[index] = minimum
+		}
+		if bounds[index] > maximum {
+			bounds[index] = maximum
+		}
+	}
+	for index := 1; index < len(bounds); index++ {
+		if bounds[index] <= bounds[index-1] {
+			return false
+		}
+	}
+	return true
 }
 
 func wavAudioMetadata(audio []byte) (int, int, error) {

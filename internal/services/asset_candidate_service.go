@@ -23,6 +23,7 @@ const (
 var ErrCandidateSearchUnavailable = errors.New("candidate search is not configured")
 
 type ShotRequirement struct {
+	VisualBeatID       string `json:"visual_beat_id"`
 	NarrationSegmentID string `json:"narration_segment_id"`
 	StartMs            int    `json:"start_ms"`
 	EndMs              int    `json:"end_ms"`
@@ -48,9 +49,8 @@ type AssetCandidate struct {
 }
 
 type CandidateSet struct {
-	Requirement          ShotRequirement  `json:"requirement"`
-	Candidates           []AssetCandidate `json:"candidates"`
-	SellingPointFallback bool             `json:"selling_point_fallback"`
+	Requirement ShotRequirement  `json:"requirement"`
+	Candidates  []AssetCandidate `json:"candidates"`
 }
 
 type CandidateSearchInput struct {
@@ -60,7 +60,6 @@ type CandidateSearchInput struct {
 	Dimension         int
 	QueryEmbedding    []float64
 	SourceTypes       []string
-	SellingPointIDs   []string
 	MinimumDurationMs int
 	Limit             int
 }
@@ -147,7 +146,6 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 	if err != nil {
 		return nil, err
 	}
-	sellingPointIDs := s.resolveSellingPointIDs(productID)
 	assetUseCounts := map[string]int{}
 	sets := make([]CandidateSet, 0, len(requirements))
 	for _, requirement := range requirements {
@@ -170,7 +168,6 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 			return nil, fmt.Errorf("candidate query embedding dimension mismatch: expected %d, got %d", queryDimension, len(embedding.Embedding))
 		}
 
-		matchedSellingPointIDs := matchingSellingPointIDs(sellingPointIDs, requirement.SellingPoint)
 		searchInput := CandidateSearchInput{
 			ProductID:         productID,
 			ProviderID:        providerID,
@@ -178,24 +175,12 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 			Dimension:         queryDimension,
 			QueryEmbedding:    embedding.Embedding,
 			SourceTypes:       requirementSourceTypes(requirement.SourceType),
-			SellingPointIDs:   matchedSellingPointIDs,
 			MinimumDurationMs: requirement.EndMs - requirement.StartMs,
 			Limit:             limit,
 		}
 		candidates, err := s.store.SearchCandidates(ctx, searchInput)
 		if err != nil {
 			return nil, err
-		}
-		sellingPointFallback := false
-		if len(candidates) == 0 && len(matchedSellingPointIDs) > 0 {
-			// Historical assets may not yet be annotated with selling points.
-			fallbackInput := searchInput
-			fallbackInput.SellingPointIDs = nil
-			candidates, err = s.store.SearchCandidates(ctx, fallbackInput)
-			if err != nil {
-				return nil, err
-			}
-			sellingPointFallback = true
 		}
 		candidates = rerankCandidatesForDiversity(candidates, assetUseCounts)
 		if len(candidates) > limit {
@@ -204,44 +189,37 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 		if len(candidates) > 0 {
 			assetUseCounts[candidates[0].AssetID]++
 		}
-		sets = append(sets, CandidateSet{
-			Requirement:          requirement,
-			Candidates:           candidates,
-			SellingPointFallback: sellingPointFallback,
-		})
+		sets = append(sets, CandidateSet{Requirement: requirement, Candidates: candidates})
 	}
 	return sets, nil
 }
 
-func BuildShotRequirements(narrationSegments []NarrationSegment, beats []VoiceoverBeat) ([]ShotRequirement, error) {
-	if len(narrationSegments) == 0 {
-		return nil, fmt.Errorf("narration segments are required")
+func BuildShotRequirements(visualBeats []VisualBeat, narrationSegments []NarrationSegment) ([]ShotRequirement, error) {
+	if len(visualBeats) == 0 {
+		return nil, fmt.Errorf("visual beats are required")
 	}
 	if err := validateNarrationTimeline(narrationSegments, 0); err != nil {
 		return nil, err
 	}
-	if len(beats) == 0 {
-		beats = []VoiceoverBeat{{
-			Label:      "叙事画面",
-			VisualGoal: "用与旁白语义匹配的产品画面支撑表达。",
-			SourceType: "visual_only",
-		}}
+	narrationByID := make(map[string]NarrationSegment, len(narrationSegments))
+	for _, segment := range narrationSegments {
+		narrationByID[segment.ID] = segment
 	}
-	requirements := make([]ShotRequirement, 0, len(narrationSegments))
-	for index, segment := range narrationSegments {
-		if segment.EndMs <= segment.StartMs || strings.TrimSpace(segment.Text) == "" || strings.TrimSpace(segment.ID) == "" {
-			return nil, fmt.Errorf("narration segment %d is invalid", index+1)
+	requirements := make([]ShotRequirement, 0, len(visualBeats))
+	for index, beat := range visualBeats {
+		segment, ok := narrationByID[beat.NarrationSegmentID]
+		if !ok || beat.StartMs < segment.StartMs || beat.EndMs > segment.EndMs || beat.EndMs <= beat.StartMs {
+			return nil, fmt.Errorf("visual beat %d is outside its narration segment", index+1)
 		}
-		beatIndex := minInt(len(beats)-1, index*len(beats)/len(narrationSegments))
-		beat := beats[beatIndex]
 		sourceType := strings.TrimSpace(beat.SourceType)
 		if sourceType != "visual_only" && sourceType != "talking_head" && sourceType != "mixed" {
-			sourceType = "visual_only"
+			return nil, fmt.Errorf("visual beat %d source type is invalid", index+1)
 		}
 		requirements = append(requirements, ShotRequirement{
+			VisualBeatID:       strings.TrimSpace(beat.ID),
 			NarrationSegmentID: segment.ID,
-			StartMs:            segment.StartMs,
-			EndMs:              segment.EndMs,
+			StartMs:            beat.StartMs,
+			EndMs:              beat.EndMs,
 			NarrationText:      strings.TrimSpace(segment.Text),
 			SellingPoint:       strings.TrimSpace(beat.SellingPoint),
 			VisualGoal:         strings.TrimSpace(beat.VisualGoal),
@@ -298,52 +276,8 @@ func (s *AssetCandidateService) resolveProviderID() (string, error) {
 	return providerID, nil
 }
 
-func (s *AssetCandidateService) resolveSellingPointIDs(productID string) map[string][]string {
-	result := map[string][]string{}
-	for _, point := range s.productAssetService.ListSellingPoints(productID) {
-		if point.Status == "archived" {
-			continue
-		}
-		title := strings.TrimSpace(point.Title)
-		if title == "" {
-			continue
-		}
-		result[title] = append(result[title], point.ID)
-	}
-	return result
-}
-
-func matchingSellingPointIDs(byTitle map[string][]string, sellingPoint string) []string {
-	sellingPoint = strings.TrimSpace(sellingPoint)
-	if sellingPoint == "" {
-		return nil
-	}
-	matched := []string{}
-	seen := map[string]struct{}{}
-	for title, ids := range byTitle {
-		if sellingPoint != title && !strings.Contains(sellingPoint, title) {
-			continue
-		}
-		for _, id := range ids {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			matched = append(matched, id)
-		}
-	}
-	return matched
-}
-
 func buildCandidateQueryText(requirement ShotRequirement) string {
-	parts := []string{"旁白：" + requirement.NarrationText}
-	if requirement.SellingPoint != "" {
-		parts = append(parts, "卖点："+requirement.SellingPoint)
-	}
-	if requirement.VisualGoal != "" {
-		parts = append(parts, "画面目标："+requirement.VisualGoal)
-	}
-	return strings.Join(parts, "；")
+	return strings.TrimSpace(requirement.VisualGoal)
 }
 
 func candidateSemanticSummary(text string) string {
@@ -359,13 +293,16 @@ func candidateSemanticSummary(text string) string {
 }
 
 func validateShotRequirement(requirement ShotRequirement) error {
+	if strings.TrimSpace(requirement.VisualBeatID) == "" {
+		return fmt.Errorf("visual beat id is required")
+	}
 	if strings.TrimSpace(requirement.NarrationSegmentID) == "" {
 		return fmt.Errorf("narration segment id is required")
 	}
 	if requirement.StartMs < 0 || requirement.EndMs <= requirement.StartMs {
 		return fmt.Errorf("narration segment range is invalid")
 	}
-	if strings.TrimSpace(requirement.NarrationText) == "" {
+	if strings.TrimSpace(requirement.NarrationText) == "" || strings.TrimSpace(requirement.VisualGoal) == "" {
 		return fmt.Errorf("narration text is required")
 	}
 	if requirement.SourceType != "visual_only" && requirement.SourceType != "talking_head" && requirement.SourceType != "mixed" {
@@ -417,18 +354,17 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 		SELECT
 			e.id::text,
 			a.id::text,
-			COALESCE(s.id::text, ''),
+			'',
 			e.object_type,
 			e.text,
 			a.source_type,
-			CASE WHEN e.object_type = 'speech_segment' THEN s.start_ms ELSE 0 END AS source_in_ms,
-			CASE WHEN e.object_type = 'speech_segment' THEN s.end_ms ELSE COALESCE(a.duration_ms, 0) END AS source_out_ms,
+			0 AS source_in_ms,
+			COALESCE(a.duration_ms, 0) AS source_out_ms,
 			COALESCE(a.duration_ms, 0),
 			a.default_use_original_audio,
 			1 - (%s) AS semantic_score
 		FROM asset_embedding_objects e
 		JOIN assets a ON a.id = e.asset_id
-		LEFT JOIN speech_segments s ON e.object_type = 'speech_segment' AND s.id = e.object_id
 		WHERE e.status = 'ready'
 		  AND e.provider_id = $2::uuid
 		  AND e.model = $3
@@ -436,27 +372,11 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 		  AND a.product_id = $5::uuid
 		  AND a.status = 'ready'
 		  AND a.usability_status IN ('usable', 'needs_review')
-		  AND (
-				(a.source_type = 'visual_only' AND e.object_type = 'shot' AND 'visual_only' = ANY($6::text[]))
-				OR
-				(a.source_type = 'talking_head' AND e.object_type = 'speech_segment' AND 'talking_head' = ANY($6::text[]))
-		  )
-		  AND (
-				CASE WHEN e.object_type = 'speech_segment'
-					THEN COALESCE(s.end_ms - s.start_ms, 0)
-					ELSE COALESCE(a.duration_ms, 0)
-				END
-			) >= $7
-		  AND (
-				cardinality($8::uuid[]) = 0
-				OR EXISTS (
-					SELECT 1
-					FROM asset_selling_points asp
-					WHERE asp.asset_id = a.id AND asp.selling_point_id = ANY($8::uuid[])
-				)
-		  )
+		  AND e.object_type = 'shot'
+		  AND a.source_type = ANY($6::text[])
+		  AND COALESCE(a.duration_ms, 0) >= $7
 		ORDER BY %s ASC, e.id ASC
-		LIMIT $9`, distanceExpression, distanceExpression)
+		LIMIT $8`, distanceExpression, distanceExpression)
 	rows, err := s.pool.Query(ctx, query,
 		vectorString(input.QueryEmbedding),
 		input.ProviderID,
@@ -465,7 +385,6 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 		input.ProductID,
 		input.SourceTypes,
 		input.MinimumDurationMs,
-		input.SellingPointIDs,
 		input.Limit,
 	)
 	if err != nil {

@@ -23,6 +23,7 @@ type EditPlanCandidate struct {
 }
 
 type EditPlanRequirement struct {
+	VisualBeatID       string              `json:"visual_beat_id"`
 	NarrationSegmentID string              `json:"narration_segment_id"`
 	StartMs            int                 `json:"start_ms"`
 	EndMs              int                 `json:"end_ms"`
@@ -40,12 +41,12 @@ type EditPlanInput struct {
 }
 
 type EditPlanClipChoice struct {
-	NarrationSegmentID string `json:"narration_segment_id"`
-	CandidateID        string `json:"candidate_id"`
-	SourceInMs         int    `json:"source_in_ms"`
-	SourceOutMs        int    `json:"source_out_ms"`
-	Label              string `json:"label"`
-	VisualGoal         string `json:"visual_goal"`
+	VisualBeatID string `json:"visual_beat_id"`
+	CandidateID  string `json:"candidate_id"`
+	SourceInMs   int    `json:"source_in_ms"`
+	SourceOutMs  int    `json:"source_out_ms"`
+	Label        string `json:"label"`
+	VisualGoal   string `json:"visual_goal"`
 }
 
 type EditPlanResult struct {
@@ -120,6 +121,17 @@ func (p *OpenAICompatibleEditPlanner) PlanEdits(ctx context.Context, input EditP
 	}
 
 	promptBundle := BuildEditPlanPrompt(input)
+	var result EditPlanResult
+	if err := p.completeJSON(ctx, promptBundle, &result); err != nil {
+		return EditPlanResult{}, err
+	}
+	if err := ValidateEditPlanResult(result, input.Requirements); err != nil {
+		return EditPlanResult{}, err
+	}
+	return result, nil
+}
+
+func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBundle PromptBundle, result any) error {
 	payload := map[string]any{
 		"model": p.model,
 		"messages": []map[string]any{
@@ -132,11 +144,11 @@ func (p *OpenAICompatibleEditPlanner) PlanEdits(ctx context.Context, input EditP
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return EditPlanResult{}, err
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, joinOpenAICompatibleURL(p.baseURL, "/v1/chat/completions"), bytes.NewReader(body))
 	if err != nil {
-		return EditPlanResult{}, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -146,16 +158,16 @@ func (p *OpenAICompatibleEditPlanner) PlanEdits(ctx context.Context, input EditP
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return EditPlanResult{}, normalizeEditPlanRequestError(ctx, err)
+		return normalizeEditPlanRequestError(ctx, err)
 	}
 	defer resp.Body.Close()
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 	if err != nil {
-		return EditPlanResult{}, normalizeEditPlanRequestError(ctx, err)
+		return normalizeEditPlanRequestError(ctx, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError
-		return EditPlanResult{}, NewError(
+		return NewError(
 			ErrorCodeProviderFailure,
 			fmt.Sprintf("llm endpoint returned status %d: %s", resp.StatusCode, truncateString(string(responseBody), 500)),
 			retryable,
@@ -171,19 +183,15 @@ func (p *OpenAICompatibleEditPlanner) PlanEdits(ctx context.Context, input EditP
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(responseBody, &chatResponse); err != nil {
-		return EditPlanResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode edit planner response failed: %v", err), false, err)
+		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode edit planner response failed: %v", err), false, err)
 	}
 	if len(chatResponse.Choices) == 0 || strings.TrimSpace(chatResponse.Choices[0].Message.Content) == "" {
-		return EditPlanResult{}, NewError(ErrorCodeInvalidResponse, "edit planner response is empty", false, nil)
+		return NewError(ErrorCodeInvalidResponse, "edit planner response is empty", false, nil)
 	}
-	var result EditPlanResult
-	if err := json.Unmarshal([]byte(chatResponse.Choices[0].Message.Content), &result); err != nil {
-		return EditPlanResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode edit planner JSON output failed: %v", err), false, err)
+	if err := json.Unmarshal([]byte(chatResponse.Choices[0].Message.Content), result); err != nil {
+		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode edit planner JSON output failed: %v", err), false, err)
 	}
-	if err := ValidateEditPlanResult(result, input.Requirements); err != nil {
-		return EditPlanResult{}, err
-	}
-	return result, nil
+	return nil
 }
 
 func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequirement) error {
@@ -193,30 +201,44 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 	if len(result.Clips) != len(requirements) {
 		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("expected %d edit plan clips, got %d", len(requirements), len(result.Clips)), false, nil)
 	}
-	seenNarrationSegments := map[string]struct{}{}
+	if err := validateEditPlanRequirements(requirements); err != nil {
+		return err
+	}
+	seenVisualBeats := map[string]struct{}{}
 	for index := range result.Clips {
 		clip := &result.Clips[index]
-		clip.NarrationSegmentID = strings.TrimSpace(clip.NarrationSegmentID)
+		clip.VisualBeatID = strings.TrimSpace(clip.VisualBeatID)
 		clip.CandidateID = strings.TrimSpace(clip.CandidateID)
 		clip.Label = strings.TrimSpace(clip.Label)
 		clip.VisualGoal = strings.TrimSpace(clip.VisualGoal)
-		if clip.NarrationSegmentID == "" || clip.CandidateID == "" || clip.Label == "" || clip.VisualGoal == "" {
+		if clip.VisualBeatID == "" || clip.CandidateID == "" || clip.Label == "" || clip.VisualGoal == "" {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is incomplete", index+1), false, nil)
 		}
 		if clip.SourceInMs < 0 || clip.SourceOutMs <= clip.SourceInMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is invalid", index+1), false, nil)
 		}
-		if clip.NarrationSegmentID != strings.TrimSpace(requirements[index].NarrationSegmentID) {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is out of narration order", index+1), false, nil)
+		requirement := requirements[index]
+		if clip.VisualBeatID != requirement.VisualBeatID {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is out of visual beat order", index+1), false, nil)
 		}
-		if _, exists := seenNarrationSegments[clip.NarrationSegmentID]; exists {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan narration segment %q is repeated", clip.NarrationSegmentID), false, nil)
+		if _, exists := seenVisualBeats[clip.VisualBeatID]; exists {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan visual beat %q is repeated", clip.VisualBeatID), false, nil)
 		}
-		seenNarrationSegments[clip.NarrationSegmentID] = struct{}{}
+		if clip.SourceOutMs-clip.SourceInMs != requirement.EndMs-requirement.StartMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source duration does not match its visual beat", index+1), false, nil)
+		}
+		candidate, ok := findEditPlanCandidate(requirement.Candidates, clip.CandidateID)
+		if !ok {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d selects a candidate outside the allowed set", index+1), false, nil)
+		}
+		if clip.SourceInMs < candidate.SourceInMs || clip.SourceOutMs > candidate.SourceOutMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is outside its candidate", index+1), false, nil)
+		}
+		seenVisualBeats[clip.VisualBeatID] = struct{}{}
 	}
 	for _, requirement := range requirements {
-		if _, ok := seenNarrationSegments[strings.TrimSpace(requirement.NarrationSegmentID)]; !ok {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan does not cover narration segment %q", requirement.NarrationSegmentID), false, nil)
+		if _, ok := seenVisualBeats[requirement.VisualBeatID]; !ok {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan does not cover visual beat %q", requirement.VisualBeatID), false, nil)
 		}
 	}
 	return nil
@@ -229,15 +251,58 @@ func validateEditPlanInput(input EditPlanInput) error {
 	if len(input.Requirements) == 0 {
 		return NewError(ErrorCodeConfiguration, "edit plan requirements are required", false, nil)
 	}
-	for index, requirement := range input.Requirements {
-		if strings.TrimSpace(requirement.NarrationSegmentID) == "" || strings.TrimSpace(requirement.NarrationText) == "" || requirement.EndMs <= requirement.StartMs {
+	return validateEditPlanRequirements(input.Requirements)
+}
+
+func validateEditPlanRequirements(requirements []EditPlanRequirement) error {
+	if len(requirements) == 0 {
+		return NewError(ErrorCodeConfiguration, "edit plan requirements are required", false, nil)
+	}
+	if requirements[0].StartMs != 0 {
+		return NewError(ErrorCodeConfiguration, "edit plan visual timeline must start at 0", false, nil)
+	}
+	expectedStartMs := requirements[0].StartMs
+	seenVisualBeats := map[string]struct{}{}
+	for index := range requirements {
+		requirement := &requirements[index]
+		requirement.VisualBeatID = strings.TrimSpace(requirement.VisualBeatID)
+		requirement.NarrationSegmentID = strings.TrimSpace(requirement.NarrationSegmentID)
+		requirement.NarrationText = strings.TrimSpace(requirement.NarrationText)
+		requirement.VisualGoal = strings.TrimSpace(requirement.VisualGoal)
+		requirement.SourceType = strings.TrimSpace(requirement.SourceType)
+		if requirement.VisualBeatID == "" || requirement.NarrationSegmentID == "" || requirement.NarrationText == "" || requirement.VisualGoal == "" || requirement.EndMs <= requirement.StartMs {
 			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d is invalid", index+1), false, nil)
+		}
+		if requirement.StartMs != expectedStartMs {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d does not continue the visual timeline", index+1), false, nil)
+		}
+		if requirement.SourceType != "visual_only" && requirement.SourceType != "talking_head" && requirement.SourceType != "mixed" {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d source type is invalid", index+1), false, nil)
+		}
+		if _, exists := seenVisualBeats[requirement.VisualBeatID]; exists {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan visual beat %q is repeated", requirement.VisualBeatID), false, nil)
 		}
 		if len(requirement.Candidates) == 0 {
 			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d has no candidates", index+1), false, nil)
 		}
+		for candidateIndex, candidate := range requirement.Candidates {
+			if strings.TrimSpace(candidate.ID) == "" || candidate.SourceInMs < 0 || candidate.SourceOutMs <= candidate.SourceInMs {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d candidate %d is invalid", index+1, candidateIndex+1), false, nil)
+			}
+		}
+		seenVisualBeats[requirement.VisualBeatID] = struct{}{}
+		expectedStartMs = requirement.EndMs
 	}
 	return nil
+}
+
+func findEditPlanCandidate(candidates []EditPlanCandidate, candidateID string) (EditPlanCandidate, bool) {
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.ID) == candidateID {
+			return candidate, true
+		}
+	}
+	return EditPlanCandidate{}, false
 }
 
 func normalizeEditPlanRequestError(ctx context.Context, err error) error {

@@ -7,19 +7,37 @@ export type EditingIntentBeat = {
 };
 
 export type NarrationSegment = {
+	id: string;
+	start_ms: number;
+	end_ms: number;
+	text: string;
+};
+
+export type VisualBeat = {
   id: string;
+  narration_segment_id: string;
   start_ms: number;
   end_ms: number;
-  text: string;
+  label: string;
+  selling_point?: string;
+  visual_goal: string;
+  source_type: "visual_only" | "talking_head" | "mixed";
 };
 
 export type EditPlanBeat = {
   id: string;
+  visual_beat_id?: string;
+  narration_segment_id?: string;
+  asset_id?: string;
+  speech_segment_id?: string;
   start_ms: number;
   end_ms: number;
+  source_in_ms?: number;
+  source_out_ms?: number;
   label: string;
   visual_goal: string;
-  source_type: "visual_only" | "talking_head" | "mixed";
+  source_type: "visual_only" | "talking_head";
+  use_original_audio?: boolean;
 };
 
 export type ScriptVariantStatus = "draft" | "confirmed";
@@ -90,6 +108,7 @@ export type FinishedWork = {
   editing_intent?: string;
   beats?: EditingIntentBeat[];
   narration_segments?: NarrationSegment[];
+  visual_beats?: VisualBeat[];
   edit_plan?: EditPlanBeat[];
   audio_url?: string;
   error_message?: string;

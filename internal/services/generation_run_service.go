@@ -66,6 +66,7 @@ type GenerationRunTask struct {
 
 type EditPlanClip struct {
 	ID                 string  `json:"id"`
+	VisualBeatID       string  `json:"visual_beat_id"`
 	NarrationSegmentID string  `json:"narration_segment_id"`
 	AssetID            string  `json:"asset_id"`
 	SpeechSegmentID    string  `json:"speech_segment_id,omitempty"`
@@ -93,6 +94,7 @@ type EditPlan struct {
 	LLMModel          string          `json:"llm_model,omitempty"`
 	PromptVersion     string          `json:"prompt_version,omitempty"`
 	ErrorMessage      string          `json:"error_message,omitempty"`
+	VisualBeats       []VisualBeat    `json:"visual_beats"`
 	Clips             []EditPlanClip  `json:"clips"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
@@ -455,10 +457,18 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 		return EditPlan{}, err
 	}
 	if len(plan.CandidateSnapshot) == 0 {
-		plan.CandidateSnapshot = json.RawMessage("[]")
+		plan.CandidateSnapshot = mustRunJSON(map[string]any{
+			"visual_beats":   plan.VisualBeats,
+			"candidate_sets": []CandidateSet{},
+			"clips":          plan.Clips,
+		})
 	}
 	if len(plan.PlanJSON) == 0 {
-		plan.PlanJSON = mustRunJSON(map[string]any{"clips": plan.Clips})
+		plan.PlanJSON = mustRunJSON(map[string]any{
+			"visual_beats":   plan.VisualBeats,
+			"candidate_sets": []CandidateSet{},
+			"clips":          plan.Clips,
+		})
 	}
 	if !json.Valid(plan.CandidateSnapshot) || !json.Valid(plan.PlanJSON) {
 		return EditPlan{}, fmt.Errorf("edit plan JSON is invalid")
@@ -478,6 +488,12 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 			plan.CreatedAt = now
 		}
 		plan.UpdatedAt = now
+		plan.VisualBeats = cloneVisualBeats(plan.VisualBeats)
+		for index := range plan.VisualBeats {
+			if plan.VisualBeats[index].ID == "" {
+				plan.VisualBeats[index].ID = uuid.NewString()
+			}
+		}
 		plan.Clips = cloneEditPlanClips(plan.Clips)
 		for index := range plan.Clips {
 			if plan.Clips[index].ID == "" {
@@ -531,22 +547,53 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 	if _, err := tx.Exec(ctx, `DELETE FROM clip_segments WHERE edit_plan_id = $1::uuid`, stored.ID); err != nil {
 		return EditPlan{}, err
 	}
+	if _, err := tx.Exec(ctx, `DELETE FROM visual_beats WHERE edit_plan_id = $1::uuid`, stored.ID); err != nil {
+		return EditPlan{}, err
+	}
+	for index, beat := range plan.VisualBeats {
+		if beat.ID == "" {
+			beat.ID = uuid.NewString()
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO visual_beats (
+				id, edit_plan_id, beat_index, narration_segment_id,
+				start_ms, end_ms, label, selling_point, visual_goal, source_type
+			) VALUES (
+				$1::uuid, $2::uuid, $3, $4::uuid,
+				$5, $6, $7, $8, $9, $10
+			)`,
+			beat.ID,
+			stored.ID,
+			index,
+			beat.NarrationSegmentID,
+			beat.StartMs,
+			beat.EndMs,
+			beat.Label,
+			beat.SellingPoint,
+			beat.VisualGoal,
+			beat.SourceType,
+		); err != nil {
+			return EditPlan{}, err
+		}
+		plan.VisualBeats[index] = beat
+	}
 	for index, clip := range plan.Clips {
 		if clip.ID == "" {
 			clip.ID = uuid.NewString()
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO clip_segments (
-				id, edit_plan_id, segment_index, narration_segment_id, asset_id, speech_segment_id,
+				id, edit_plan_id, segment_index, visual_beat_id, narration_segment_id, asset_id, speech_segment_id,
 				source_in_ms, source_out_ms, timeline_in_ms, timeline_duration_ms,
 				source_type, label, visual_goal, use_original_audio, audio_gain_db
 			) VALUES (
-				$1::uuid, $2::uuid, $3, $4::uuid, $5::uuid, NULLIF($6, '')::uuid,
-				$7, $8, $9, $10, $11, $12, $13, $14, $15
+				$1::uuid, $2::uuid, $3, $4::uuid, $5::uuid, $6::uuid, NULLIF($7, '')::uuid,
+				$8, $9, $10, $11, $12, $13, $14, $15, $16
 			)`,
 			clip.ID,
 			stored.ID,
 			index,
+			clip.VisualBeatID,
 			clip.NarrationSegmentID,
 			clip.AssetID,
 			clip.SpeechSegmentID,
@@ -567,6 +614,7 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 	if err := tx.Commit(ctx); err != nil {
 		return EditPlan{}, err
 	}
+	stored.VisualBeats = cloneVisualBeats(plan.VisualBeats)
 	stored.Clips = cloneEditPlanClips(plan.Clips)
 	return stored, nil
 }
@@ -597,8 +645,37 @@ func (s *GenerationRunService) GetEditPlan(ctx context.Context, runID string) (E
 	if err != nil {
 		return EditPlan{}, err
 	}
+	visualBeatRows, err := s.pool.Query(ctx, `
+		SELECT id::text, narration_segment_id::text, start_ms, end_ms,
+			label, selling_point, visual_goal, source_type
+		FROM visual_beats
+		WHERE edit_plan_id = $1::uuid
+		ORDER BY beat_index ASC`, plan.ID)
+	if err != nil {
+		return EditPlan{}, err
+	}
+	defer visualBeatRows.Close()
+	for visualBeatRows.Next() {
+		var beat VisualBeat
+		if err := visualBeatRows.Scan(
+			&beat.ID,
+			&beat.NarrationSegmentID,
+			&beat.StartMs,
+			&beat.EndMs,
+			&beat.Label,
+			&beat.SellingPoint,
+			&beat.VisualGoal,
+			&beat.SourceType,
+		); err != nil {
+			return EditPlan{}, err
+		}
+		plan.VisualBeats = append(plan.VisualBeats, beat)
+	}
+	if err := visualBeatRows.Err(); err != nil {
+		return EditPlan{}, err
+	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, narration_segment_id::text, asset_id::text, COALESCE(speech_segment_id::text, ''),
+		SELECT id::text, visual_beat_id::text, narration_segment_id::text, asset_id::text, COALESCE(speech_segment_id::text, ''),
 			source_in_ms, source_out_ms, timeline_in_ms, timeline_duration_ms,
 			label, visual_goal, source_type, use_original_audio, audio_gain_db
 		FROM clip_segments
@@ -613,6 +690,7 @@ func (s *GenerationRunService) GetEditPlan(ctx context.Context, runID string) (E
 		var audioGainDB pgtype.Numeric
 		if err := rows.Scan(
 			&clip.ID,
+			&clip.VisualBeatID,
 			&clip.NarrationSegmentID,
 			&clip.AssetID,
 			&clip.SpeechSegmentID,
@@ -687,6 +765,7 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	}
 	plan, err := s.GetEditPlan(ctx, run.ID)
 	if err == nil {
+		work.VisualBeats = cloneVisualBeats(plan.VisualBeats)
 		work.EditPlan = editPlanWorkClips(plan.Clips)
 	} else if !errors.Is(err, ErrEditPlanNotFound) {
 		return VoiceoverWork{}, err
@@ -699,6 +778,7 @@ func editPlanWorkClips(clips []EditPlanClip) []VoiceoverEditPlanClip {
 	for _, clip := range clips {
 		items = append(items, VoiceoverEditPlanClip{
 			ID:                 clip.ID,
+			VisualBeatID:       clip.VisualBeatID,
 			NarrationSegmentID: clip.NarrationSegmentID,
 			AssetID:            clip.AssetID,
 			SpeechSegmentID:    clip.SpeechSegmentID,
@@ -814,15 +894,46 @@ func validateEditPlanForStorage(plan EditPlan) error {
 	if plan.Status != "ready" && plan.Status != "planning" && plan.Status != "queued" && plan.Status != "failed" {
 		return fmt.Errorf("invalid edit plan status %q", plan.Status)
 	}
+	if plan.Status == "ready" && (len(plan.VisualBeats) == 0 || len(plan.Clips) != len(plan.VisualBeats)) {
+		return fmt.Errorf("ready edit plan must contain one clip for every visual beat")
+	}
+	if len(plan.Clips) > 0 && len(plan.VisualBeats) == 0 {
+		return fmt.Errorf("clip segments require visual beats")
+	}
+	visualBeats := map[string]VisualBeat{}
+	expectedStartMs := 0
+	for index, beat := range plan.VisualBeats {
+		if normalizeID(beat.ID) == "" || normalizeID(beat.NarrationSegmentID) == "" || strings.TrimSpace(beat.Label) == "" || strings.TrimSpace(beat.VisualGoal) == "" {
+			return fmt.Errorf("visual beat %d is incomplete", index+1)
+		}
+		if beat.StartMs != expectedStartMs || beat.EndMs <= beat.StartMs {
+			return fmt.Errorf("visual beat %d timeline range is invalid", index+1)
+		}
+		if beat.SourceType != "visual_only" && beat.SourceType != "talking_head" && beat.SourceType != "mixed" {
+			return fmt.Errorf("visual beat %d source type is invalid", index+1)
+		}
+		if _, exists := visualBeats[beat.ID]; exists {
+			return fmt.Errorf("visual beat %q is repeated", beat.ID)
+		}
+		visualBeats[beat.ID] = beat
+		expectedStartMs = beat.EndMs
+	}
 	for index, clip := range plan.Clips {
-		if normalizeID(clip.NarrationSegmentID) == "" || normalizeID(clip.AssetID) == "" {
+		if normalizeID(clip.VisualBeatID) == "" || normalizeID(clip.NarrationSegmentID) == "" || normalizeID(clip.AssetID) == "" {
 			return fmt.Errorf("clip %d references are required", index+1)
+		}
+		beat, exists := visualBeats[clip.VisualBeatID]
+		if !exists || beat.NarrationSegmentID != clip.NarrationSegmentID {
+			return fmt.Errorf("clip %d does not match its visual beat", index+1)
 		}
 		if clip.SourceInMs < 0 || clip.SourceOutMs <= clip.SourceInMs {
 			return fmt.Errorf("clip %d source range is invalid", index+1)
 		}
 		if clip.StartMs < 0 || clip.EndMs <= clip.StartMs || clip.TimelineDurationMs != clip.EndMs-clip.StartMs {
 			return fmt.Errorf("clip %d timeline range is invalid", index+1)
+		}
+		if clip.StartMs != beat.StartMs || clip.EndMs != beat.EndMs || clip.SourceOutMs-clip.SourceInMs != beat.EndMs-beat.StartMs {
+			return fmt.Errorf("clip %d duration does not match its visual beat", index+1)
 		}
 		if clip.SourceType != "visual_only" && clip.SourceType != "talking_head" {
 			return fmt.Errorf("clip %d source type is invalid", index+1)
@@ -868,12 +979,17 @@ func cloneGenerationRun(run GenerationRun) GenerationRun {
 func cloneEditPlan(plan EditPlan) EditPlan {
 	plan.CandidateSnapshot = append(json.RawMessage(nil), plan.CandidateSnapshot...)
 	plan.PlanJSON = append(json.RawMessage(nil), plan.PlanJSON...)
+	plan.VisualBeats = cloneVisualBeats(plan.VisualBeats)
 	plan.Clips = cloneEditPlanClips(plan.Clips)
 	return plan
 }
 
 func cloneEditPlanClips(clips []EditPlanClip) []EditPlanClip {
 	return append([]EditPlanClip(nil), clips...)
+}
+
+func cloneVisualBeats(beats []VisualBeat) []VisualBeat {
+	return append([]VisualBeat(nil), beats...)
 }
 
 func cloneRunObject(value map[string]any) map[string]any {

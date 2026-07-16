@@ -44,7 +44,17 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 		ScriptVariantID: "script-1",
 		VoiceoverID:     "voiceover-1",
 		Status:          "ready",
+		VisualBeats: []VisualBeat{{
+			ID:                 "visual-1",
+			NarrationSegmentID: "narration-1",
+			StartMs:            0,
+			EndMs:              1000,
+			Label:              "展示",
+			VisualGoal:         "展示固定动作",
+			SourceType:         "visual_only",
+		}},
 		Clips: []EditPlanClip{{
+			VisualBeatID:       "visual-1",
 			NarrationSegmentID: "narration-1",
 			AssetID:            "asset-1",
 			SourceInMs:         0,
@@ -64,7 +74,7 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 	if work.Status != generationRunStatusGenerating || work.StageLabel != "编排完成，等待渲染" || work.Progress != 88 {
 		t.Fatalf("expected plan-ready work to remain generating, got %#v", work)
 	}
-	if work.ID != run.ID || len(work.EditPlan) != 1 || work.EditPlan[0].AssetID != "asset-1" {
+	if work.ID != run.ID || len(work.VisualBeats) != 1 || len(work.EditPlan) != 1 || work.EditPlan[0].VisualBeatID != "visual-1" || work.EditPlan[0].AssetID != "asset-1" {
 		t.Fatalf("unexpected work projection %#v", work)
 	}
 }
