@@ -121,11 +121,10 @@ func ResolveEmbeddingConfigWithProviders(ctx context.Context, service *SystemCon
 
 func ResolveLLMScriptConfigWithProviders(ctx context.Context, service *SystemConfigService, providerService *ModelProviderService, fallback appconfig.Config) modelgateway.Config {
 	resolved := modelgateway.Config{
-		Provider:  "openai_compatible",
-		BaseURL:   fallback.VLMBaseURL,
-		APIKey:    fallback.VLMAPIKey,
-		MaxTokens: 8192,
-		Timeout:   fallback.ModelGatewayTimeout,
+		Provider: "openai_compatible",
+		BaseURL:  fallback.VLMBaseURL,
+		APIKey:   fallback.VLMAPIKey,
+		Timeout:  fallback.ModelGatewayTimeout,
 	}
 	if service == nil {
 		return resolved

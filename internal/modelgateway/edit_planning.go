@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-const maximumEditPlanOutputTokens = 3072
-
 type EditPlanCandidate struct {
 	ID              string  `json:"id"`
 	SourceType      string  `json:"source_type"`
@@ -95,10 +93,6 @@ type OpenAICompatibleEditPlanner struct {
 }
 
 func NewOpenAICompatibleEditPlanner(cfg Config) *OpenAICompatibleEditPlanner {
-	maxTokens := cfg.MaxTokens
-	if maxTokens <= 0 || maxTokens > maximumEditPlanOutputTokens {
-		maxTokens = maximumEditPlanOutputTokens
-	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 300 * time.Second
@@ -107,7 +101,7 @@ func NewOpenAICompatibleEditPlanner(cfg Config) *OpenAICompatibleEditPlanner {
 		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		apiKey:    strings.TrimSpace(cfg.APIKey),
 		model:     strings.TrimSpace(cfg.Model),
-		maxTokens: maxTokens,
+		maxTokens: cfg.MaxTokens,
 		timeout:   timeout,
 		client:    &http.Client{Timeout: timeout},
 		logger:    slog.Default(),
@@ -151,8 +145,10 @@ func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBu
 			{"role": "user", "content": promptBundle.Prompts[0].User},
 		},
 		"response_format": map[string]string{"type": "json_object"},
-		"max_tokens":      p.maxTokens,
 		"temperature":     0.25,
+	}
+	if p.maxTokens > 0 {
+		payload["max_tokens"] = p.maxTokens
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -192,8 +188,10 @@ func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBu
 	}
 
 	var chatResponse struct {
+		Model   string `json:"model"`
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -201,13 +199,45 @@ func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBu
 	if err := json.Unmarshal(responseBody, &chatResponse); err != nil {
 		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode edit planner response failed: %v", err), false, err)
 	}
-	if len(chatResponse.Choices) == 0 || strings.TrimSpace(chatResponse.Choices[0].Message.Content) == "" {
-		return NewError(ErrorCodeInvalidResponse, "edit planner response is empty", false, nil)
+	finishReason := ""
+	content := ""
+	if len(chatResponse.Choices) > 0 {
+		finishReason = strings.TrimSpace(chatResponse.Choices[0].FinishReason)
+		content = chatResponse.Choices[0].Message.Content
 	}
-	if err := json.Unmarshal([]byte(chatResponse.Choices[0].Message.Content), result); err != nil {
+	p.logResponseMetadata(
+		promptBundle.Prompts[0].Name,
+		firstNonEmptyString(chatResponse.Model, p.model),
+		len(chatResponse.Choices),
+		finishReason,
+		len([]byte(content)),
+	)
+	if strings.TrimSpace(content) == "" {
+		return NewError(
+			ErrorCodeInvalidResponse,
+			fmt.Sprintf("edit planner response is empty (choices=%d, finish_reason=%q)", len(chatResponse.Choices), finishReason),
+			false,
+			nil,
+		)
+	}
+	if err := json.Unmarshal([]byte(content), result); err != nil {
 		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode edit planner JSON output failed: %v", err), false, err)
 	}
 	return nil
+}
+
+func (p *OpenAICompatibleEditPlanner) logResponseMetadata(promptName string, responseModel string, choiceCount int, finishReason string, contentBytes int) {
+	logger := p.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Info("llm planner response metadata",
+		slog.String("prompt", promptName),
+		slog.String("response_model", responseModel),
+		slog.Int("choice_count", choiceCount),
+		slog.String("finish_reason", finishReason),
+		slog.Int("content_bytes", contentBytes),
+	)
 }
 
 func (p *OpenAICompatibleEditPlanner) logRequestResult(promptName string, requestBytes int, responseBytes int, startedAt time.Time, statusCode int) {

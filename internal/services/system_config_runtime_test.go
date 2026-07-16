@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -81,5 +82,17 @@ func TestResolveVLMAnalyzerConfigFallsBackToEnvConfig(t *testing.T) {
 	}
 	if resolved.MaxRetries != 3 {
 		t.Fatalf("expected fallback retries, got %d", resolved.MaxRetries)
+	}
+}
+
+func TestResolveLLMScriptConfigLeavesMaxTokensUnsetWithoutSystemConfig(t *testing.T) {
+	resolved := ResolveLLMScriptConfigWithProviders(context.Background(), NewSystemConfigService(), nil, appconfig.Config{
+		VLMBaseURL:          "https://fallback.example.test/v1",
+		VLMAPIKey:           "fallback-key",
+		ModelGatewayTimeout: 90 * time.Second,
+	})
+
+	if resolved.MaxTokens != 0 {
+		t.Fatalf("expected unset LLM max tokens, got %d", resolved.MaxTokens)
 	}
 }

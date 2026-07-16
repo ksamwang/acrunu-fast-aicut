@@ -31,8 +31,11 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 		if responseFormat["type"] != "json_object" {
 			t.Fatalf("expected json output request, got %#v", responseFormat)
 		}
-		if request["max_tokens"] != float64(maximumEditPlanOutputTokens) {
+		if request["max_tokens"] != float64(8192) {
 			t.Fatalf("unexpected max_tokens %#v", request["max_tokens"])
+		}
+		if _, exists := request["enable_thinking"]; exists {
+			t.Fatalf("planner request must not contain provider-specific fields: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"visual_beat_id\":\"visual-1\",\"candidate_id\":\"candidate-1\",\"source_in_ms\":0,\"source_out_ms\":1800,\"label\":\"展示\",\"visual_goal\":\"展示产品使用动作\"}]}"}}]}`))
@@ -71,18 +74,97 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 	if len(result.Clips) != 1 || result.Clips[0].CandidateID != "candidate-1" {
 		t.Fatalf("unexpected plan result %#v", result)
 	}
-	if !strings.Contains(logs.String(), `"request_bytes"`) || !strings.Contains(logs.String(), `"duration_ms"`) {
+	if !strings.Contains(logs.String(), `"request_bytes"`) || !strings.Contains(logs.String(), `"duration_ms"`) || !strings.Contains(logs.String(), `"response_model"`) {
 		t.Fatalf("expected request telemetry, got %s", logs.String())
 	}
 }
 
-func TestOpenAICompatibleEditPlannerUsesBoundedTokensAndTimeout(t *testing.T) {
+func TestOpenAICompatibleEditPlannerUsesConfiguredTokensAndDefaultTimeout(t *testing.T) {
 	planner := NewOpenAICompatibleEditPlanner(Config{MaxTokens: 8192})
-	if planner.maxTokens != maximumEditPlanOutputTokens {
-		t.Fatalf("expected %d max tokens, got %d", maximumEditPlanOutputTokens, planner.maxTokens)
+	if planner.maxTokens != 8192 {
+		t.Fatalf("expected configured max tokens, got %d", planner.maxTokens)
 	}
 	if planner.timeout != 300*time.Second {
 		t.Fatalf("expected 300 second default timeout, got %s", planner.timeout)
+	}
+}
+
+func TestOpenAICompatibleEditPlannerOmitsMaxTokensWhenUnconfigured(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
+		}
+		var request map[string]any
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if _, exists := request["max_tokens"]; exists {
+			t.Fatalf("max_tokens should be omitted when unconfigured: %#v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"visual_beat_id\":\"visual-1\",\"candidate_id\":\"candidate-1\",\"source_in_ms\":0,\"source_out_ms\":1800,\"label\":\"展示\",\"visual_goal\":\"展示产品使用动作\"}]}"}}]}`))
+	}))
+	defer server.Close()
+
+	planner := NewOpenAICompatibleEditPlanner(Config{
+		Provider: "openai_compatible",
+		BaseURL:  server.URL,
+		Model:    "planner-model",
+		Timeout:  time.Second,
+	})
+	if planner.maxTokens != 0 {
+		t.Fatalf("expected unconfigured max tokens to remain unset, got %d", planner.maxTokens)
+	}
+	if _, err := planner.PlanEdits(context.Background(), editPlannerTestInput()); err != nil {
+		t.Fatalf("plan edits: %v", err)
+	}
+}
+
+func TestOpenAICompatibleEditPlannerReportsEmptyStandardContentMetadata(t *testing.T) {
+	var logs bytes.Buffer
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"response-model","choices":[{"finish_reason":"length","message":{"content":""}}]}`))
+	}))
+	defer server.Close()
+
+	planner := NewOpenAICompatibleEditPlanner(Config{
+		Provider: "openai_compatible",
+		BaseURL:  server.URL,
+		Model:    "planner-model",
+		Timeout:  time.Second,
+	}).WithLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
+	_, err := planner.PlanEdits(context.Background(), editPlannerTestInput())
+	if err == nil || !strings.Contains(err.Error(), `choices=1, finish_reason="length"`) {
+		t.Fatalf("expected standard empty-response diagnostics, got %v", err)
+	}
+	for _, field := range []string{`"response_model":"response-model"`, `"choice_count":1`, `"finish_reason":"length"`, `"content_bytes":0`} {
+		if !strings.Contains(logs.String(), field) {
+			t.Fatalf("expected %s in response metadata, got %s", field, logs.String())
+		}
+	}
+}
+
+func editPlannerTestInput() EditPlanInput {
+	return EditPlanInput{
+		ProductName: "束裤带",
+		ScriptText:  "骑行时固定裤脚，更安心。",
+		Requirements: []EditPlanRequirement{{
+			VisualBeatID:       "visual-1",
+			NarrationSegmentID: "narration-1",
+			StartMs:            0,
+			EndMs:              1800,
+			NarrationText:      "骑行时固定裤脚，更安心。",
+			VisualGoal:         "展示产品使用动作",
+			SourceType:         "visual_only",
+			Candidates: []EditPlanCandidate{{
+				ID:          "candidate-1",
+				SourceType:  "visual_only",
+				SourceInMs:  0,
+				SourceOutMs: 2400,
+			}},
+		}},
 	}
 }
 
