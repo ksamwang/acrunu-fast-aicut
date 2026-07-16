@@ -155,6 +155,42 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       return;
     }
 
+    if (url.includes("/api/auth/me")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            id: "dev-admin",
+            username: "admin",
+            display_name: "Admin",
+            role: "admin"
+          }
+        })
+      });
+      return;
+    }
+
+    if (url.includes("/api/admin/users")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: [
+            {
+              id: "dev-admin",
+              username: "admin",
+              display_name: "Admin",
+              role: "admin",
+              status: "active",
+              last_login_at: "2026-07-16T00:00:00.000Z",
+              created_at: "2026-07-01T00:00:00.000Z",
+              updated_at: "2026-07-16T00:00:00.000Z"
+            }
+          ]
+        })
+      });
+      return;
+    }
+
     if (url.includes("/api/admin/voice-profiles")) {
       await route.fulfill({
         contentType: "application/json",
@@ -736,6 +772,10 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-warm-female")).toBeVisible();
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-clear-male")).toBeVisible();
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-bright-female")).toBeVisible();
+  await page.getByRole("menuitem", { name: "用户管理" }).click();
+  const usersPage = page.getByTestId("users-page");
+  await expect(usersPage).toBeVisible();
+  await expect(usersPage.getByText("Admin", { exact: true })).toBeVisible();
   await page.getByRole("menuitem", { name: "工作台" }).click();
 
   await page.getByRole("menuitem", { name: "成品库" }).click();

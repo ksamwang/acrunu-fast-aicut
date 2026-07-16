@@ -56,8 +56,8 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		user, ok := parseDevToken(token)
-		if !ok {
+		user, err := s.userService.Authenticate(c.Request.Context(), token)
+		if err != nil {
 			Fail(c, http.StatusUnauthorized, "unauthorized", "invalid token")
 			return
 		}

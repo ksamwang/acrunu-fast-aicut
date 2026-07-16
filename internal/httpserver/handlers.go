@@ -40,14 +40,20 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 
-	user, err := s.userService.Login(req.Username, req.Password)
+	user, err := s.userService.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
 		Fail(c, http.StatusUnauthorized, "unauthorized", "invalid username or password")
 		return
 	}
+	token, err := s.userService.CreateSession(user)
+	if err != nil {
+		s.logger.Error("create login session failed", "error", err)
+		Fail(c, http.StatusInternalServerError, "internal_error", "failed to create login session")
+		return
+	}
 
 	OK(c, loginResponse{
-		Token: makeDevToken(user),
+		Token: token,
 		User:  user,
 	})
 }

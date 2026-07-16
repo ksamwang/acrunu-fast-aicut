@@ -12,7 +12,9 @@ func makeDevToken(user auth.User) string {
 	return base64.RawURLEncoding.EncodeToString(payload)
 }
 
-func parseDevToken(token string) (auth.User, bool) {
+// parseLegacyUserToken only supports the in-memory server used by local tests.
+// PostgreSQL-backed deployments authenticate opaque server-issued sessions.
+func parseLegacyUserToken(token string) (auth.User, bool) {
 	payload, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
 		return auth.User{}, false

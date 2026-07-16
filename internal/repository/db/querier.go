@@ -16,6 +16,7 @@ type Querier interface {
 	ArchiveProduct(ctx context.Context, arg ArchiveProductParams) error
 	ArchiveSellingPoint(ctx context.Context, arg ArchiveSellingPointParams) error
 	ClearDefaultVoiceProfiles(ctx context.Context) error
+	CountActiveAdmins(ctx context.Context) (int32, error)
 	CountAssetSellingPointLinks(ctx context.Context, sellingPointID pgtype.UUID) (int32, error)
 	CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset, error)
 	CreateGenerationTask(ctx context.Context, arg CreateGenerationTaskParams) (GenerationTask, error)
@@ -32,6 +33,7 @@ type Querier interface {
 	DeleteNarrationSegmentsByVoiceoverID(ctx context.Context, voiceoverID pgtype.UUID) error
 	DeleteProduct(ctx context.Context, id pgtype.UUID) error
 	DeleteSellingPoint(ctx context.Context, id pgtype.UUID) error
+	DeleteUser(ctx context.Context, id pgtype.UUID) (int64, error)
 	DeleteVoiceProfile(ctx context.Context, id pgtype.UUID) error
 	GetAssetByID(ctx context.Context, id pgtype.UUID) (Asset, error)
 	GetGenerationTaskByID(ctx context.Context, id pgtype.UUID) (GenerationTask, error)
@@ -86,6 +88,7 @@ type Querier interface {
 	UpdateProduct(ctx context.Context, arg UpdateProductParams) (Product, error)
 	UpdateSellingPoint(ctx context.Context, arg UpdateSellingPointParams) (ProductSellingPoint, error)
 	UpdateSpeechSegment(ctx context.Context, arg UpdateSpeechSegmentParams) (SpeechSegment, error)
+	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserLastLogin(ctx context.Context, id pgtype.UUID) error
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) error
 	UpdateVoiceProfileMetadata(ctx context.Context, arg UpdateVoiceProfileMetadataParams) (VoiceProfile, error)

@@ -13,6 +13,7 @@ import (
 type Options struct {
 	Config                  config.Config
 	Logger                  *slog.Logger
+	UserService             *services.UserService
 	TaskService             *services.TaskService
 	SystemConfigService     *services.SystemConfigService
 	ModelProviderService    *services.ModelProviderService
@@ -81,11 +82,16 @@ func New(opts Options) *Server {
 		generationRunService = services.NewGenerationRunService(voiceoverService)
 	}
 
+	userService := opts.UserService
+	if userService == nil {
+		userService = services.NewUserService(opts.Config)
+	}
+
 	server := &Server{
 		cfg:                     opts.Config,
 		logger:                  opts.Logger,
 		engine:                  gin.New(),
-		userService:             services.NewUserService(opts.Config),
+		userService:             userService,
 		systemConfigService:     systemConfigService,
 		modelProviderService:    modelProviderService,
 		productAssetService:     productAssetService,
@@ -129,6 +135,12 @@ func (s *Server) routes() {
 	adminGroup.GET("/ping", func(c *gin.Context) {
 		OK(c, gin.H{"message": "admin"})
 	})
+
+	users := adminGroup.Group("/users")
+	users.GET("", s.handleListUsers)
+	users.POST("", s.handleCreateUser)
+	users.PUT("/:userID", s.handleUpdateUser)
+	users.DELETE("/:userID", s.handleDeleteUser)
 
 	systemConfigs := adminGroup.Group("/system-configs")
 	systemConfigs.GET("", s.handleListSystemConfigs)

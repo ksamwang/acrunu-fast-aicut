@@ -13,6 +13,8 @@ import (
 func main() {
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	userService := services.NewConfiguredUserService(context.Background(), cfg, logger)
+	defer userService.Close()
 	taskService := services.NewConfiguredTaskService(context.Background(), cfg, logger)
 	defer taskService.Close()
 	systemConfigService := services.NewConfiguredSystemConfigService(context.Background(), cfg, logger)
@@ -37,6 +39,7 @@ func main() {
 	server := httpserver.New(httpserver.Options{
 		Config:                  cfg,
 		Logger:                  logger,
+		UserService:             userService.Service,
 		TaskService:             taskService.Service,
 		SystemConfigService:     systemConfigService.Service,
 		ModelProviderService:    modelProviderService.Service,

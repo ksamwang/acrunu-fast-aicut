@@ -1,0 +1,42 @@
+.users-page {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.users-list-card {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.users-list-card > .ant-card-head {
+  flex: 0 0 auto;
+}
+
+.users-list-card > .ant-card-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.users-list-card .ant-table-container {
+  overflow: visible;
+}
+
+.users-list-card .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fafafa;
+}
+
+.users-list-card .ant-pagination {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 12px 0 0;
+  background: #ffffff;
+}

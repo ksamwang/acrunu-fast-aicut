@@ -12,7 +12,7 @@ export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) 
       <Card className="login-card" title="AICut 控制台">
         <Form
           layout="vertical"
-          initialValues={{ username: "admin", password: "admin" }}
+          initialValues={{ username: "admin", password: "admin123" }}
           onFinish={async (values) => {
             setLoading(true);
             try {

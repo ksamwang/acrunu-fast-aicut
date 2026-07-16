@@ -7,13 +7,33 @@ import { FinishedLibraryPage } from "../features/finished/FinishedLibraryPage";
 import { PreprocessPage } from "../features/preprocess/PreprocessPage";
 import { ProductManagementPage } from "../features/products/ProductsPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { UsersPage } from "../features/users/UsersPage";
 import { WorkbenchPage } from "../features/workbench/WorkbenchPage";
+import { apiRequest } from "../shared/api/server-api";
 import { roleLabels, translateValue } from "../shared/lib/labels";
 import { clearStoredSession, readStoredSession, storeSession } from "../shared/lib/session-storage";
-import type { Session } from "../shared/types/auth";
+import type { Session, User } from "../shared/types/auth";
 
-function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => void }) {
+function ConsoleApp({ session, onLogout, onUserRefresh }: { session: Session; onLogout: () => void; onUserRefresh: (user: User) => void }) {
   const [view, setView] = useState<ViewKey>(() => readHashView(session.user.role));
+
+  useEffect(() => {
+    let cancelled = false;
+    void apiRequest<User>("/api/auth/me", {}, session.token)
+      .then((user) => {
+        if (!cancelled) {
+          onUserRefresh(user);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          onLogout();
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.token]);
 
   useEffect(() => {
     const syncViewFromHash = () => {
@@ -49,6 +69,7 @@ function ConsoleApp({ session, onLogout }: { session: Session; onLogout: () => v
       {view === "preprocess" && <PreprocessPage token={session.token} />}
       {view === "assets" && <AssetsPage token={session.token} />}
       {view === "settings" && session.user.role === "admin" && <SettingsPage token={session.token} />}
+      {view === "users" && session.user.role === "admin" && <UsersPage token={session.token} currentUser={session.user} />}
     </AppShell>
   );
 }
@@ -68,8 +89,27 @@ export function App() {
     setSession(null);
   };
 
+  const handleUserRefresh = (user: User) => {
+    setSession((current) => {
+      if (!current) {
+        return current;
+      }
+      if (
+        current.user.id === user.id &&
+        current.user.username === user.username &&
+        current.user.display_name === user.display_name &&
+        current.user.role === user.role
+      ) {
+        return current;
+      }
+      const next = { ...current, user };
+      storeSession(next);
+      return next;
+    });
+  };
+
   return session ? (
-    <ConsoleApp session={session} onLogout={handleLogout} />
+    <ConsoleApp session={session} onLogout={handleLogout} onUserRefresh={handleUserRefresh} />
   ) : (
     <LoginPage onLogin={handleLogin} />
   );

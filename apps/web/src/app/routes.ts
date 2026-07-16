@@ -1,16 +1,16 @@
 import type { User } from "../shared/types/auth";
 
-export type ViewKey = "workbench" | "finished" | "products" | "preprocess" | "assets" | "settings";
+export type ViewKey = "workbench" | "finished" | "products" | "preprocess" | "assets" | "settings" | "users";
 
 const defaultView: ViewKey = "workbench";
-const viewKeys: ViewKey[] = ["workbench", "finished", "products", "preprocess", "assets", "settings"];
+const viewKeys: ViewKey[] = ["workbench", "finished", "products", "preprocess", "assets", "settings", "users"];
 
 function isViewKey(value: string): value is ViewKey {
   return viewKeys.includes(value as ViewKey);
 }
 
 export function normalizeViewForRole(view: ViewKey, role?: User["role"]): ViewKey {
-  return view === "settings" && role !== "admin" ? defaultView : view;
+  return (view === "settings" || view === "users") && role !== "admin" ? defaultView : view;
 }
 
 export function readHashView(role?: User["role"]): ViewKey {

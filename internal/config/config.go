@@ -14,8 +14,6 @@ type Config struct {
 	QueueBackend        string
 	RedisAddr           string
 	WorkerConcurrency   int
-	AdminUsername       string
-	AdminPassword       string
 	StorageRoot         string
 	ASRBaseURL          string
 	ASRRequestTimeout   time.Duration
@@ -39,8 +37,6 @@ func Load() Config {
 		QueueBackend:        env("QUEUE_BACKEND", "redis"),
 		RedisAddr:           env("REDIS_ADDR", "localhost:6379"),
 		WorkerConcurrency:   envInt("WORKER_CONCURRENCY", 4),
-		AdminUsername:       env("ADMIN_USERNAME", "admin"),
-		AdminPassword:       env("ADMIN_PASSWORD", "admin"),
 		StorageRoot:         env("STORAGE_LOCAL_ROOT", "./storage"),
 		ASRBaseURL:          env("ASR_BASE_URL", "http://127.0.0.1:10096"),
 		ASRRequestTimeout:   time.Duration(envInt("ASR_REQUEST_TIMEOUT_SECONDS", 300)) * time.Second,
