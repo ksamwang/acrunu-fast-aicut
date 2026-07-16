@@ -56,6 +56,7 @@ INSERT INTO assets (
     source_in_ms,
     source_out_ms,
     has_audio,
+    default_use_original_audio,
     audio_codec,
     bitrate_kbps,
     likely_has_speech,
@@ -78,54 +79,55 @@ INSERT INTO assets (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42
+    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43
 )
-RETURNING id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech, embedding
+RETURNING id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech, embedding, default_use_original_audio
 `
 
 type CreateAssetParams struct {
-	ProductID          pgtype.UUID        `json:"product_id"`
-	AssetName          pgtype.Text        `json:"asset_name"`
-	StorageKey         string             `json:"storage_key"`
-	FileName           string             `json:"file_name"`
-	FileExt            pgtype.Text        `json:"file_ext"`
-	MimeType           pgtype.Text        `json:"mime_type"`
-	FileSize           int64              `json:"file_size"`
-	Checksum           pgtype.Text        `json:"checksum"`
-	SourceType         string             `json:"source_type"`
-	IngestionSource    string             `json:"ingestion_source"`
-	DurationMs         pgtype.Int4        `json:"duration_ms"`
-	Width              pgtype.Int4        `json:"width"`
-	Height             pgtype.Int4        `json:"height"`
-	Fps                pgtype.Numeric     `json:"fps"`
-	Codec              pgtype.Text        `json:"codec"`
-	Status             string             `json:"status"`
-	AnalysisStatus     string             `json:"analysis_status"`
-	UsabilityStatus    string             `json:"usability_status"`
-	ManualCleanStatus  string             `json:"manual_clean_status"`
-	SourcePath         pgtype.Text        `json:"source_path"`
-	SourceOriginalName pgtype.Text        `json:"source_original_name"`
-	SourceInMs         pgtype.Int4        `json:"source_in_ms"`
-	SourceOutMs        pgtype.Int4        `json:"source_out_ms"`
-	HasAudio           bool               `json:"has_audio"`
-	AudioCodec         pgtype.Text        `json:"audio_codec"`
-	BitrateKbps        pgtype.Int4        `json:"bitrate_kbps"`
-	LikelyHasSpeech    bool               `json:"likely_has_speech"`
-	SceneDescription   pgtype.Text        `json:"scene_description"`
-	ShotSize           pgtype.Text        `json:"shot_size"`
-	CameraMovement     pgtype.Text        `json:"camera_movement"`
-	Subjects           []byte             `json:"subjects"`
-	SceneTags          []byte             `json:"scene_tags"`
-	QualityTags        []byte             `json:"quality_tags"`
-	ModelLabels        []byte             `json:"model_labels"`
-	ModelResult        []byte             `json:"model_result"`
-	ReviewOverrides    []byte             `json:"review_overrides"`
-	ReviewerNotes      pgtype.Text        `json:"reviewer_notes"`
-	AnalysisError      pgtype.Text        `json:"analysis_error"`
-	AnalyzedAt         pgtype.Timestamptz `json:"analyzed_at"`
-	Metadata           []byte             `json:"metadata"`
-	CreatedByUserID    pgtype.UUID        `json:"created_by_user_id"`
-	UpdatedByUserID    pgtype.UUID        `json:"updated_by_user_id"`
+	ProductID               pgtype.UUID        `json:"product_id"`
+	AssetName               pgtype.Text        `json:"asset_name"`
+	StorageKey              string             `json:"storage_key"`
+	FileName                string             `json:"file_name"`
+	FileExt                 pgtype.Text        `json:"file_ext"`
+	MimeType                pgtype.Text        `json:"mime_type"`
+	FileSize                int64              `json:"file_size"`
+	Checksum                pgtype.Text        `json:"checksum"`
+	SourceType              string             `json:"source_type"`
+	IngestionSource         string             `json:"ingestion_source"`
+	DurationMs              pgtype.Int4        `json:"duration_ms"`
+	Width                   pgtype.Int4        `json:"width"`
+	Height                  pgtype.Int4        `json:"height"`
+	Fps                     pgtype.Numeric     `json:"fps"`
+	Codec                   pgtype.Text        `json:"codec"`
+	Status                  string             `json:"status"`
+	AnalysisStatus          string             `json:"analysis_status"`
+	UsabilityStatus         string             `json:"usability_status"`
+	ManualCleanStatus       string             `json:"manual_clean_status"`
+	SourcePath              pgtype.Text        `json:"source_path"`
+	SourceOriginalName      pgtype.Text        `json:"source_original_name"`
+	SourceInMs              pgtype.Int4        `json:"source_in_ms"`
+	SourceOutMs             pgtype.Int4        `json:"source_out_ms"`
+	HasAudio                bool               `json:"has_audio"`
+	DefaultUseOriginalAudio bool               `json:"default_use_original_audio"`
+	AudioCodec              pgtype.Text        `json:"audio_codec"`
+	BitrateKbps             pgtype.Int4        `json:"bitrate_kbps"`
+	LikelyHasSpeech         bool               `json:"likely_has_speech"`
+	SceneDescription        pgtype.Text        `json:"scene_description"`
+	ShotSize                pgtype.Text        `json:"shot_size"`
+	CameraMovement          pgtype.Text        `json:"camera_movement"`
+	Subjects                []byte             `json:"subjects"`
+	SceneTags               []byte             `json:"scene_tags"`
+	QualityTags             []byte             `json:"quality_tags"`
+	ModelLabels             []byte             `json:"model_labels"`
+	ModelResult             []byte             `json:"model_result"`
+	ReviewOverrides         []byte             `json:"review_overrides"`
+	ReviewerNotes           pgtype.Text        `json:"reviewer_notes"`
+	AnalysisError           pgtype.Text        `json:"analysis_error"`
+	AnalyzedAt              pgtype.Timestamptz `json:"analyzed_at"`
+	Metadata                []byte             `json:"metadata"`
+	CreatedByUserID         pgtype.UUID        `json:"created_by_user_id"`
+	UpdatedByUserID         pgtype.UUID        `json:"updated_by_user_id"`
 }
 
 func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset, error) {
@@ -154,6 +156,7 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		arg.SourceInMs,
 		arg.SourceOutMs,
 		arg.HasAudio,
+		arg.DefaultUseOriginalAudio,
 		arg.AudioCodec,
 		arg.BitrateKbps,
 		arg.LikelyHasSpeech,
@@ -222,12 +225,13 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		&i.ReviewOverrides,
 		&i.LikelyHasSpeech,
 		&i.Embedding,
+		&i.DefaultUseOriginalAudio,
 	)
 	return i, err
 }
 
 const getAssetByID = `-- name: GetAssetByID :one
-SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech, embedding FROM assets
+SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech, embedding, default_use_original_audio FROM assets
 WHERE id = $1
 `
 
@@ -282,12 +286,13 @@ func (q *Queries) GetAssetByID(ctx context.Context, id pgtype.UUID) (Asset, erro
 		&i.ReviewOverrides,
 		&i.LikelyHasSpeech,
 		&i.Embedding,
+		&i.DefaultUseOriginalAudio,
 	)
 	return i, err
 }
 
 const listAssets = `-- name: ListAssets :many
-SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech, embedding FROM assets
+SELECT id, product_id, storage_key, file_name, file_ext, mime_type, file_size, checksum, source_type, duration_ms, width, height, fps, codec, status, manual_clean_status, source_original_name, source_in_ms, source_out_ms, metadata, created_by_user_id, updated_by_user_id, created_at, updated_at, asset_name, source_path, ingestion_source, analysis_status, usability_status, has_audio, audio_codec, bitrate_kbps, scene_description, shot_size, camera_movement, subjects, scene_tags, quality_tags, model_result, reviewer_notes, analysis_error, analyzed_at, archived_at, model_labels, review_overrides, likely_has_speech, embedding, default_use_original_audio FROM assets
 WHERE product_id = COALESCE($1, product_id)
   AND source_type = COALESCE($2, source_type)
   AND status = COALESCE($3, status)
@@ -410,6 +415,7 @@ func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset
 			&i.ReviewOverrides,
 			&i.LikelyHasSpeech,
 			&i.Embedding,
+			&i.DefaultUseOriginalAudio,
 		); err != nil {
 			return nil, err
 		}
@@ -493,6 +499,25 @@ func (q *Queries) UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalys
 		arg.AnalyzedAt,
 		arg.UpdatedByUserID,
 	)
+	return err
+}
+
+const updateAssetDefaultUseOriginalAudio = `-- name: UpdateAssetDefaultUseOriginalAudio :exec
+UPDATE assets
+SET default_use_original_audio = $2,
+    updated_by_user_id = $3,
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdateAssetDefaultUseOriginalAudioParams struct {
+	ID                      pgtype.UUID `json:"id"`
+	DefaultUseOriginalAudio bool        `json:"default_use_original_audio"`
+	UpdatedByUserID         pgtype.UUID `json:"updated_by_user_id"`
+}
+
+func (q *Queries) UpdateAssetDefaultUseOriginalAudio(ctx context.Context, arg UpdateAssetDefaultUseOriginalAudioParams) error {
+	_, err := q.db.Exec(ctx, updateAssetDefaultUseOriginalAudio, arg.ID, arg.DefaultUseOriginalAudio, arg.UpdatedByUserID)
 	return err
 }
 

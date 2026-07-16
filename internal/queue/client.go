@@ -161,3 +161,21 @@ func (c *Client) EnqueueVoiceoverGenerate(payload VoiceoverGeneratePayload) erro
 	_, err = c.client.Enqueue(asynq.NewTask(TypeVoiceoverGenerate, encodedPayload), asynq.MaxRetry(2))
 	return err
 }
+
+func (c *Client) EnqueueEditPlanGenerate(payload EditPlanGeneratePayload) error {
+	if payload.TaskID == "" || payload.GenerationRunID == "" || payload.ScriptVariantID == "" || payload.VoiceoverID == "" {
+		return fmt.Errorf("task id, run id, script variant id, and voiceover id are required")
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeEditPlanGenerate, encodedPayload, 2)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeEditPlanGenerate, encodedPayload), asynq.MaxRetry(2))
+	return err
+}

@@ -27,6 +27,17 @@ func main() {
 	defer assetEmbeddingService.Close()
 	voiceoverService := services.NewConfiguredVoiceoverService(context.Background(), cfg, logger)
 	defer voiceoverService.Close()
+	generationRunService := services.NewConfiguredGenerationRunService(context.Background(), cfg, voiceoverService.Service, logger)
+	defer generationRunService.Close()
+	assetCandidateService := services.NewConfiguredAssetCandidateService(
+		context.Background(),
+		cfg,
+		productAssetService.Service,
+		systemConfigService.Service,
+		modelProviderService.Service,
+		logger,
+	)
+	defer assetCandidateService.Close()
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
 	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(context.Background(), systemConfigService.Service, modelProviderService.Service, cfg), nil)
@@ -41,7 +52,19 @@ func main() {
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
 		assetProcessingService,
-	).WithVoiceoverService(voiceoverService.Service)
+	).WithVoiceoverService(voiceoverService.Service).WithGenerationPipeline(
+		generationRunService.Service,
+		services.NewGenerationPlanningService(
+			generationRunService.Service,
+			voiceoverService.Service,
+			productAssetService.Service,
+			assetCandidateService.Service,
+			systemConfigService.Service,
+			modelProviderService.Service,
+			cfg,
+		),
+		queueClient,
+	)
 
 	if cfg.QueueBackend == "file" {
 		logger.Info("worker starting", "queue_backend", cfg.QueueBackend, "storage_root", cfg.StorageRoot)

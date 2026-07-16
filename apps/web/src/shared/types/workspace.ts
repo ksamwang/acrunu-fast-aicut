@@ -55,6 +55,7 @@ export type WorkspaceItem = {
   submitted_asset_id?: string;
   asset_name?: string;
   source_type?: "visual_only" | "talking_head";
+  use_original_audio?: boolean;
   original_file_name: string;
   original_probe?: WorkspaceProbe;
   source_in_ms: number;

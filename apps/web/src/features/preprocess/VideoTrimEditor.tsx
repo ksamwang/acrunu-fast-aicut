@@ -210,7 +210,7 @@ export function VideoTrimEditor({
   const subtitleEditHandledRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(0);
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(0);
   const [mediaDurationMs, setMediaDurationMs] = useState(0);
 
   const frameRate = useMemo(() => normalizeFps(fps), [fps]);
@@ -232,6 +232,15 @@ export function VideoTrimEditor({
       videoRef.current.load();
     }
   }, [src]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    video.muted = volume <= 0;
+    video.volume = volume;
+  }, [src, volume]);
 
   const emitTrim = (nextInFrame: number, nextOutFrame: number) => {
     const normalizedInFrame = clamp(nextInFrame, 0, totalFrames - MIN_TRIM_FRAMES);
@@ -570,6 +579,7 @@ export function VideoTrimEditor({
     const nextVolume = Number(event.target.value);
     setVolume(nextVolume);
     if (videoRef.current) {
+      videoRef.current.muted = nextVolume <= 0;
       videoRef.current.volume = nextVolume;
     }
   };
@@ -610,6 +620,7 @@ export function VideoTrimEditor({
           className="video-trim-player"
           src={src}
           controls={false}
+          muted={volume <= 0}
           onLoadedMetadata={handleLoadedMetadata}
           onTimeUpdate={handleTimeUpdate}
           onPause={() => setIsPlaying(false)}

@@ -124,27 +124,43 @@ type NarrationSegment struct {
 	Confidence float64 `json:"confidence,omitempty"`
 }
 
+type VoiceoverEditPlanClip struct {
+	ID                 string `json:"id"`
+	NarrationSegmentID string `json:"narration_segment_id"`
+	AssetID            string `json:"asset_id"`
+	SpeechSegmentID    string `json:"speech_segment_id,omitempty"`
+	SourceInMs         int    `json:"source_in_ms"`
+	SourceOutMs        int    `json:"source_out_ms"`
+	StartMs            int    `json:"start_ms"`
+	EndMs              int    `json:"end_ms"`
+	Label              string `json:"label"`
+	VisualGoal         string `json:"visual_goal"`
+	SourceType         string `json:"source_type"`
+	UseOriginalAudio   bool   `json:"use_original_audio"`
+}
+
 type VoiceoverWork struct {
-	ID                string             `json:"id"`
-	RunID             string             `json:"run_id"`
-	ProductID         string             `json:"product_id"`
-	ProductName       string             `json:"product_name"`
-	Title             string             `json:"title"`
-	Hook              string             `json:"hook"`
-	VoiceProfileID    string             `json:"voice_profile_id"`
-	VoiceProfileName  string             `json:"voice_profile_name"`
-	ScriptText        string             `json:"script_text"`
-	DurationMs        int                `json:"duration_ms"`
-	Status            string             `json:"status"`
-	Progress          int                `json:"progress"`
-	StageLabel        string             `json:"stage_label"`
-	ErrorMessage      string             `json:"error_message,omitempty"`
-	CreatedAt         time.Time          `json:"created_at"`
-	CompletedAt       *time.Time         `json:"completed_at,omitempty"`
-	EditingIntent     string             `json:"editing_intent,omitempty"`
-	Beats             []VoiceoverBeat    `json:"beats,omitempty"`
-	NarrationSegments []NarrationSegment `json:"narration_segments,omitempty"`
-	AudioURL          string             `json:"audio_url,omitempty"`
+	ID                string                  `json:"id"`
+	RunID             string                  `json:"run_id"`
+	ProductID         string                  `json:"product_id"`
+	ProductName       string                  `json:"product_name"`
+	Title             string                  `json:"title"`
+	Hook              string                  `json:"hook"`
+	VoiceProfileID    string                  `json:"voice_profile_id"`
+	VoiceProfileName  string                  `json:"voice_profile_name"`
+	ScriptText        string                  `json:"script_text"`
+	DurationMs        int                     `json:"duration_ms"`
+	Status            string                  `json:"status"`
+	Progress          int                     `json:"progress"`
+	StageLabel        string                  `json:"stage_label"`
+	ErrorMessage      string                  `json:"error_message,omitempty"`
+	CreatedAt         time.Time               `json:"created_at"`
+	CompletedAt       *time.Time              `json:"completed_at,omitempty"`
+	EditingIntent     string                  `json:"editing_intent,omitempty"`
+	Beats             []VoiceoverBeat         `json:"beats,omitempty"`
+	NarrationSegments []NarrationSegment      `json:"narration_segments,omitempty"`
+	EditPlan          []VoiceoverEditPlanClip `json:"edit_plan,omitempty"`
+	AudioURL          string                  `json:"audio_url,omitempty"`
 }
 
 type VoiceAudition struct {
@@ -1510,6 +1526,7 @@ func cloneVoiceProfile(profile VoiceProfile) VoiceProfile {
 func cloneVoiceoverWork(work VoiceoverWork) VoiceoverWork {
 	work.Beats = append([]VoiceoverBeat(nil), work.Beats...)
 	work.NarrationSegments = append([]NarrationSegment(nil), work.NarrationSegments...)
+	work.EditPlan = append([]VoiceoverEditPlanClip(nil), work.EditPlan...)
 	if work.CompletedAt != nil {
 		completedAt := *work.CompletedAt
 		work.CompletedAt = &completedAt

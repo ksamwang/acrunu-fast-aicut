@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,56 +10,55 @@ import (
 	"github.com/ksamwang/acrunu-fast-aicut/internal/repository/db"
 )
 
-var ErrVectorSearchNotImplemented = errors.New("vector search not implemented")
-
 type AssetRecord struct {
-	ID                 string          `json:"id"`
-	ProductID          string          `json:"product_id"`
-	AssetName          string          `json:"asset_name,omitempty"`
-	StorageKey         string          `json:"storage_key"`
-	FileName           string          `json:"file_name"`
-	FileExt            string          `json:"file_ext,omitempty"`
-	MimeType           string          `json:"mime_type,omitempty"`
-	FileSize           int64           `json:"file_size"`
-	Checksum           string          `json:"checksum,omitempty"`
-	SourceType         string          `json:"source_type"`
-	IngestionSource    string          `json:"ingestion_source"`
-	DurationMs         int             `json:"duration_ms,omitempty"`
-	Width              int             `json:"width,omitempty"`
-	Height             int             `json:"height,omitempty"`
-	FPS                float64         `json:"fps,omitempty"`
-	Codec              string          `json:"codec,omitempty"`
-	Status             string          `json:"status"`
-	AnalysisStatus     string          `json:"analysis_status"`
-	UsabilityStatus    string          `json:"usability_status"`
-	ManualCleanStatus  string          `json:"manual_clean_status"`
-	SourcePath         string          `json:"source_path,omitempty"`
-	SourceOriginalName string          `json:"source_original_name,omitempty"`
-	SourceInMs         int             `json:"source_in_ms,omitempty"`
-	SourceOutMs        int             `json:"source_out_ms,omitempty"`
-	HasAudio           bool            `json:"has_audio"`
-	AudioCodec         string          `json:"audio_codec,omitempty"`
-	BitrateKbps        int             `json:"bitrate_kbps,omitempty"`
-	LikelyHasSpeech    bool            `json:"likely_has_speech"`
-	SceneDescription   string          `json:"scene_description,omitempty"`
-	ShotSize           string          `json:"shot_size,omitempty"`
-	CameraMovement     string          `json:"camera_movement,omitempty"`
-	Subjects           json.RawMessage `json:"subjects,omitempty"`
-	SceneTags          json.RawMessage `json:"scene_tags,omitempty"`
-	QualityTags        json.RawMessage `json:"quality_tags,omitempty"`
-	ModelLabels        json.RawMessage `json:"model_labels,omitempty"`
-	ModelResult        json.RawMessage `json:"model_result,omitempty"`
-	ReviewOverrides    json.RawMessage `json:"review_overrides,omitempty"`
-	Embedding          json.RawMessage `json:"embedding,omitempty"`
-	ReviewerNotes      string          `json:"reviewer_notes,omitempty"`
-	AnalysisError      string          `json:"analysis_error,omitempty"`
-	Metadata           json.RawMessage `json:"metadata,omitempty"`
-	CreatedByUserID    string          `json:"created_by_user_id,omitempty"`
-	UpdatedByUserID    string          `json:"updated_by_user_id,omitempty"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
-	AnalyzedAt         *time.Time      `json:"analyzed_at,omitempty"`
-	ArchivedAt         *time.Time      `json:"archived_at,omitempty"`
+	ID                      string          `json:"id"`
+	ProductID               string          `json:"product_id"`
+	AssetName               string          `json:"asset_name,omitempty"`
+	StorageKey              string          `json:"storage_key"`
+	FileName                string          `json:"file_name"`
+	FileExt                 string          `json:"file_ext,omitempty"`
+	MimeType                string          `json:"mime_type,omitempty"`
+	FileSize                int64           `json:"file_size"`
+	Checksum                string          `json:"checksum,omitempty"`
+	SourceType              string          `json:"source_type"`
+	IngestionSource         string          `json:"ingestion_source"`
+	DurationMs              int             `json:"duration_ms,omitempty"`
+	Width                   int             `json:"width,omitempty"`
+	Height                  int             `json:"height,omitempty"`
+	FPS                     float64         `json:"fps,omitempty"`
+	Codec                   string          `json:"codec,omitempty"`
+	Status                  string          `json:"status"`
+	AnalysisStatus          string          `json:"analysis_status"`
+	UsabilityStatus         string          `json:"usability_status"`
+	ManualCleanStatus       string          `json:"manual_clean_status"`
+	SourcePath              string          `json:"source_path,omitempty"`
+	SourceOriginalName      string          `json:"source_original_name,omitempty"`
+	SourceInMs              int             `json:"source_in_ms,omitempty"`
+	SourceOutMs             int             `json:"source_out_ms,omitempty"`
+	HasAudio                bool            `json:"has_audio"`
+	DefaultUseOriginalAudio bool            `json:"default_use_original_audio"`
+	AudioCodec              string          `json:"audio_codec,omitempty"`
+	BitrateKbps             int             `json:"bitrate_kbps,omitempty"`
+	LikelyHasSpeech         bool            `json:"likely_has_speech"`
+	SceneDescription        string          `json:"scene_description,omitempty"`
+	ShotSize                string          `json:"shot_size,omitempty"`
+	CameraMovement          string          `json:"camera_movement,omitempty"`
+	Subjects                json.RawMessage `json:"subjects,omitempty"`
+	SceneTags               json.RawMessage `json:"scene_tags,omitempty"`
+	QualityTags             json.RawMessage `json:"quality_tags,omitempty"`
+	ModelLabels             json.RawMessage `json:"model_labels,omitempty"`
+	ModelResult             json.RawMessage `json:"model_result,omitempty"`
+	ReviewOverrides         json.RawMessage `json:"review_overrides,omitempty"`
+	Embedding               json.RawMessage `json:"embedding,omitempty"`
+	ReviewerNotes           string          `json:"reviewer_notes,omitempty"`
+	AnalysisError           string          `json:"analysis_error,omitempty"`
+	Metadata                json.RawMessage `json:"metadata,omitempty"`
+	CreatedByUserID         string          `json:"created_by_user_id,omitempty"`
+	UpdatedByUserID         string          `json:"updated_by_user_id,omitempty"`
+	CreatedAt               time.Time       `json:"created_at"`
+	UpdatedAt               time.Time       `json:"updated_at"`
+	AnalyzedAt              *time.Time      `json:"analyzed_at,omitempty"`
+	ArchivedAt              *time.Time      `json:"archived_at,omitempty"`
 }
 
 type SpeechSegmentRecord struct {
@@ -132,11 +130,6 @@ type UpdateSpeechSegmentInput struct {
 
 type AssetRepository struct {
 	queries db.Querier
-}
-
-type AssetVectorRepository interface {
-	UpdateEmbedding(ctx context.Context, assetID string, embedding []float64) error
-	SearchByEmbedding(ctx context.Context, queryEmbedding []float64, limit int) ([]AssetRecord, error)
 }
 
 func NewAssetRepository(queries db.Querier) *AssetRepository {
@@ -274,59 +267,56 @@ func (r *AssetRepository) UpdateEmbedding(ctx context.Context, assetID string, e
 	})
 }
 
-func (r *AssetRepository) SearchByEmbedding(ctx context.Context, queryEmbedding []float64, limit int) ([]AssetRecord, error) {
-	return nil, ErrVectorSearchNotImplemented
-}
-
 func assetFromDB(row db.Asset) AssetRecord {
 	return AssetRecord{
-		ID:                 uuidString(row.ID),
-		ProductID:          uuidString(row.ProductID),
-		AssetName:          textString(row.AssetName),
-		StorageKey:         row.StorageKey,
-		FileName:           row.FileName,
-		FileExt:            textString(row.FileExt),
-		MimeType:           textString(row.MimeType),
-		FileSize:           row.FileSize,
-		Checksum:           textString(row.Checksum),
-		SourceType:         row.SourceType,
-		IngestionSource:    row.IngestionSource,
-		DurationMs:         int32Value(row.DurationMs),
-		Width:              int32Value(row.Width),
-		Height:             int32Value(row.Height),
-		FPS:                numericValue(row.Fps),
-		Codec:              textString(row.Codec),
-		Status:             row.Status,
-		AnalysisStatus:     row.AnalysisStatus,
-		UsabilityStatus:    row.UsabilityStatus,
-		ManualCleanStatus:  row.ManualCleanStatus,
-		SourcePath:         textString(row.SourcePath),
-		SourceOriginalName: textString(row.SourceOriginalName),
-		SourceInMs:         int32Value(row.SourceInMs),
-		SourceOutMs:        int32Value(row.SourceOutMs),
-		HasAudio:           row.HasAudio,
-		AudioCodec:         textString(row.AudioCodec),
-		BitrateKbps:        int32Value(row.BitrateKbps),
-		LikelyHasSpeech:    row.LikelyHasSpeech,
-		SceneDescription:   textString(row.SceneDescription),
-		ShotSize:           textString(row.ShotSize),
-		CameraMovement:     textString(row.CameraMovement),
-		Subjects:           cloneJSON(row.Subjects),
-		SceneTags:          cloneJSON(row.SceneTags),
-		QualityTags:        cloneJSON(row.QualityTags),
-		ModelLabels:        cloneJSON(row.ModelLabels),
-		ModelResult:        cloneJSON(row.ModelResult),
-		ReviewOverrides:    cloneJSON(row.ReviewOverrides),
-		Embedding:          cloneJSON(row.Embedding),
-		ReviewerNotes:      textString(row.ReviewerNotes),
-		AnalysisError:      textString(row.AnalysisError),
-		Metadata:           cloneJSON(row.Metadata),
-		CreatedByUserID:    uuidString(row.CreatedByUserID),
-		UpdatedByUserID:    uuidString(row.UpdatedByUserID),
-		CreatedAt:          timeValue(row.CreatedAt),
-		UpdatedAt:          timeValue(row.UpdatedAt),
-		AnalyzedAt:         optionalTime(row.AnalyzedAt),
-		ArchivedAt:         optionalTime(row.ArchivedAt),
+		ID:                      uuidString(row.ID),
+		ProductID:               uuidString(row.ProductID),
+		AssetName:               textString(row.AssetName),
+		StorageKey:              row.StorageKey,
+		FileName:                row.FileName,
+		FileExt:                 textString(row.FileExt),
+		MimeType:                textString(row.MimeType),
+		FileSize:                row.FileSize,
+		Checksum:                textString(row.Checksum),
+		SourceType:              row.SourceType,
+		IngestionSource:         row.IngestionSource,
+		DurationMs:              int32Value(row.DurationMs),
+		Width:                   int32Value(row.Width),
+		Height:                  int32Value(row.Height),
+		FPS:                     numericValue(row.Fps),
+		Codec:                   textString(row.Codec),
+		Status:                  row.Status,
+		AnalysisStatus:          row.AnalysisStatus,
+		UsabilityStatus:         row.UsabilityStatus,
+		ManualCleanStatus:       row.ManualCleanStatus,
+		SourcePath:              textString(row.SourcePath),
+		SourceOriginalName:      textString(row.SourceOriginalName),
+		SourceInMs:              int32Value(row.SourceInMs),
+		SourceOutMs:             int32Value(row.SourceOutMs),
+		HasAudio:                row.HasAudio,
+		DefaultUseOriginalAudio: row.DefaultUseOriginalAudio,
+		AudioCodec:              textString(row.AudioCodec),
+		BitrateKbps:             int32Value(row.BitrateKbps),
+		LikelyHasSpeech:         row.LikelyHasSpeech,
+		SceneDescription:        textString(row.SceneDescription),
+		ShotSize:                textString(row.ShotSize),
+		CameraMovement:          textString(row.CameraMovement),
+		Subjects:                cloneJSON(row.Subjects),
+		SceneTags:               cloneJSON(row.SceneTags),
+		QualityTags:             cloneJSON(row.QualityTags),
+		ModelLabels:             cloneJSON(row.ModelLabels),
+		ModelResult:             cloneJSON(row.ModelResult),
+		ReviewOverrides:         cloneJSON(row.ReviewOverrides),
+		Embedding:               cloneJSON(row.Embedding),
+		ReviewerNotes:           textString(row.ReviewerNotes),
+		AnalysisError:           textString(row.AnalysisError),
+		Metadata:                cloneJSON(row.Metadata),
+		CreatedByUserID:         uuidString(row.CreatedByUserID),
+		UpdatedByUserID:         uuidString(row.UpdatedByUserID),
+		CreatedAt:               timeValue(row.CreatedAt),
+		UpdatedAt:               timeValue(row.UpdatedAt),
+		AnalyzedAt:              optionalTime(row.AnalyzedAt),
+		ArchivedAt:              optionalTime(row.ArchivedAt),
 	}
 }
 

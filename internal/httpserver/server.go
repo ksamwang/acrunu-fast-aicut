@@ -20,6 +20,7 @@ type Options struct {
 	AssetEmbeddingService   *services.AssetEmbeddingService
 	VoiceoverService        *services.VoiceoverService
 	ScriptGenerationService *services.ScriptGenerationService
+	GenerationRunService    *services.GenerationRunService
 }
 
 type Server struct {
@@ -33,6 +34,7 @@ type Server struct {
 	assetEmbeddingService   *services.AssetEmbeddingService
 	voiceoverService        *services.VoiceoverService
 	scriptGenerationService *services.ScriptGenerationService
+	generationRunService    *services.GenerationRunService
 	uploadTokenService      *services.UploadTokenService
 	localStore              *storage.LocalStore
 	taskService             *services.TaskService
@@ -74,6 +76,10 @@ func New(opts Options) *Server {
 	if scriptGenerationService == nil {
 		scriptGenerationService = services.NewScriptGenerationService(productAssetService, systemConfigService, modelProviderService, opts.Config)
 	}
+	generationRunService := opts.GenerationRunService
+	if generationRunService == nil {
+		generationRunService = services.NewGenerationRunService(voiceoverService)
+	}
 
 	server := &Server{
 		cfg:                     opts.Config,
@@ -86,6 +92,7 @@ func New(opts Options) *Server {
 		assetEmbeddingService:   assetEmbeddingService,
 		voiceoverService:        voiceoverService,
 		scriptGenerationService: scriptGenerationService,
+		generationRunService:    generationRunService,
 		uploadTokenService:      services.NewUploadTokenService(),
 		localStore:              storage.NewLocalStore(opts.Config.StorageRoot),
 		taskService:             taskService,

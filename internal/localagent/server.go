@@ -374,6 +374,7 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"submitted_asset_id":    item.SubmittedAssetID,
 		"asset_name":            item.AssetName,
 		"source_type":           item.SourceType,
+		"use_original_audio":    item.UseOriginalAudio,
 		"original_file_name":    item.OriginalFileName,
 		"original_probe":        effectiveOriginalProbe(item),
 		"source_file_name":      item.SourceFileName,

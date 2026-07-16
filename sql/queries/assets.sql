@@ -24,6 +24,7 @@ INSERT INTO assets (
     source_in_ms,
     source_out_ms,
     has_audio,
+    default_use_original_audio,
     audio_codec,
     bitrate_kbps,
     likely_has_speech,
@@ -46,7 +47,7 @@ INSERT INTO assets (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42
+    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43
 )
 RETURNING *;
 
@@ -111,6 +112,13 @@ SET duration_ms = $2,
     bitrate_kbps = $9,
     likely_has_speech = $10,
     updated_by_user_id = $11,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UpdateAssetDefaultUseOriginalAudio :exec
+UPDATE assets
+SET default_use_original_audio = $2,
+    updated_by_user_id = $3,
     updated_at = now()
 WHERE id = $1;
 

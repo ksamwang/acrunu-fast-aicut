@@ -318,6 +318,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
   const watchedSourceOutMs = Form.useWatch("source_out_ms", form) ?? 0;
   const watchedInterpretFPS = Boolean(Form.useWatch("interpret_fps_enabled", form));
+  const watchedUseOriginalAudio = Boolean(Form.useWatch("use_original_audio", form));
   const watchedPlaybackFPS = Number(Form.useWatch("playback_fps", form) ?? 25);
   const watchedTranscriptSegments = (Form.useWatch("transcript_segments", form) ?? []) as WorkspaceTranscriptSegment[];
   const selectedSubmitProduct = useMemo(
@@ -423,6 +424,7 @@ export function PreprocessPage({ token }: { token: string }) {
     form.setFieldsValue({
       asset_name: selectedItem.asset_name ?? "",
       source_type: selectedItem.source_type || defaultSourceType,
+      use_original_audio: Boolean(selectedItem.use_original_audio),
       source_in_ms: selectedItem.source_in_ms ?? 0,
       source_out_ms: sourceOutMs,
       interpret_fps_enabled: Boolean(selectedItem.interpret_fps_enabled),
@@ -584,6 +586,7 @@ export function PreprocessPage({ token }: { token: string }) {
     const values = form.getFieldsValue([
       "asset_name",
       "source_type",
+      "use_original_audio",
       "source_in_ms",
       "source_out_ms",
       "interpret_fps_enabled",
@@ -635,6 +638,7 @@ export function PreprocessPage({ token }: { token: string }) {
       body: JSON.stringify({
         asset_name: item.asset_name ?? "",
         source_type: item.source_type ?? defaultSourceType,
+        use_original_audio: Boolean(item.use_original_audio),
         source_in_ms: item.source_in_ms,
         source_out_ms: item.source_out_ms,
         interpret_fps_enabled: Boolean(item.interpret_fps_enabled),
@@ -881,7 +885,8 @@ export function PreprocessPage({ token }: { token: string }) {
           product_id: submitProductID,
           upload_url: `${window.location.origin}/api/uploads/clean-shot`,
           upload_token: uploadToken.token,
-          selling_point_ids: submitSellingPointIDs
+          selling_point_ids: submitSellingPointIDs,
+          use_original_audio: watchedUseOriginalAudio
         })
       });
 
@@ -977,6 +982,7 @@ export function PreprocessPage({ token }: { token: string }) {
     const values = form.getFieldsValue([
       "asset_name",
       "source_type",
+      "use_original_audio",
       "source_in_ms",
       "source_out_ms",
       "interpret_fps_enabled",
@@ -1286,6 +1292,9 @@ export function PreprocessPage({ token }: { token: string }) {
             <Form.Item name="interpret_fps_enabled" hidden valuePropName="checked">
               <Switch />
             </Form.Item>
+            <Form.Item name="use_original_audio" hidden valuePropName="checked">
+              <Switch />
+            </Form.Item>
             <Form.Item name="playback_fps" hidden>
               <Input type="hidden" />
             </Form.Item>
@@ -1352,6 +1361,15 @@ export function PreprocessPage({ token }: { token: string }) {
                     onChange={setSubmitSellingPointIDs}
                     options={sellingPoints.map((item) => ({ value: item.id, label: item.title }))}
                   />
+                  <Space size={4} className="preprocess-original-audio-toggle">
+                    <Switch
+                      size="small"
+                      checked={watchedUseOriginalAudio}
+                      disabled={!selectedItem.probe.has_audio}
+                      onChange={(checked) => form.setFieldsValue({ use_original_audio: checked })}
+                    />
+                    <Typography.Text type="secondary">保留原声</Typography.Text>
+                  </Space>
                 </div>
               </div>
 

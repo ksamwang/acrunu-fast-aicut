@@ -205,8 +205,27 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 
 	works := make([]services.VoiceoverWork, 0, len(request.Variants))
 	for index, variant := range request.Variants {
-		task, err := s.taskService.CreateVoiceoverGenerateTask(c.Request.Context(), user.ID, product.ID, queue.VoiceoverGeneratePayload{})
+		run, err := s.generationRunService.Create(c.Request.Context(), services.CreateGenerationRunInput{
+			ProductID:       product.ID,
+			CreatedByUserID: user.ID,
+			ConfigSnapshot: map[string]any{
+				"voice_profile_id": request.VoiceProfileID,
+				"variant_index":    index + 1,
+			},
+		})
 		if err != nil {
+			handleVoiceoverError(c, err)
+			return
+		}
+		task, err := s.taskService.CreateVoiceoverGenerateTask(c.Request.Context(), user.ID, product.ID, queue.VoiceoverGeneratePayload{GenerationRunID: run.ID})
+		if err != nil {
+			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
+			handleVoiceoverError(c, err)
+			return
+		}
+		if err := s.generationRunService.LinkTask(c.Request.Context(), run.ID, task.ID, "voiceover"); err != nil {
+			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
+			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
 			handleVoiceoverError(c, err)
 			return
 		}
@@ -220,19 +239,29 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		})
 		if err != nil {
 			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
+			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
+			handleVoiceoverError(c, err)
+			return
+		}
+		if err := s.generationRunService.AttachVoiceoverArtifacts(c.Request.Context(), run.ID, task.ID, scriptVariantID, voiceoverID); err != nil {
+			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
+			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
 			handleVoiceoverError(c, err)
 			return
 		}
 		if err := s.queueClient.EnqueueVoiceoverGenerate(queue.VoiceoverGeneratePayload{
 			TaskID:          task.ID,
+			GenerationRunID: run.ID,
 			ScriptVariantID: scriptVariantID,
 			VoiceoverID:     voiceoverID,
 		}); err != nil {
 			_ = s.taskService.MarkFailed(c.Request.Context(), task.ID, err.Error())
-			work.Status = "failed"
-			work.Progress = 100
-			work.StageLabel = "生成失败"
-			work.ErrorMessage = err.Error()
+			_ = s.generationRunService.MarkFailed(c.Request.Context(), run.ID, err)
+			handleVoiceoverError(c, err)
+			return
+		}
+		if generatedWork, err := s.generationRunService.GetWork(c.Request.Context(), run.ID); err == nil {
+			work = generatedWork
 		}
 		works = append(works, work)
 	}
@@ -240,7 +269,7 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 }
 
 func (s *Server) handleListVoiceoverWorks(c *gin.Context) {
-	works, err := s.voiceoverService.ListVoiceoverWorks(c.Request.Context())
+	works, err := s.generationRunService.ListWorks(c.Request.Context())
 	if err != nil {
 		handleVoiceoverError(c, err)
 		return
@@ -249,7 +278,7 @@ func (s *Server) handleListVoiceoverWorks(c *gin.Context) {
 }
 
 func (s *Server) handleGetVoiceoverWork(c *gin.Context) {
-	work, err := s.voiceoverService.GetVoiceoverWork(c.Request.Context(), c.Param("taskID"))
+	work, err := s.generationRunService.GetWork(c.Request.Context(), c.Param("taskID"))
 	if err != nil {
 		handleVoiceoverError(c, err)
 		return
@@ -336,7 +365,7 @@ func parseVoiceFormBool(value string) bool {
 
 func handleVoiceoverError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrVoiceProfileNotFound), errors.Is(err, services.ErrVoiceAuditionNotFound), errors.Is(err, services.ErrVoiceoverWorkNotFound):
+	case errors.Is(err, services.ErrVoiceProfileNotFound), errors.Is(err, services.ErrVoiceAuditionNotFound), errors.Is(err, services.ErrVoiceoverWorkNotFound), errors.Is(err, services.ErrGenerationRunNotFound):
 		Fail(c, http.StatusNotFound, "not_found", "未找到对应的音色或配音任务")
 	case errors.Is(err, services.ErrVoiceProfileDisabled):
 		Fail(c, http.StatusConflict, "voice_profile_disabled", "音色已停用")

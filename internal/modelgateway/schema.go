@@ -7,6 +7,7 @@ import (
 
 const OutputSchemaVersion = "phase2.asset_analysis.v2"
 const ScriptGenerationOutputSchemaVersion = "workbench.script_generation.v1"
+const EditPlanOutputSchemaVersion = "workbench.edit_plan.v1"
 
 var allowedShotSizes = map[string]struct{}{
 	"":                {},
@@ -138,6 +139,33 @@ func ScriptGenerationOutputSchema() map[string]any {
 								},
 							},
 						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func EditPlanOutputSchema() map[string]any {
+	return map[string]any{
+		"version": EditPlanOutputSchemaVersion,
+		"type":    "object",
+		"required": []string{
+			"clips",
+		},
+		"properties": map[string]any{
+			"clips": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"narration_segment_id", "candidate_id", "source_in_ms", "source_out_ms", "label", "visual_goal"},
+					"properties": map[string]any{
+						"narration_segment_id": map[string]any{"type": "string", "minLength": 1},
+						"candidate_id":         map[string]any{"type": "string", "minLength": 1},
+						"source_in_ms":         map[string]any{"type": "integer", "minimum": 0},
+						"source_out_ms":        map[string]any{"type": "integer", "minimum": 1},
+						"label":                map[string]any{"type": "string", "minLength": 1},
+						"visual_goal":          map[string]any{"type": "string", "minLength": 1},
 					},
 				},
 			},

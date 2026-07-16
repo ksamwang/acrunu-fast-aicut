@@ -54,6 +54,10 @@ func (h *stubHandler) HandleVoiceoverGenerate(_ context.Context, _ VoiceoverGene
 	return nil
 }
 
+func (h *stubHandler) HandleEditPlanGenerate(_ context.Context, _ EditPlanGeneratePayload) error {
+	return nil
+}
+
 func TestHandleFileTaskDispatchesAssetEmbedding(t *testing.T) {
 	payload, err := json.Marshal(AssetEmbeddingPayload{AssetID: "asset-3"})
 	if err != nil {

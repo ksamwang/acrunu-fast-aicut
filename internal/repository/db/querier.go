@@ -76,6 +76,7 @@ type Querier interface {
 	RestoreAsset(ctx context.Context, arg RestoreAssetParams) error
 	SetDefaultVoiceProfile(ctx context.Context, arg SetDefaultVoiceProfileParams) (VoiceProfile, error)
 	UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalysisParams) error
+	UpdateAssetDefaultUseOriginalAudio(ctx context.Context, arg UpdateAssetDefaultUseOriginalAudioParams) error
 	UpdateAssetEmbedding(ctx context.Context, arg UpdateAssetEmbeddingParams) error
 	UpdateAssetMediaInfo(ctx context.Context, arg UpdateAssetMediaInfoParams) error
 	UpdateAssetMetadata(ctx context.Context, arg UpdateAssetMetadataParams) error

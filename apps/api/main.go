@@ -25,6 +25,8 @@ func main() {
 	defer assetEmbeddingService.Close()
 	voiceoverService := services.NewConfiguredVoiceoverService(context.Background(), cfg, logger)
 	defer voiceoverService.Close()
+	generationRunService := services.NewConfiguredGenerationRunService(context.Background(), cfg, voiceoverService.Service, logger)
+	defer generationRunService.Close()
 	scriptGenerationService := services.NewScriptGenerationService(
 		productAssetService.Service,
 		systemConfigService.Service,
@@ -42,6 +44,7 @@ func main() {
 		AssetEmbeddingService:   assetEmbeddingService.Service,
 		VoiceoverService:        voiceoverService.Service,
 		ScriptGenerationService: scriptGenerationService,
+		GenerationRunService:    generationRunService.Service,
 	})
 
 	if err := server.Run(); err != nil {

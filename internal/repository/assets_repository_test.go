@@ -1,8 +1,6 @@
 package repository
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -21,53 +19,54 @@ func TestAssetFromDB(t *testing.T) {
 	userID := mustUUID(t)
 
 	record := assetFromDB(db.Asset{
-		ID:                 pgUUID(assetID),
-		ProductID:          pgUUID(productID),
-		AssetName:          pgText("Demo Shot"),
-		StorageKey:         "assets/demo.mp4",
-		FileName:           "demo.mp4",
-		FileExt:            pgText(".mp4"),
-		MimeType:           pgText("video/mp4"),
-		FileSize:           2048,
-		Checksum:           pgText("abc123"),
-		SourceType:         "talking_head",
-		IngestionSource:    "manual-import",
-		DurationMs:         pgInt4(1500),
-		Width:              pgInt4(1080),
-		Height:             pgInt4(1920),
-		Fps:                pgNumeric(29.97),
-		Codec:              pgText("h264"),
-		Status:             "ready",
-		AnalysisStatus:     "analyzing",
-		UsabilityStatus:    "needs_review",
-		ManualCleanStatus:  "cleaned",
-		SourcePath:         pgText("D:/shots/demo.mp4"),
-		SourceOriginalName: pgText("camera_take.mp4"),
-		SourceInMs:         pgInt4(100),
-		SourceOutMs:        pgInt4(1600),
-		HasAudio:           true,
-		AudioCodec:         pgText("aac"),
-		BitrateKbps:        pgInt4(3200),
-		LikelyHasSpeech:    true,
-		SceneDescription:   pgText("driver installs product"),
-		ShotSize:           pgText("medium_close_up"),
-		CameraMovement:     pgText("push_in"),
-		Subjects:           []byte(`["driver","product"]`),
-		SceneTags:          []byte(`["car","interior"]`),
-		QualityTags:        []byte(`["slight_shake"]`),
-		ModelLabels:        []byte(`{"scene_description":"driver installs product"}`),
-		ModelResult:        []byte(`{"score":0.92}`),
-		ReviewOverrides:    []byte(`{"scene_description":"manual override"}`),
-		Embedding:          []byte(`[0.12,0.34,0.56]`),
-		ReviewerNotes:      pgText("usable after crop"),
-		AnalysisError:      pgText(""),
-		Metadata:           []byte(`{"source":"demo"}`),
-		CreatedByUserID:    pgUUID(userID),
-		UpdatedByUserID:    pgUUID(userID),
-		CreatedAt:          pgTime(now),
-		UpdatedAt:          pgTime(now),
-		AnalyzedAt:         pgTime(analyzedAt),
-		ArchivedAt:         pgTime(archivedAt),
+		ID:                      pgUUID(assetID),
+		ProductID:               pgUUID(productID),
+		AssetName:               pgText("Demo Shot"),
+		StorageKey:              "assets/demo.mp4",
+		FileName:                "demo.mp4",
+		FileExt:                 pgText(".mp4"),
+		MimeType:                pgText("video/mp4"),
+		FileSize:                2048,
+		Checksum:                pgText("abc123"),
+		SourceType:              "talking_head",
+		IngestionSource:         "manual-import",
+		DurationMs:              pgInt4(1500),
+		Width:                   pgInt4(1080),
+		Height:                  pgInt4(1920),
+		Fps:                     pgNumeric(29.97),
+		Codec:                   pgText("h264"),
+		Status:                  "ready",
+		AnalysisStatus:          "analyzing",
+		UsabilityStatus:         "needs_review",
+		ManualCleanStatus:       "cleaned",
+		SourcePath:              pgText("D:/shots/demo.mp4"),
+		SourceOriginalName:      pgText("camera_take.mp4"),
+		SourceInMs:              pgInt4(100),
+		SourceOutMs:             pgInt4(1600),
+		HasAudio:                true,
+		DefaultUseOriginalAudio: true,
+		AudioCodec:              pgText("aac"),
+		BitrateKbps:             pgInt4(3200),
+		LikelyHasSpeech:         true,
+		SceneDescription:        pgText("driver installs product"),
+		ShotSize:                pgText("medium_close_up"),
+		CameraMovement:          pgText("push_in"),
+		Subjects:                []byte(`["driver","product"]`),
+		SceneTags:               []byte(`["car","interior"]`),
+		QualityTags:             []byte(`["slight_shake"]`),
+		ModelLabels:             []byte(`{"scene_description":"driver installs product"}`),
+		ModelResult:             []byte(`{"score":0.92}`),
+		ReviewOverrides:         []byte(`{"scene_description":"manual override"}`),
+		Embedding:               []byte(`[0.12,0.34,0.56]`),
+		ReviewerNotes:           pgText("usable after crop"),
+		AnalysisError:           pgText(""),
+		Metadata:                []byte(`{"source":"demo"}`),
+		CreatedByUserID:         pgUUID(userID),
+		UpdatedByUserID:         pgUUID(userID),
+		CreatedAt:               pgTime(now),
+		UpdatedAt:               pgTime(now),
+		AnalyzedAt:              pgTime(analyzedAt),
+		ArchivedAt:              pgTime(archivedAt),
 	})
 
 	if record.ID != assetID.String() {
@@ -96,6 +95,9 @@ func TestAssetFromDB(t *testing.T) {
 	}
 	if !record.LikelyHasSpeech {
 		t.Fatalf("expected likely_has_speech to map")
+	}
+	if !record.DefaultUseOriginalAudio {
+		t.Fatalf("expected default original-audio policy to map")
 	}
 	if record.AnalyzedAt == nil || !record.AnalyzedAt.Equal(analyzedAt) {
 		t.Fatalf("expected analyzed_at to map, got %+v", record.AnalyzedAt)
@@ -137,15 +139,6 @@ func TestSpeechSegmentFromDB(t *testing.T) {
 	}
 	if record.Transcript != "大家好" {
 		t.Fatalf("expected transcript to map, got %q", record.Transcript)
-	}
-}
-
-func TestAssetRepositorySearchByEmbeddingReturnsPlaceholderError(t *testing.T) {
-	repo := NewAssetRepository(nil)
-
-	_, err := repo.SearchByEmbedding(context.Background(), []float64{0.1, 0.2}, 5)
-	if !errors.Is(err, ErrVectorSearchNotImplemented) {
-		t.Fatalf("expected ErrVectorSearchNotImplemented, got %v", err)
 	}
 }
 

@@ -170,16 +170,18 @@ draft
 - 文案生成会校验变体数量、必填字段、镜头意图结构、素材类型和目标卖点覆盖；缺少默认 LLM 配置时返回明确错误，不回退为前端 mock。
 - 音色配置已由服务端持久化：参考音频上传至服务端存储，创建或编辑后异步生成固定样音；浏览器只播放服务端返回的 WAV。
 - 工作台支持“试听当前文案”。试听作为 `voice_audition` 异步任务运行，不阻塞文案编辑。
-- “开始任务”已创建真实 `voiceover_generate` 任务。worker 使用服务端 CosyVoice，保存 WAV，再由 FunASR 生成连续且不重叠的 `narration_segments`。
-- 成品库从 `/api/workbench/works` 读取并轮询 `generating`、`completed` 和异常 `failed` 状态；详情页展示实际旁白音频、真实时长、句段和初步镜头意图。当前“已完成”表示旁白任务完成，不表示视频已渲染。
+- “开始任务”会先创建一个 `generation_run`，再创建关联的 `voiceover_generate` 子任务。worker 使用服务端 CosyVoice，保存 WAV，再由 FunASR 生成连续且不重叠的 `narration_segments`。
+- 旁白完成后，worker 创建 `edit_plan_generate` 子任务。它根据每个 `narration_segment`、对应 beat 和产品卖点生成查询向量，在同产品的可用素材中按来源类型、时长和卖点硬过滤后进行 pgvector 候选召回。
+- LLM 只能从每个句段对应的闭集候选中选择素材与合法 I/O。服务端校验句段顺序、候选 ID、素材 I/O、单源片段时长和原声策略，并持久化候选快照、`edit_plans` 与 `clip_segments`。
+- 成品库从 `/api/workbench/works` 读取并轮询 `generating`、`completed` 和异常 `failed` 状态；详情页展示实际旁白音频、真实时长、句段和已生成编排。当前编排完成仍是 `generating / plan_ready`；只有后续渲染产物完成才应显示“已完成”。
 
 尚未具备完整工作台链路，主要缺口如下：
 
 - 已具备服务端 LLM 文案生成接口，但临时 variants 尚不单独持久化；只有用户确认并启动旁白任务后，最终文案才会写入 `script_variants`。
-- `modelgateway` 已提供独立的 OpenAI-compatible Script Generator；尚无候选素材约束下的编排规划接口。
-- 向量已可写入，但 `AssetRepository.SearchByEmbedding` 仍返回“未实现”，尚不能进行实际候选召回。
-- 已落地 `voice_profile_preview`、`voice_audition` 与 `voiceover_generate` 三类任务，以及 `voice_profiles`、`script_variants`、`voiceovers`、`narration_segments` 和 `voice_auditions` 的持久化。
-- 尚无 `edit_plans`、`clip_segments` 和视频渲染任务；成品库暂不能播放最终视频。
+- `modelgateway` 已提供 OpenAI-compatible Script Generator 与候选集约束的 `edit_plan` 规划器。
+- 候选召回通过 `asset_embedding_objects` 的 pgvector 数据执行；旧的无模型上下文 `AssetRepository.SearchByEmbedding` 占位接口已移除，避免绕过产品、provider、模型和维度约束。
+- 已落地 `voice_profile_preview`、`voice_audition`、`voiceover_generate` 与 `edit_plan_generate` 子任务，以及 `generation_runs`、`edit_plans`、`clip_segments` 等持久化。
+- 尚无视频渲染任务与最终视频输出；成品库暂不能播放最终成片。
 
 ## 6. CosyVoice3
 
@@ -215,9 +217,9 @@ Remotion 不属于首期工作台、文案或编排链路的前置依赖。
 
 ### 第二步：真实候选检索
 
-- 实现 pgvector 相似度检索。
-- 建立镜头需求对象、结构化过滤和候选集重排。
-- 保证编排 LLM 只能从候选集选择素材。
+- [x] 实现 pgvector 相似度检索。
+- [x] 建立镜头需求对象、结构化过滤和候选集重排。
+- [x] 保证编排 LLM 只能从候选集选择素材。
 
 ### 第三步：CosyVoice3 与 narration 时间轴
 
@@ -227,9 +229,9 @@ Remotion 不属于首期工作台、文案或编排链路的前置依赖。
 
 ### 第四步：编排与 edit_plan
 
-- 按 narration segments 生成镜头需求。
-- 调用候选集检索和 LLM 编排。
-- 生成并校验 `edit_plan` 与 `clip_segments`。
+- [x] 按 narration segments 生成镜头需求。
+- [x] 调用候选集检索和 LLM 编排。
+- [x] 生成并校验 `edit_plan` 与 `clip_segments`。
 
 ### 第五步：渲染
 

@@ -10,53 +10,54 @@ import (
 )
 
 type Asset struct {
-	ID                 pgtype.UUID        `json:"id"`
-	ProductID          pgtype.UUID        `json:"product_id"`
-	StorageKey         string             `json:"storage_key"`
-	FileName           string             `json:"file_name"`
-	FileExt            pgtype.Text        `json:"file_ext"`
-	MimeType           pgtype.Text        `json:"mime_type"`
-	FileSize           int64              `json:"file_size"`
-	Checksum           pgtype.Text        `json:"checksum"`
-	SourceType         string             `json:"source_type"`
-	DurationMs         pgtype.Int4        `json:"duration_ms"`
-	Width              pgtype.Int4        `json:"width"`
-	Height             pgtype.Int4        `json:"height"`
-	Fps                pgtype.Numeric     `json:"fps"`
-	Codec              pgtype.Text        `json:"codec"`
-	Status             string             `json:"status"`
-	ManualCleanStatus  string             `json:"manual_clean_status"`
-	SourceOriginalName pgtype.Text        `json:"source_original_name"`
-	SourceInMs         pgtype.Int4        `json:"source_in_ms"`
-	SourceOutMs        pgtype.Int4        `json:"source_out_ms"`
-	Metadata           []byte             `json:"metadata"`
-	CreatedByUserID    pgtype.UUID        `json:"created_by_user_id"`
-	UpdatedByUserID    pgtype.UUID        `json:"updated_by_user_id"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	AssetName          pgtype.Text        `json:"asset_name"`
-	SourcePath         pgtype.Text        `json:"source_path"`
-	IngestionSource    string             `json:"ingestion_source"`
-	AnalysisStatus     string             `json:"analysis_status"`
-	UsabilityStatus    string             `json:"usability_status"`
-	HasAudio           bool               `json:"has_audio"`
-	AudioCodec         pgtype.Text        `json:"audio_codec"`
-	BitrateKbps        pgtype.Int4        `json:"bitrate_kbps"`
-	SceneDescription   pgtype.Text        `json:"scene_description"`
-	ShotSize           pgtype.Text        `json:"shot_size"`
-	CameraMovement     pgtype.Text        `json:"camera_movement"`
-	Subjects           []byte             `json:"subjects"`
-	SceneTags          []byte             `json:"scene_tags"`
-	QualityTags        []byte             `json:"quality_tags"`
-	ModelResult        []byte             `json:"model_result"`
-	ReviewerNotes      pgtype.Text        `json:"reviewer_notes"`
-	AnalysisError      pgtype.Text        `json:"analysis_error"`
-	AnalyzedAt         pgtype.Timestamptz `json:"analyzed_at"`
-	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
-	ModelLabels        []byte             `json:"model_labels"`
-	ReviewOverrides    []byte             `json:"review_overrides"`
-	LikelyHasSpeech    bool               `json:"likely_has_speech"`
-	Embedding          []byte             `json:"embedding"`
+	ID                      pgtype.UUID        `json:"id"`
+	ProductID               pgtype.UUID        `json:"product_id"`
+	StorageKey              string             `json:"storage_key"`
+	FileName                string             `json:"file_name"`
+	FileExt                 pgtype.Text        `json:"file_ext"`
+	MimeType                pgtype.Text        `json:"mime_type"`
+	FileSize                int64              `json:"file_size"`
+	Checksum                pgtype.Text        `json:"checksum"`
+	SourceType              string             `json:"source_type"`
+	DurationMs              pgtype.Int4        `json:"duration_ms"`
+	Width                   pgtype.Int4        `json:"width"`
+	Height                  pgtype.Int4        `json:"height"`
+	Fps                     pgtype.Numeric     `json:"fps"`
+	Codec                   pgtype.Text        `json:"codec"`
+	Status                  string             `json:"status"`
+	ManualCleanStatus       string             `json:"manual_clean_status"`
+	SourceOriginalName      pgtype.Text        `json:"source_original_name"`
+	SourceInMs              pgtype.Int4        `json:"source_in_ms"`
+	SourceOutMs             pgtype.Int4        `json:"source_out_ms"`
+	Metadata                []byte             `json:"metadata"`
+	CreatedByUserID         pgtype.UUID        `json:"created_by_user_id"`
+	UpdatedByUserID         pgtype.UUID        `json:"updated_by_user_id"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+	AssetName               pgtype.Text        `json:"asset_name"`
+	SourcePath              pgtype.Text        `json:"source_path"`
+	IngestionSource         string             `json:"ingestion_source"`
+	AnalysisStatus          string             `json:"analysis_status"`
+	UsabilityStatus         string             `json:"usability_status"`
+	HasAudio                bool               `json:"has_audio"`
+	AudioCodec              pgtype.Text        `json:"audio_codec"`
+	BitrateKbps             pgtype.Int4        `json:"bitrate_kbps"`
+	SceneDescription        pgtype.Text        `json:"scene_description"`
+	ShotSize                pgtype.Text        `json:"shot_size"`
+	CameraMovement          pgtype.Text        `json:"camera_movement"`
+	Subjects                []byte             `json:"subjects"`
+	SceneTags               []byte             `json:"scene_tags"`
+	QualityTags             []byte             `json:"quality_tags"`
+	ModelResult             []byte             `json:"model_result"`
+	ReviewerNotes           pgtype.Text        `json:"reviewer_notes"`
+	AnalysisError           pgtype.Text        `json:"analysis_error"`
+	AnalyzedAt              pgtype.Timestamptz `json:"analyzed_at"`
+	ArchivedAt              pgtype.Timestamptz `json:"archived_at"`
+	ModelLabels             []byte             `json:"model_labels"`
+	ReviewOverrides         []byte             `json:"review_overrides"`
+	LikelyHasSpeech         bool               `json:"likely_has_speech"`
+	Embedding               []byte             `json:"embedding"`
+	DefaultUseOriginalAudio bool               `json:"default_use_original_audio"`
 }
 
 type AssetEmbeddingObject struct {
@@ -92,6 +93,66 @@ type AssetSellingPoint struct {
 	AssetID        pgtype.UUID        `json:"asset_id"`
 	SellingPointID pgtype.UUID        `json:"selling_point_id"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type ClipSegment struct {
+	ID                 pgtype.UUID        `json:"id"`
+	EditPlanID         pgtype.UUID        `json:"edit_plan_id"`
+	SegmentIndex       int32              `json:"segment_index"`
+	NarrationSegmentID pgtype.UUID        `json:"narration_segment_id"`
+	AssetID            pgtype.UUID        `json:"asset_id"`
+	SpeechSegmentID    pgtype.UUID        `json:"speech_segment_id"`
+	SourceInMs         int32              `json:"source_in_ms"`
+	SourceOutMs        int32              `json:"source_out_ms"`
+	TimelineInMs       int32              `json:"timeline_in_ms"`
+	TimelineDurationMs int32              `json:"timeline_duration_ms"`
+	SourceType         string             `json:"source_type"`
+	Label              string             `json:"label"`
+	VisualGoal         string             `json:"visual_goal"`
+	UseOriginalAudio   bool               `json:"use_original_audio"`
+	AudioGainDb        pgtype.Numeric     `json:"audio_gain_db"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+type EditPlan struct {
+	ID                pgtype.UUID        `json:"id"`
+	GenerationRunID   pgtype.UUID        `json:"generation_run_id"`
+	ScriptVariantID   pgtype.UUID        `json:"script_variant_id"`
+	VoiceoverID       pgtype.UUID        `json:"voiceover_id"`
+	Status            string             `json:"status"`
+	CandidateSnapshot []byte             `json:"candidate_snapshot"`
+	PlanJson          []byte             `json:"plan_json"`
+	LlmProvider       string             `json:"llm_provider"`
+	LlmModel          string             `json:"llm_model"`
+	PromptVersion     string             `json:"prompt_version"`
+	ErrorMessage      pgtype.Text        `json:"error_message"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GenerationRun struct {
+	ID              pgtype.UUID        `json:"id"`
+	ProductID       pgtype.UUID        `json:"product_id"`
+	CreatedByUserID pgtype.UUID        `json:"created_by_user_id"`
+	VoiceoverTaskID pgtype.UUID        `json:"voiceover_task_id"`
+	ScriptVariantID pgtype.UUID        `json:"script_variant_id"`
+	VoiceoverID     pgtype.UUID        `json:"voiceover_id"`
+	Status          string             `json:"status"`
+	Stage           string             `json:"stage"`
+	Progress        int32              `json:"progress"`
+	ErrorMessage    pgtype.Text        `json:"error_message"`
+	ConfigSnapshot  []byte             `json:"config_snapshot"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+}
+
+type GenerationRunTask struct {
+	GenerationRunID  pgtype.UUID        `json:"generation_run_id"`
+	GenerationTaskID pgtype.UUID        `json:"generation_task_id"`
+	Stage            string             `json:"stage"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 
 type GenerationTask struct {

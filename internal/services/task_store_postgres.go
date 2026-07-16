@@ -72,6 +72,15 @@ func (s *PostgresTaskStore) CreateVoiceAuditionTask(ctx context.Context, userID 
 
 func (s *PostgresTaskStore) CreateVoiceoverGenerateTask(ctx context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error) {
 	return s.createTask(ctx, userID, productID, "voiceover_generate", map[string]any{
+		"generation_run_id": payload.GenerationRunID,
+		"script_variant_id": payload.ScriptVariantID,
+		"voiceover_id":      payload.VoiceoverID,
+	})
+}
+
+func (s *PostgresTaskStore) CreateEditPlanGenerateTask(ctx context.Context, userID string, productID string, payload queue.EditPlanGeneratePayload) (GenerationTask, error) {
+	return s.createTask(ctx, userID, productID, "edit_plan_generate", map[string]any{
+		"generation_run_id": payload.GenerationRunID,
 		"script_variant_id": payload.ScriptVariantID,
 		"voiceover_id":      payload.VoiceoverID,
 	})

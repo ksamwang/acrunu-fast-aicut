@@ -46,6 +46,7 @@ type TaskStore interface {
 	CreateVoiceProfilePreviewTask(ctx context.Context, userID string, payload queue.VoiceProfilePreviewPayload) (GenerationTask, error)
 	CreateVoiceAuditionTask(ctx context.Context, userID string, payload queue.VoiceAuditionPayload) (GenerationTask, error)
 	CreateVoiceoverGenerateTask(ctx context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error)
+	CreateEditPlanGenerateTask(ctx context.Context, userID string, productID string, payload queue.EditPlanGeneratePayload) (GenerationTask, error)
 	GetTask(ctx context.Context, taskID string) (GenerationTask, error)
 	ListTasks(ctx context.Context) ([]GenerationTask, error)
 	MarkRunning(ctx context.Context, taskID string) error
@@ -126,6 +127,14 @@ func (s *TaskService) CreateVoiceAuditionTask(ctx context.Context, userID string
 
 func (s *TaskService) CreateVoiceoverGenerateTask(ctx context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error) {
 	task, err := s.store.CreateVoiceoverGenerateTask(ctx, userID, productID, payload)
+	if err != nil {
+		return GenerationTask{}, err
+	}
+	return finalizeTask(task), nil
+}
+
+func (s *TaskService) CreateEditPlanGenerateTask(ctx context.Context, userID string, productID string, payload queue.EditPlanGeneratePayload) (GenerationTask, error) {
+	task, err := s.store.CreateEditPlanGenerateTask(ctx, userID, productID, payload)
 	if err != nil {
 		return GenerationTask{}, err
 	}
@@ -235,6 +244,15 @@ func (s *fileTaskStore) CreateVoiceAuditionTask(_ context.Context, userID string
 
 func (s *fileTaskStore) CreateVoiceoverGenerateTask(_ context.Context, userID string, productID string, payload queue.VoiceoverGeneratePayload) (GenerationTask, error) {
 	return s.createTask(userID, productID, "voiceover_generate", map[string]any{
+		"generation_run_id": payload.GenerationRunID,
+		"script_variant_id": payload.ScriptVariantID,
+		"voiceover_id":      payload.VoiceoverID,
+	})
+}
+
+func (s *fileTaskStore) CreateEditPlanGenerateTask(_ context.Context, userID string, productID string, payload queue.EditPlanGeneratePayload) (GenerationTask, error) {
+	return s.createTask(userID, productID, "edit_plan_generate", map[string]any{
+		"generation_run_id": payload.GenerationRunID,
 		"script_variant_id": payload.ScriptVariantID,
 		"voiceover_id":      payload.VoiceoverID,
 	})

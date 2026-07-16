@@ -46,6 +46,7 @@ type WorkspaceItem struct {
 	SubmittedAssetID    string                       `json:"submitted_asset_id,omitempty"`
 	AssetName           string                       `json:"asset_name,omitempty"`
 	SourceType          string                       `json:"source_type,omitempty"`
+	UseOriginalAudio    bool                         `json:"use_original_audio"`
 	OriginalFileName    string                       `json:"original_file_name"`
 	OriginalSourcePath  string                       `json:"original_source_path,omitempty"`
 	OriginalProbe       ffmpeg.ProbeResult           `json:"original_probe,omitempty"`
@@ -107,6 +108,7 @@ type WorkspaceAnalysis struct {
 type WorkspaceSaveInput struct {
 	AssetName          string                       `json:"asset_name"`
 	SourceType         string                       `json:"source_type"`
+	UseOriginalAudio   bool                         `json:"use_original_audio"`
 	SourceInMs         int                          `json:"source_in_ms"`
 	SourceOutMs        int                          `json:"source_out_ms"`
 	InterpretFPS       bool                         `json:"interpret_fps_enabled"`
@@ -132,10 +134,11 @@ type WorkspaceVLMLabelInput struct {
 }
 
 type WorkspaceSubmitInput struct {
-	ProductID       string   `json:"product_id"`
-	UploadURL       string   `json:"upload_url"`
-	UploadToken     string   `json:"upload_token"`
-	SellingPointIDs []string `json:"selling_point_ids"`
+	ProductID        string   `json:"product_id"`
+	UploadURL        string   `json:"upload_url"`
+	UploadToken      string   `json:"upload_token"`
+	SellingPointIDs  []string `json:"selling_point_ids"`
+	UseOriginalAudio bool     `json:"use_original_audio"`
 }
 
 type Workspace struct {
@@ -241,6 +244,7 @@ func (w *Workspace) SaveItem(ctx context.Context, itemID string, input Workspace
 
 	item.AssetName = strings.TrimSpace(input.AssetName)
 	item.SourceType = input.SourceType
+	item.UseOriginalAudio = input.UseOriginalAudio
 	item.SourceInMs = input.SourceInMs
 	item.SourceOutMs = input.SourceOutMs
 	if err := w.applyWorkingSourceLocked(ctx, &item, input); err != nil {
@@ -523,6 +527,7 @@ func (w *Workspace) SubmitItem(ctx context.Context, itemID string, input Workspa
 	item = w.items[itemID]
 	item.Status = workspaceStatusSubmitted
 	item.ProductID = input.ProductID
+	item.UseOriginalAudio = input.UseOriginalAudio
 	item.SubmittedAssetID = submittedAssetID
 	item.SubmittedAt = &now
 	item.LastError = ""
@@ -1136,30 +1141,31 @@ func (w *Workspace) submitPreparedItem(ctx context.Context, item WorkspaceItem, 
 	writer := multipart.NewWriter(&body)
 
 	fields := map[string]string{
-		"submission_mode":      "preprocessed",
-		"source_type":          item.SourceType,
-		"manual_clean_status":  "cleaned",
-		"usability_status":     firstNonEmpty(itemAnalysisUsability(item), "usable"),
-		"asset_name":           firstNonEmpty(item.AssetName, item.OriginalFileName),
-		"source_path":          item.SourcePath,
-		"source_original_name": item.OriginalFileName,
-		"reviewer_notes":       item.ReviewerNotes,
-		"product_id":           input.ProductID,
-		"source_in_ms":         fmt.Sprintf("%d", item.SourceInMs),
-		"source_out_ms":        fmt.Sprintf("%d", item.SourceOutMs),
-		"duration_ms":          fmt.Sprintf("%d", cleanShotProbe.DurationMs),
-		"width":                fmt.Sprintf("%d", cleanShotProbe.Width),
-		"height":               fmt.Sprintf("%d", cleanShotProbe.Height),
-		"fps":                  fmt.Sprintf("%.3f", cleanShotProbe.FPS),
-		"codec":                cleanShotProbe.Codec,
-		"has_audio":            fmt.Sprintf("%t", cleanShotProbe.HasAudio),
-		"audio_codec":          cleanShotProbe.AudioCodec,
-		"bitrate_kbps":         fmt.Sprintf("%d", cleanShotProbe.BitrateKbps),
-		"checksum":             item.Checksum,
-		"analysis_status":      "ready",
-		"scene_description":    itemAnalysisSceneDescription(item),
-		"shot_size":            itemAnalysisShotSize(item),
-		"camera_movement":      itemAnalysisCameraMovement(item),
+		"submission_mode":            "preprocessed",
+		"source_type":                item.SourceType,
+		"default_use_original_audio": fmt.Sprintf("%t", input.UseOriginalAudio),
+		"manual_clean_status":        "cleaned",
+		"usability_status":           firstNonEmpty(itemAnalysisUsability(item), "usable"),
+		"asset_name":                 firstNonEmpty(item.AssetName, item.OriginalFileName),
+		"source_path":                item.SourcePath,
+		"source_original_name":       item.OriginalFileName,
+		"reviewer_notes":             item.ReviewerNotes,
+		"product_id":                 input.ProductID,
+		"source_in_ms":               fmt.Sprintf("%d", item.SourceInMs),
+		"source_out_ms":              fmt.Sprintf("%d", item.SourceOutMs),
+		"duration_ms":                fmt.Sprintf("%d", cleanShotProbe.DurationMs),
+		"width":                      fmt.Sprintf("%d", cleanShotProbe.Width),
+		"height":                     fmt.Sprintf("%d", cleanShotProbe.Height),
+		"fps":                        fmt.Sprintf("%.3f", cleanShotProbe.FPS),
+		"codec":                      cleanShotProbe.Codec,
+		"has_audio":                  fmt.Sprintf("%t", cleanShotProbe.HasAudio),
+		"audio_codec":                cleanShotProbe.AudioCodec,
+		"bitrate_kbps":               fmt.Sprintf("%d", cleanShotProbe.BitrateKbps),
+		"checksum":                   item.Checksum,
+		"analysis_status":            "ready",
+		"scene_description":          itemAnalysisSceneDescription(item),
+		"shot_size":                  itemAnalysisShotSize(item),
+		"camera_movement":            itemAnalysisCameraMovement(item),
 	}
 	for key, value := range fields {
 		if strings.TrimSpace(value) == "" {

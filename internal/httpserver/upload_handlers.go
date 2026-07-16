@@ -86,6 +86,7 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	sellingPointIDs := splitCommaSeparated(c.PostForm("selling_point_ids"))
 	transcript := c.PostForm("transcript")
 	speechSegmentsJSON := c.PostForm("speech_segments_json")
+	defaultUseOriginalAudio := parseOptionalBoolDefaultFalse(c.PostForm("default_use_original_audio"))
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -110,22 +111,23 @@ func (s *Server) handleUploadCleanShot(c *gin.Context) {
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 
 	assetInput := services.CreateAssetInput{
-		ProductID:          token.ProductID,
-		AssetName:          assetName,
-		StorageKey:         storageKey,
-		FileName:           header.Filename,
-		FileExt:            ext,
-		MimeType:           firstNonEmptyForm(header.Header.Get("Content-Type"), mimeTypeFromExtension(ext)),
-		FileSize:           header.Size,
-		Checksum:           checksum,
-		SourceType:         sourceType,
-		IngestionSource:    "local-agent",
-		ManualCleanStatus:  manualCleanStatus,
-		SourcePath:         sourcePath,
-		SourceOriginalName: firstNonEmptyForm(sourceOriginalName, header.Filename),
-		ReviewerNotes:      reviewerNotes,
-		SellingPointIDs:    sellingPointIDs,
-		CreatedByUserID:    token.UserID,
+		ProductID:               token.ProductID,
+		AssetName:               assetName,
+		StorageKey:              storageKey,
+		FileName:                header.Filename,
+		FileExt:                 ext,
+		MimeType:                firstNonEmptyForm(header.Header.Get("Content-Type"), mimeTypeFromExtension(ext)),
+		FileSize:                header.Size,
+		Checksum:                checksum,
+		SourceType:              sourceType,
+		IngestionSource:         "local-agent",
+		ManualCleanStatus:       manualCleanStatus,
+		SourcePath:              sourcePath,
+		SourceOriginalName:      firstNonEmptyForm(sourceOriginalName, header.Filename),
+		DefaultUseOriginalAudio: defaultUseOriginalAudio,
+		ReviewerNotes:           reviewerNotes,
+		SellingPointIDs:         sellingPointIDs,
+		CreatedByUserID:         token.UserID,
 	}
 
 	var probeErr error
