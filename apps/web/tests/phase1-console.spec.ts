@@ -192,6 +192,41 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       created_at: "2026-07-15T08:30:00.000Z",
       completed_at: "2026-07-15T08:31:00.000Z",
       video_url: "/storage/renders/generations/work-delete-1/final.mp4"
+    },
+    {
+      id: "work-batch-delete-completed",
+      run_id: "work-batch-delete-completed",
+      product_id: "product-1",
+      product_name: "Smart Light",
+      created_by_user_id: "dev-admin",
+      created_by_name: "Admin",
+      title: "批量删除已完成成片",
+      hook: "批量删除已完成成片",
+      script_text: "这是一条用于批量删除测试的已完成成片。",
+      duration_ms: 5000,
+      status: "completed",
+      progress: 100,
+      stage_label: "已完成",
+      created_at: "2026-07-15T08:20:00.000Z",
+      completed_at: "2026-07-15T08:21:00.000Z",
+      video_url: "/storage/renders/generations/work-batch-delete-completed/final.mp4"
+    },
+    {
+      id: "work-batch-delete-failed",
+      run_id: "work-batch-delete-failed",
+      product_id: "product-1",
+      product_name: "Smart Light",
+      created_by_user_id: "dev-admin",
+      created_by_name: "Admin",
+      title: "批量删除失败成片",
+      hook: "批量删除失败成片",
+      script_text: "这是一条用于批量删除测试的失败成片。",
+      duration_ms: 0,
+      status: "failed",
+      progress: 100,
+      stage_label: "生成失败",
+      error_message: "测试生成失败",
+      created_at: "2026-07-15T08:10:00.000Z"
     }
   ];
 
@@ -1023,6 +1058,22 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   expect(download.suggestedFilename()).toBe("AICut_成品.zip");
   expect(downloadBatchWorkIDs).toEqual(["work-completed-1"]);
   await expect(page.getByRole("button", { name: "批量选择" })).toBeVisible();
+
+  const batchDeleteCompleted = page.getByTestId("finished-work-work-batch-delete-completed");
+  const batchDeleteFailed = page.getByTestId("finished-work-work-batch-delete-failed");
+  await page.getByRole("button", { name: "批量选择" }).click();
+  await batchDeleteCompleted.locator(".finished-work-media").click();
+  await batchDeleteFailed.locator(".finished-work-media").click();
+  await expect(page.getByText("已选 2 项", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "下载选中" })).toBeDisabled();
+  await page.getByRole("button", { name: "删除选中" }).click();
+  const batchDeleteConfirm = page.locator(".ant-modal-confirm").filter({ hasText: "删除 2 个成品？" });
+  await expect(batchDeleteConfirm).toBeVisible();
+  await batchDeleteConfirm.locator(".ant-btn-dangerous").click();
+  await expect(batchDeleteCompleted).toHaveCount(0);
+  await expect(batchDeleteFailed).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "批量选择" })).toBeVisible();
+
   const completedDetailButton = completedWork.getByRole("button");
   await expect(completedDetailButton).toHaveCount(1);
   await completedDetailButton.click();

@@ -67,6 +67,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedWorkIDs, setSelectedWorkIDs] = useState<Set<string>>(() => new Set());
   const [downloading, setDownloading] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -114,11 +115,15 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   }, [keyword, productID, statusFilter, works]);
 
   const selectedWork = selectedWorkID ? works.find((work) => work.id === selectedWorkID) : undefined;
-  const selectableWorks = filteredWorks.filter((work) => work.status === "completed" && Boolean(work.video_url));
+  const selectableWorks = filteredWorks.filter((work) => work.status !== "generating");
+  const selectedWorks = works.filter((work) => selectedWorkIDs.has(work.id));
+  const canDownloadSelection = selectedWorks.length > 0
+    && selectedWorks.length === selectedWorkIDs.size
+    && selectedWorks.every((work) => work.status === "completed" && Boolean(work.video_url));
   const allSelectableSelected = selectableWorks.length > 0 && selectableWorks.every((work) => selectedWorkIDs.has(work.id));
 
   useEffect(() => {
-    const availableIDs = new Set(works.filter((work) => work.status === "completed" && Boolean(work.video_url)).map((work) => work.id));
+    const availableIDs = new Set(works.filter((work) => work.status !== "generating").map((work) => work.id));
     setSelectedWorkIDs((current) => {
       const next = new Set(Array.from(current).filter((workID) => availableIDs.has(workID)));
       return next.size === current.size ? current : next;
@@ -155,7 +160,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   };
 
   const downloadSelectedWorks = async () => {
-    if (selectedWorkIDs.size === 0) {
+    if (!canDownloadSelection) {
       return;
     }
     setDownloading(true);
@@ -174,6 +179,66 @@ export function FinishedLibraryPage({ token }: { token: string }) {
     } finally {
       setDownloading(false);
     }
+  };
+
+  const deleteSelectedWorks = async () => {
+    if (selectedWorkIDs.size === 0) {
+      return;
+    }
+    const workIDs = Array.from(selectedWorkIDs);
+    const deletedIDs: string[] = [];
+    const failedIDs: string[] = [];
+    setDeletingSelected(true);
+    try {
+      for (let index = 0; index < workIDs.length; index += 4) {
+        const batch = workIDs.slice(index, index + 4);
+        const results = await Promise.all(batch.map(async (workID) => {
+          try {
+            await deleteVoiceoverWork(workID, token);
+            return { workID, deleted: true };
+          } catch {
+            return { workID, deleted: false };
+          }
+        }));
+        results.forEach((result) => {
+          (result.deleted ? deletedIDs : failedIDs).push(result.workID);
+        });
+      }
+
+      if (deletedIDs.length > 0) {
+        const deleted = new Set(deletedIDs);
+        setWorks((current) => current.filter((work) => !deleted.has(work.id)));
+      }
+      if (failedIDs.length === 0) {
+        message.success(`已删除 ${deletedIDs.length} 个成品`);
+        exitSelectionMode();
+      } else {
+        setSelectedWorkIDs(new Set(failedIDs));
+        const result = `已删除 ${deletedIDs.length} 项，失败 ${failedIDs.length} 项`;
+        if (deletedIDs.length > 0) {
+          message.warning(result);
+        } else {
+          message.error(result);
+        }
+      }
+    } finally {
+      setDeletingSelected(false);
+    }
+  };
+
+  const confirmDeleteSelected = () => {
+    if (selectedWorkIDs.size === 0) {
+      return;
+    }
+    Modal.confirm({
+      title: `删除 ${selectedWorkIDs.size} 个成品？`,
+      content: "所选成品将从成品库移除，已渲染的视频文件也会删除。此操作不可撤销。",
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      centered: true,
+      onOk: deleteSelectedWorks
+    });
   };
 
   const regenerateWork = async (workID: string) => {
@@ -274,11 +339,12 @@ export function FinishedLibraryPage({ token }: { token: string }) {
         {selectionMode ? (
           <>
             <span className="finished-selection-summary"><CheckSquare2 size={17} />已选 {selectedWorkIDs.size} 项</span>
-            <Button onClick={toggleSelectAll} disabled={selectableWorks.length === 0}>{allSelectableSelected ? "取消全选" : "全选当前结果"}</Button>
-            <Button onClick={() => setSelectedWorkIDs(new Set())} disabled={selectedWorkIDs.size === 0}>清空</Button>
+            <Button onClick={toggleSelectAll} disabled={selectableWorks.length === 0 || downloading || deletingSelected}>{allSelectableSelected ? "取消全选" : "全选当前结果"}</Button>
+            <Button onClick={() => setSelectedWorkIDs(new Set())} disabled={selectedWorkIDs.size === 0 || downloading || deletingSelected}>清空</Button>
             <span className="finished-toolbar-spacer" />
-            <Button type="primary" icon={<Download size={16} />} loading={downloading} disabled={selectedWorkIDs.size === 0} onClick={() => void downloadSelectedWorks()}>下载选中</Button>
-            <Button icon={<X size={16} />} onClick={exitSelectionMode}>退出选择</Button>
+            <Button danger icon={<Trash2 size={16} />} loading={deletingSelected} disabled={selectedWorkIDs.size === 0 || downloading} onClick={confirmDeleteSelected}>删除选中</Button>
+            <Button type="primary" icon={<Download size={16} />} loading={downloading} disabled={!canDownloadSelection || deletingSelected} title={selectedWorkIDs.size > 0 && !canDownloadSelection ? "仅支持下载已完成且存在视频的成品" : undefined} onClick={() => void downloadSelectedWorks()}>下载选中</Button>
+            <Button icon={<X size={16} />} disabled={downloading || deletingSelected} onClick={exitSelectionMode}>退出选择</Button>
           </>
         ) : (
           <>
@@ -315,7 +381,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
             {filteredWorks.map((work) => {
               const isGenerating = work.status === "generating";
               const isFailed = work.status === "failed";
-              const selectable = work.status === "completed" && Boolean(work.video_url);
+              const selectable = work.status !== "generating";
               const selected = selectedWorkIDs.has(work.id);
               return (
                 <Dropdown key={work.id} menu={workContextMenu(work)} trigger={["contextMenu"]} disabled={selectionMode}>
