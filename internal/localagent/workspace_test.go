@@ -625,7 +625,7 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	}
 }
 
-func TestWorkspaceLimitsConcurrentVLMLabels(t *testing.T) {
+func TestWorkspaceLeavesVLMConcurrencyToServer(t *testing.T) {
 	workspace, err := NewWorkspace(t.TempDir(), stubProcessor{})
 	if err != nil {
 		t.Fatalf("NewWorkspace() error = %v", err)
@@ -674,17 +674,12 @@ func TestWorkspaceLimitsConcurrentVLMLabels(t *testing.T) {
 		}
 	}
 
-	for index := 0; index < 2; index++ {
+	for index := 0; index < len(items); index++ {
 		select {
 		case <-started:
 		case <-time.After(2 * time.Second):
 			t.Fatal("timed out waiting for VLM workers")
 		}
-	}
-	select {
-	case <-started:
-		t.Fatal("third VLM request started before a worker slot was released")
-	case <-time.After(100 * time.Millisecond):
 	}
 	close(release)
 
@@ -704,8 +699,8 @@ func TestWorkspaceLimitsConcurrentVLMLabels(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if maxActive != 2 {
-		t.Fatalf("expected max VLM concurrency 2, got %d", maxActive)
+	if maxActive != len(items) {
+		t.Fatalf("expected Local Agent to leave VLM concurrency to server, got max %d", maxActive)
 	}
 }
 

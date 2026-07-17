@@ -2082,7 +2082,7 @@ export function PreprocessPage({ token }: { token: string }) {
             使用产品参考图
           </Checkbox>
           <Typography.Text type="secondary">
-            参考图仅用于纯画面素材；口播素材按自身画面识别。Local Agent 同时处理 2 项，其余自动排队。
+            参考图仅用于纯画面素材；口播素材按自身画面识别。VLM 并发由服务端运行控制统一调度。
           </Typography.Text>
         </div>
       </Modal>

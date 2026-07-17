@@ -62,6 +62,11 @@ func (s *Server) handlePreprocessVLMLabel(c *gin.Context) {
 		productReferenceImage = &modelgateway.ImageReference{StorageKey: imagePath}
 	}
 
+	if err := s.vlmGate.acquire(c.Request.Context(), s.vlmMaxConcurrency); err != nil {
+		return
+	}
+	defer s.vlmGate.release()
+
 	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(c.Request.Context(), s.systemConfigService, s.modelProviderService, s.cfg), nil)
 	result, err := analyzer.AnalyzeAsset(c.Request.Context(), modelgateway.AnalyzeAssetInput{
 		AssetID:               c.PostForm("asset_id"),
@@ -81,6 +86,14 @@ func (s *Server) handlePreprocessVLMLabel(c *gin.Context) {
 	}
 
 	OK(c, gin.H{"analysis": result})
+}
+
+func (s *Server) vlmMaxConcurrency() int {
+	settings, err := services.GetRuntimeSettings(s.systemConfigService)
+	if err != nil || settings.VLMMaxConcurrency < 1 {
+		return 2
+	}
+	return settings.VLMMaxConcurrency
 }
 
 func safeFrameExt(name string) string {

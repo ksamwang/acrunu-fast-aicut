@@ -45,6 +45,7 @@ type Server struct {
 	localStore                 *storage.LocalStore
 	taskService                *services.TaskService
 	queueClient                *queue.Client
+	vlmGate                    *dynamicConcurrencyGate
 }
 
 func New(opts Options) *Server {
@@ -120,6 +121,7 @@ func New(opts Options) *Server {
 		localStore:                 storage.NewLocalStore(opts.Config.StorageRoot),
 		taskService:                taskService,
 		queueClient:                queue.NewClient(opts.Config.RedisAddr, opts.Config.QueueBackend, opts.Config.StorageRoot),
+		vlmGate:                    newDynamicConcurrencyGate(),
 	}
 
 	server.routes()

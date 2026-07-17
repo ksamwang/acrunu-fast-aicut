@@ -155,7 +155,6 @@ type Workspace struct {
 	root      string
 	statePath string
 	processor Processor
-	vlmSlots  chan struct{}
 
 	mu          sync.Mutex
 	items       map[string]WorkspaceItem
@@ -196,7 +195,6 @@ func NewWorkspace(root string, processor Processor) (*Workspace, error) {
 		root:        root,
 		statePath:   filepath.Join(root, "workspace.json"),
 		processor:   processor,
-		vlmSlots:    make(chan struct{}, 2),
 		items:       map[string]WorkspaceItem{},
 		activeItems: map[string]int{},
 	}
@@ -561,11 +559,7 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 }
 
 func (w *Workspace) runVLMLabel(ctx context.Context, itemID string, input WorkspaceVLMLabelInput) {
-	w.vlmSlots <- struct{}{}
-	defer func() {
-		<-w.vlmSlots
-		w.finishItemOperation(itemID)
-	}()
+	defer w.finishItemOperation(itemID)
 
 	startedAt := time.Now()
 	w.mu.Lock()

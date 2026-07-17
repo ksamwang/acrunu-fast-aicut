@@ -373,7 +373,7 @@ export function SettingsPage({ token }: { token: string }) {
                   <Form.Item
                     name="vlm_max_concurrency"
                     label="VLM 并发数"
-                    extra="当前已不再限制 VLM 并发，保留字段用于兼容旧配置。"
+                    extra="控制服务端 VLM 识别请求的全局并发上限。"
                     rules={[{ required: true, message: "请输入 VLM 并发数" }]}
                   >
                     <InputNumber min={1} style={{ width: "100%" }} />
