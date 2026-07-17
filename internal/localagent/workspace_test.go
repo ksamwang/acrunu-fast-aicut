@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -842,6 +843,46 @@ func TestWorkspaceDeleteItemRemovesLocalFilesAndRejectsActiveVLM(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "items", item.ID)); !os.IsNotExist(err) {
 		t.Fatalf("expected item directory removed, stat err=%v", err)
+	}
+}
+
+func TestWorkspaceDeleteRouteAllowsCORSPreflightAndRemovesItem(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	server := &Server{workspace: workspace, logger: slog.Default()}
+	handler := server.withMiddleware(http.HandlerFunc(server.handleWorkspaceItemRoute))
+	itemPath := "/workspace/items/" + imported[0].ID
+
+	preflight := httptest.NewRequest(http.MethodOptions, itemPath, nil)
+	preflight.Header.Set("Origin", "http://localhost:5173")
+	preflight.Header.Set("Access-Control-Request-Method", http.MethodDelete)
+	preflightRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(preflightRecorder, preflight)
+	if preflightRecorder.Code != http.StatusNoContent {
+		t.Fatalf("expected preflight 204, got %d", preflightRecorder.Code)
+	}
+	if allowed := preflightRecorder.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(allowed, http.MethodDelete) {
+		t.Fatalf("expected DELETE in CORS methods, got %q", allowed)
+	}
+
+	request := httptest.NewRequest(http.MethodDelete, itemPath, nil)
+	request.Header.Set("Origin", "http://localhost:5173")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if _, ok := workspace.GetItem(imported[0].ID); ok {
+		t.Fatal("expected delete route to remove workspace item")
 	}
 }
 
