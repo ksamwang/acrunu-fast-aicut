@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Form, Input, InputNumber, Popconfirm, Segmented, Select, Switch, Tag, Typography, message } from "antd";
+import { Button, Form, Input, InputNumber, Popconfirm, Segmented, Select, Slider, Switch, Tag, Typography, message } from "antd";
 import { Plus, Save, Star, Trash2 } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import type { OutputRatio, SubtitleStylePreset, SubtitleStylePresetInput } from "../../shared/types/subtitle";
@@ -14,10 +14,12 @@ function createFormDefaults() {
     font_family: "Noto Sans CJK SC",
     font_weight: 700,
     text_color: "#FFFFFF",
+    background_enabled: true,
     background_color: "#000000",
     background_opacity_percent: 30,
+    outline_enabled: false,
     outline_color: "#000000",
-    outline_width: 0,
+    outline_width: 2,
     shadow: false,
     max_lines: 2,
     enabled: true,
@@ -26,9 +28,10 @@ function createFormDefaults() {
         width: 1080,
         height: 1920,
         fps: 30,
-        vertical_position: "bottom",
+        vertical_position: "center",
         text_align: "center",
-        vertical_offset_percent: 14,
+        vertical_offset_percent: 0,
+        vertical_position_percent: 82,
         max_width_percent: 84,
         font_size_percent: 5.4,
         max_chars_per_line: 16
@@ -37,9 +40,10 @@ function createFormDefaults() {
         width: 1080,
         height: 1440,
         fps: 30,
-        vertical_position: "bottom",
+        vertical_position: "center",
         text_align: "center",
-        vertical_offset_percent: 10,
+        vertical_offset_percent: 0,
+        vertical_position_percent: 84,
         max_width_percent: 88,
         font_size_percent: 5.2,
         max_chars_per_line: 18
@@ -48,30 +52,59 @@ function createFormDefaults() {
   };
 }
 
-function presetToForm(preset: SubtitleStylePreset) {
+function snapshotFormValues(values: ReturnType<typeof createFormDefaults>) {
+  return {
+    ...values,
+    layouts: {
+      "9:16": { ...values.layouts["9:16"] },
+      "3:4": { ...values.layouts["3:4"] }
+    }
+  };
+}
+
+function legacyVerticalPositionRatio(layout: SubtitleStylePreset["layouts"][OutputRatio]) {
+  if (layout.vertical_position === "top") {
+    return Math.min(0.95, Math.max(0.05, layout.vertical_offset_ratio + 0.05));
+  }
+  if (layout.vertical_position === "bottom") {
+    return Math.min(0.95, Math.max(0.05, 1 - layout.vertical_offset_ratio - 0.05));
+  }
+  return 0.5;
+}
+
+function presetToForm(preset: SubtitleStylePreset): ReturnType<typeof createFormDefaults> {
   const values = createFormDefaults();
+  const formLayout = (ratio: OutputRatio) => {
+    const layout = preset.layouts[ratio];
+    return {
+      ...layout,
+      vertical_offset_percent: Number((layout.vertical_offset_ratio * 100).toFixed(1)),
+      vertical_position_percent: Number(((layout.vertical_position_ratio ?? legacyVerticalPositionRatio(layout)) * 100).toFixed(1)),
+      max_width_percent: Number((layout.max_width_ratio * 100).toFixed(1)),
+      font_size_percent: Number((layout.font_size_ratio * 100).toFixed(1))
+    };
+  };
   return {
     ...values,
     name: preset.name,
     font_family: preset.font_family,
     font_weight: preset.font_weight,
     text_color: preset.text_color,
+    background_enabled: preset.background_opacity > 0,
     background_color: preset.background_color,
-    background_opacity_percent: Math.round(preset.background_opacity * 100),
+    background_opacity_percent: preset.background_opacity > 0
+      ? Math.round(preset.background_opacity * 100)
+      : values.background_opacity_percent,
+    outline_enabled: preset.outline_width > 0,
     outline_color: preset.outline_color,
-    outline_width: preset.outline_width,
+    outline_width: preset.outline_width > 0 ? preset.outline_width : values.outline_width,
     shadow: preset.shadow,
     max_lines: preset.max_lines,
     enabled: preset.status === "enabled",
-    layouts: Object.fromEntries(ratios.map((ratio) => {
-      const layout = preset.layouts[ratio];
-      return [ratio, {
-        ...layout,
-        vertical_offset_percent: Number((layout.vertical_offset_ratio * 100).toFixed(1)),
-        max_width_percent: Number((layout.max_width_ratio * 100).toFixed(1)),
-        font_size_percent: Number((layout.font_size_ratio * 100).toFixed(1))
-      }];
-    }))
+    layouts: {
+      "9:16": formLayout("9:16"),
+      "3:4": formLayout("3:4")
+    }
   };
 }
 
@@ -82,9 +115,9 @@ function formToPresetInput(values: ReturnType<typeof createFormDefaults>): Subti
     font_weight: values.font_weight,
     text_color: values.text_color.toUpperCase(),
     background_color: values.background_color.toUpperCase(),
-    background_opacity: values.background_opacity_percent / 100,
+    background_opacity: values.background_enabled ? values.background_opacity_percent / 100 : 0,
     outline_color: values.outline_color.toUpperCase(),
-    outline_width: values.outline_width,
+    outline_width: values.outline_enabled ? values.outline_width : 0,
     shadow: values.shadow,
     max_lines: values.max_lines,
     status: values.enabled ? "enabled" : "disabled",
@@ -94,9 +127,10 @@ function formToPresetInput(values: ReturnType<typeof createFormDefaults>): Subti
         width: ratio === "9:16" ? 1080 : 1080,
         height: ratio === "9:16" ? 1920 : 1440,
         fps: 30,
-        vertical_position: layout.vertical_position,
+        vertical_position: "center",
         text_align: layout.text_align,
-        vertical_offset_ratio: layout.vertical_offset_percent / 100,
+        vertical_offset_ratio: 0,
+        vertical_position_ratio: layout.vertical_position_percent / 100,
         max_width_ratio: layout.max_width_percent / 100,
         font_size_ratio: layout.font_size_percent / 100,
         max_chars_per_line: layout.max_chars_per_line
@@ -117,13 +151,49 @@ function previewPreset(values: ReturnType<typeof createFormDefaults>, source?: S
   };
 }
 
+function VerticalPositionControl({
+  value = 50,
+  onChange
+}: {
+  value?: number;
+  onChange?: (value: number) => void;
+}) {
+  const update = (next: number | null) => {
+    if (next !== null) {
+      onChange?.(next);
+    }
+  };
+  return (
+    <div className="subtitle-vertical-position-control">
+      <Slider
+        ariaLabelForHandle="垂直位置滑块"
+        min={5}
+        max={95}
+        step={1}
+        marks={{ 5: "上", 50: "中", 95: "下" }}
+        value={value}
+        onChange={update}
+      />
+      <InputNumber
+        aria-label="垂直位置数值"
+        min={5}
+        max={95}
+        step={1}
+        addonAfter="%"
+        value={value}
+        onChange={update}
+      />
+    </div>
+  );
+}
+
 export function SubtitleStylesSettingsPanel({ token }: { token: string }) {
   const presetsResource = useResource<SubtitleStylePreset[]>("/api/admin/subtitle-presets", token, [], listSubtitleStylePresets);
   const [form] = Form.useForm<ReturnType<typeof createFormDefaults>>();
   const [editingID, setEditingID] = useState<string | null>(null);
   const [layoutRatio, setLayoutRatio] = useState<OutputRatio>("9:16");
   const [saving, setSaving] = useState(false);
-  const formValues = Form.useWatch([], form);
+  const [previewValues, setPreviewValues] = useState(createFormDefaults);
   const presets = presetsResource.data ?? [];
   const selectedPreset = presets.find((preset) => preset.id === editingID);
 
@@ -135,21 +205,25 @@ export function SubtitleStylesSettingsPanel({ token }: { token: string }) {
 
   useEffect(() => {
     if (selectedPreset) {
-      form.setFieldsValue(presetToForm(selectedPreset));
+      const values = presetToForm(selectedPreset);
+      form.setFieldsValue(values);
+      setPreviewValues(values);
     }
   }, [form, selectedPreset]);
 
   const currentPreview = useMemo(() => {
     try {
-      return previewPreset({ ...createFormDefaults(), ...formValues }, selectedPreset);
+      return previewPreset(previewValues, selectedPreset);
     } catch {
       return selectedPreset ?? previewPreset(createFormDefaults());
     }
-  }, [formValues, selectedPreset]);
+  }, [previewValues, selectedPreset]);
 
   const createNew = () => {
+    const values = createFormDefaults();
     setEditingID("");
-    form.setFieldsValue(createFormDefaults());
+    form.setFieldsValue(values);
+    setPreviewValues(values);
   };
 
   const save = async () => {
@@ -239,7 +313,13 @@ export function SubtitleStylesSettingsPanel({ token }: { token: string }) {
         </header>
 
         <div className="subtitle-preset-editor-body">
-          <Form form={form} layout="vertical" requiredMark={false} initialValues={createFormDefaults()}>
+          <Form
+            form={form}
+            layout="vertical"
+            requiredMark={false}
+            initialValues={createFormDefaults()}
+            onValuesChange={(_, values) => setPreviewValues(snapshotFormValues(values))}
+          >
             <div className="subtitle-style-form-grid">
               <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
                 <Input maxLength={80} />
@@ -256,17 +336,23 @@ export function SubtitleStylesSettingsPanel({ token }: { token: string }) {
               <Form.Item name="text_color" label="文字颜色">
                 <Input type="color" className="subtitle-color-input" />
               </Form.Item>
+              <Form.Item name="background_enabled" label="背景" valuePropName="checked">
+                <Switch aria-label="背景" checkedChildren="开启" unCheckedChildren="关闭" />
+              </Form.Item>
               <Form.Item name="background_color" label="背景颜色">
-                <Input type="color" className="subtitle-color-input" />
+                <Input type="color" className="subtitle-color-input" disabled={!previewValues.background_enabled} />
               </Form.Item>
               <Form.Item name="background_opacity_percent" label="背景不透明度">
-                <InputNumber min={0} max={100} addonAfter="%" />
+                <InputNumber min={0} max={100} addonAfter="%" disabled={!previewValues.background_enabled} />
+              </Form.Item>
+              <Form.Item name="outline_enabled" label="描边" valuePropName="checked">
+                <Switch aria-label="描边" checkedChildren="开启" unCheckedChildren="关闭" />
               </Form.Item>
               <Form.Item name="outline_width" label="描边宽度">
-                <InputNumber min={0} max={8} step={0.5} addonAfter="px" />
+                <InputNumber min={0.5} max={8} step={0.5} addonAfter="px" disabled={!previewValues.outline_enabled} />
               </Form.Item>
               <Form.Item name="outline_color" label="描边颜色">
-                <Input type="color" className="subtitle-color-input" />
+                <Input type="color" className="subtitle-color-input" disabled={!previewValues.outline_enabled} />
               </Form.Item>
               <Form.Item name="shadow" label="阴影" valuePropName="checked">
                 <Switch />
@@ -282,16 +368,13 @@ export function SubtitleStylesSettingsPanel({ token }: { token: string }) {
                 <Typography.Text type="secondary">
                   {layoutRatio === "9:16" ? "1080 × 1920" : "1080 × 1440"} · 30 fps
                 </Typography.Text>
-                <Form.Item name={["layouts", layoutRatio, "vertical_position"]} label="垂直位置">
-                  <Segmented block options={[{ value: "top", label: "顶部" }, { value: "center", label: "居中" }, { value: "bottom", label: "底部" }]} />
+                <Form.Item name={["layouts", layoutRatio, "vertical_position_percent"]} label="垂直位置">
+                  <VerticalPositionControl />
                 </Form.Item>
                 <Form.Item name={["layouts", layoutRatio, "text_align"]} label="文字对齐">
                   <Segmented block options={[{ value: "left", label: "左" }, { value: "center", label: "中" }, { value: "right", label: "右" }]} />
                 </Form.Item>
                 <div className="subtitle-layout-number-grid">
-                  <Form.Item name={["layouts", layoutRatio, "vertical_offset_percent"]} label="边缘偏移">
-                    <InputNumber min={0} max={40} step={1} addonAfter="%" />
-                  </Form.Item>
                   <Form.Item name={["layouts", layoutRatio, "max_width_percent"]} label="最大宽度">
                     <InputNumber min={30} max={96} step={1} addonAfter="%" />
                   </Form.Item>

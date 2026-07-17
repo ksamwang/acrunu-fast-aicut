@@ -10,16 +10,6 @@ function hexToRGBA(color: string, opacity: number) {
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
 }
 
-function previewAlignment(position: string) {
-  if (position === "top") {
-    return "flex-start";
-  }
-  if (position === "center") {
-    return "center";
-  }
-  return "flex-end";
-}
-
 export function SubtitleStylePreview({
   preset,
   ratio,
@@ -37,8 +27,7 @@ export function SubtitleStylePreview({
     ? `-${outline}px 0 ${preset.outline_color}, ${outline}px 0 ${preset.outline_color}, 0 -${outline}px ${preset.outline_color}, 0 ${outline}px ${preset.outline_color}`
     : preset.shadow ? "0 2px 5px rgba(0, 0, 0, 0.72)" : "none";
   const frameStyle = {
-    "--subtitle-preview-aspect": ratio === "9:16" ? "9 / 16" : "3 / 4",
-    "--subtitle-preview-offset": `${(layout?.vertical_offset_ratio ?? 0.1) * 100}%`
+    "--subtitle-preview-aspect": ratio === "9:16" ? "9 / 16" : "3 / 4"
   } as CSSProperties;
   const captionStyle: CSSProperties = {
     width: `${(layout?.max_width_ratio ?? 0.84) * 100}%`,
@@ -66,7 +55,7 @@ export function SubtitleStylePreview({
       </div>
       <div
         className="subtitle-style-preview-caption-layer"
-        style={{ alignItems: previewAlignment(layout?.vertical_position ?? "bottom") }}
+        style={{ top: `${(layout?.vertical_position_ratio ?? 0.5) * 100}%` }}
       >
         <span className="subtitle-style-preview-caption" style={captionStyle}>
           <span style={captionTextStyle}>骑行裤脚不再蹭链条</span>

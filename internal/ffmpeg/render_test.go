@@ -57,12 +57,14 @@ func TestBuildASSUsesConfiguredAlignmentColorAndWrapping(t *testing.T) {
 		FontFamily: "Noto Sans CJK SC", FontWeight: 400, TextColor: "#FFCC00",
 		BackgroundColor: "#102030", BackgroundOpacity: 0.5, OutlineColor: "#FFFFFF",
 		OutlineWidth: 1.5, MaxLines: 2, VerticalPosition: "top", TextAlign: "left",
-		VerticalOffsetRatio: 0.1, MaxWidthRatio: 0.8, FontSizeRatio: 0.05, MaxCharsPerLine: 10,
+		VerticalOffsetRatio: 0.1, VerticalPositionRatio: 0.2,
+		MaxWidthRatio: 0.8, FontSizeRatio: 0.05, MaxCharsPerLine: 10,
 	})
 	for _, expected := range []string{
 		"Noto Sans CJK SC,54,&H0000CCFF",
 		"&H80302010",
-		",3,1.50,0,7,108,108,144,1",
+		",3,1.50,0,4,108,108,144,1",
+		`{\an4\pos(108,288)}`,
 		`一二三四五六七八九十\N甲乙丙丁戊己庚辛壬癸`,
 	} {
 		if !strings.Contains(content, expected) {

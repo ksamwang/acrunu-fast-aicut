@@ -222,7 +222,8 @@ func renderSnapshotSubtitleStyle(snapshot map[string]any) ffmpeg.SubtitleStyle {
 		BackgroundColor: style.BackgroundColor, BackgroundOpacity: style.BackgroundOpacity,
 		OutlineColor: style.OutlineColor, OutlineWidth: style.OutlineWidth, Shadow: style.Shadow,
 		MaxLines: style.MaxLines, VerticalPosition: style.VerticalPosition, TextAlign: style.TextAlign,
-		VerticalOffsetRatio: style.VerticalOffset, MaxWidthRatio: style.MaxWidthRatio,
+		VerticalOffsetRatio: style.VerticalOffset, VerticalPositionRatio: style.VerticalPositionRatio,
+		MaxWidthRatio: style.MaxWidthRatio,
 		FontSizeRatio: style.FontSizeRatio, MaxCharsPerLine: style.MaxCharsPerLine,
 	}
 }

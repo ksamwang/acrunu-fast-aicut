@@ -39,10 +39,11 @@ func TestRenderSnapshotSubtitleStyleDecodesResolvedConfig(t *testing.T) {
 			"text_color": "#FFFFFF", "background_color": "#000000", "background_opacity": 0.3,
 			"outline_color": "#000000", "outline_width": 0.0, "shadow": false, "max_lines": float64(2),
 			"vertical_position": "bottom", "text_align": "center", "vertical_offset_ratio": 0.1,
-			"max_width_ratio": 0.88, "font_size_ratio": 0.052, "max_chars_per_line": float64(18),
+			"vertical_position_ratio": 0.72,
+			"max_width_ratio":         0.88, "font_size_ratio": 0.052, "max_chars_per_line": float64(18),
 		},
 	})
-	if style.FontFamily != "Noto Sans CJK SC" || style.VerticalOffsetRatio != 0.1 || style.MaxCharsPerLine != 18 {
+	if style.FontFamily != "Noto Sans CJK SC" || style.VerticalPositionRatio != 0.72 || style.MaxCharsPerLine != 18 {
 		t.Fatalf("unexpected decoded subtitle style %#v", style)
 	}
 }

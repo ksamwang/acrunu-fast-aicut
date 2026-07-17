@@ -16,7 +16,7 @@ func TestSubtitleStylePresetServiceResolvesRatioSnapshot(t *testing.T) {
 	if config.OutputWidth != 1080 || config.OutputHeight != 1440 || config.OutputFPS != 30 {
 		t.Fatalf("unexpected output config %#v", config)
 	}
-	if config.Style.VerticalOffset != 0.10 || config.Style.MaxWidthRatio != 0.88 || config.Style.TextAlign != "center" {
+	if config.Style.VerticalPositionRatio != 0.84 || config.Style.MaxWidthRatio != 0.88 || config.Style.TextAlign != "center" {
 		t.Fatalf("unexpected resolved subtitle style %#v", config.Style)
 	}
 	snapshot := config.Snapshot()
@@ -26,6 +26,25 @@ func TestSubtitleStylePresetServiceResolvesRatioSnapshot(t *testing.T) {
 	style, ok := snapshot["subtitle_style"].(map[string]any)
 	if !ok || style["font_family"] != "Noto Sans CJK SC" {
 		t.Fatalf("unexpected style snapshot %#v", snapshot["subtitle_style"])
+	}
+}
+
+func TestSubtitleStylePresetServiceNormalizesLegacyVerticalPosition(t *testing.T) {
+	t.Parallel()
+	service := NewSubtitleStylePresetService()
+	input := DefaultSubtitleStylePresetInput()
+	input.Name = "旧版底部字幕"
+	layout := input.Layouts[OutputRatioNineSixteen]
+	layout.VerticalPosition = "bottom"
+	layout.VerticalOffsetRatio = 0.2
+	layout.VerticalPositionRatio = 0
+	input.Layouts[OutputRatioNineSixteen] = layout
+	created, err := service.Create(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := created.Layouts[OutputRatioNineSixteen].VerticalPositionRatio; got != 0.75 {
+		t.Fatalf("legacy vertical position ratio = %v, want 0.75", got)
 	}
 }
 

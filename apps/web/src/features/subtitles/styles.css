@@ -1,6 +1,5 @@
 .subtitle-style-preview {
   --subtitle-preview-aspect: 9 / 16;
-  --subtitle-preview-offset: 12%;
   position: relative;
   width: min(100%, 220px);
   aspect-ratio: var(--subtitle-preview-aspect);
@@ -47,8 +46,8 @@
 .subtitle-style-preview-caption-layer {
   display: flex;
   justify-content: center;
-  padding-top: var(--subtitle-preview-offset);
-  padding-bottom: var(--subtitle-preview-offset);
+  inset: auto 0;
+  transform: translateY(-50%);
 }
 
 .subtitle-style-preview-caption {
@@ -206,6 +205,22 @@
 
 .subtitle-layout-controls .ant-form-item {
   margin-bottom: 0;
+}
+
+.subtitle-vertical-position-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  gap: 18px;
+  align-items: start;
+  padding: 0 2px 16px;
+}
+
+.subtitle-vertical-position-control .ant-slider {
+  margin-inline: 8px;
+}
+
+.subtitle-vertical-position-control .ant-input-number {
+  width: 100%;
 }
 
 .subtitle-layout-number-grid {

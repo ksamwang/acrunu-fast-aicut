@@ -29,21 +29,22 @@ type SubtitleCue struct {
 }
 
 type SubtitleStyle struct {
-	FontFamily          string
-	FontWeight          int
-	TextColor           string
-	BackgroundColor     string
-	BackgroundOpacity   float64
-	OutlineColor        string
-	OutlineWidth        float64
-	Shadow              bool
-	MaxLines            int
-	VerticalPosition    string
-	TextAlign           string
-	VerticalOffsetRatio float64
-	MaxWidthRatio       float64
-	FontSizeRatio       float64
-	MaxCharsPerLine     int
+	FontFamily            string
+	FontWeight            int
+	TextColor             string
+	BackgroundColor       string
+	BackgroundOpacity     float64
+	OutlineColor          string
+	OutlineWidth          float64
+	Shadow                bool
+	MaxLines              int
+	VerticalPosition      string
+	TextAlign             string
+	VerticalOffsetRatio   float64
+	VerticalPositionRatio float64
+	MaxWidthRatio         float64
+	FontSizeRatio         float64
+	MaxCharsPerLine       int
 }
 
 type RenderInput struct {
@@ -235,7 +236,9 @@ func buildASS(cues []SubtitleCue, width int, height int, rawStyle SubtitleStyle)
 	if style.Shadow {
 		shadow = 2
 	}
-	alignment := subtitleASSAlignment(style.VerticalPosition, style.TextAlign)
+	alignment := subtitleASSAlignment("center", style.TextAlign)
+	positionX := subtitleASSPositionX(style.TextAlign, width, marginH)
+	positionY := int(math.Round(float64(height) * style.VerticalPositionRatio))
 	var content strings.Builder
 	fmt.Fprintf(&content, "[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n", width, height)
 	content.WriteString("[V4+ Styles]\n")
@@ -263,7 +266,7 @@ func buildASS(cues []SubtitleCue, width int, height int, rawStyle SubtitleStyle)
 		if text == "" {
 			continue
 		}
-		fmt.Fprintf(&content, "Dialogue: 0,%s,%s,Default,,0,0,0,,%s\n", formatASSTimestamp(cue.StartMs), formatASSTimestamp(cue.EndMs), text)
+		fmt.Fprintf(&content, "Dialogue: 0,%s,%s,Default,,0,0,0,,{\\an%d\\pos(%d,%d)}%s\n", formatASSTimestamp(cue.StartMs), formatASSTimestamp(cue.EndMs), alignment, positionX, positionY, text)
 	}
 	return content.String()
 }
@@ -274,7 +277,8 @@ func normalizeSubtitleStyle(style SubtitleStyle) SubtitleStyle {
 			FontFamily: "Noto Sans CJK SC", FontWeight: 700, TextColor: "#FFFFFF",
 			BackgroundColor: "#000000", BackgroundOpacity: 0.3, OutlineColor: "#000000",
 			OutlineWidth: 0, MaxLines: 2, VerticalPosition: "bottom", TextAlign: "center",
-			VerticalOffsetRatio: 0.14, MaxWidthRatio: 0.84, FontSizeRatio: 0.054, MaxCharsPerLine: 16,
+			VerticalOffsetRatio: 0.14, VerticalPositionRatio: 0.82,
+			MaxWidthRatio: 0.84, FontSizeRatio: 0.054, MaxCharsPerLine: 16,
 		}
 	}
 	if strings.TrimSpace(style.FontFamily) == "" || strings.ContainsAny(style.FontFamily, ",\r\n") {
@@ -310,6 +314,9 @@ func normalizeSubtitleStyle(style SubtitleStyle) SubtitleStyle {
 	if style.VerticalOffsetRatio < 0 || style.VerticalOffsetRatio > 0.4 {
 		style.VerticalOffsetRatio = 0.14
 	}
+	if style.VerticalPositionRatio < 0.05 || style.VerticalPositionRatio > 0.95 {
+		style.VerticalPositionRatio = legacySubtitlePositionRatio(style)
+	}
 	if style.MaxWidthRatio < 0.3 || style.MaxWidthRatio > 0.96 {
 		style.MaxWidthRatio = 0.84
 	}
@@ -320,6 +327,26 @@ func normalizeSubtitleStyle(style SubtitleStyle) SubtitleStyle {
 		style.MaxCharsPerLine = 16
 	}
 	return style
+}
+
+func legacySubtitlePositionRatio(style SubtitleStyle) float64 {
+	position := 0.5
+	if style.VerticalPosition == "top" {
+		position = style.VerticalOffsetRatio + 0.05
+	} else if style.VerticalPosition == "bottom" {
+		position = 1 - style.VerticalOffsetRatio - 0.05
+	}
+	return math.Max(0.05, math.Min(0.95, position))
+}
+
+func subtitleASSPositionX(horizontal string, width int, marginH int) int {
+	if horizontal == "left" {
+		return marginH
+	}
+	if horizontal == "right" {
+		return width - marginH
+	}
+	return width / 2
 }
 
 func subtitleASSAlignment(vertical string, horizontal string) int {

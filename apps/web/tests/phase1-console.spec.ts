@@ -116,8 +116,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     shadow: false,
     max_lines: 2,
     layouts: {
-      "9:16": { width: 1080, height: 1920, fps: 30, vertical_position: "bottom", text_align: "center", vertical_offset_ratio: 0.14, max_width_ratio: 0.84, font_size_ratio: 0.054, max_chars_per_line: 16 },
-      "3:4": { width: 1080, height: 1440, fps: 30, vertical_position: "bottom", text_align: "center", vertical_offset_ratio: 0.10, max_width_ratio: 0.88, font_size_ratio: 0.052, max_chars_per_line: 18 }
+      "9:16": { width: 1080, height: 1920, fps: 30, vertical_position: "center", text_align: "center", vertical_offset_ratio: 0, vertical_position_ratio: 0.82, max_width_ratio: 0.84, font_size_ratio: 0.054, max_chars_per_line: 16 },
+      "3:4": { width: 1080, height: 1440, fps: 30, vertical_position: "center", text_align: "center", vertical_offset_ratio: 0, vertical_position_ratio: 0.84, max_width_ratio: 0.88, font_size_ratio: 0.052, max_chars_per_line: 18 }
     },
     status: "enabled",
     is_default: true,
@@ -815,8 +815,37 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-clear-male")).toBeVisible();
   await expect(voiceSettings.getByTestId("voice-profile-settings-voice-bright-female")).toBeVisible();
   await page.getByRole("tab", { name: "成片样式" }).click();
-  await expect(page.getByTestId("subtitle-style-settings")).toBeVisible();
-  await expect(page.getByLabel("信息流白字 9:16 字幕预览")).toBeVisible();
+  const subtitleStyleSettings = page.getByTestId("subtitle-style-settings");
+  await expect(subtitleStyleSettings).toBeVisible();
+  const subtitleStylePreview = page.getByLabel("信息流白字 9:16 字幕预览");
+  await expect(subtitleStylePreview).toBeVisible();
+  const verticalPosition = subtitleStyleSettings.getByRole("spinbutton", { name: "垂直位置数值" });
+  const previewCaptionLayer = subtitleStylePreview.locator(".subtitle-style-preview-caption-layer");
+  await verticalPosition.fill("20");
+  await expect(previewCaptionLayer).toHaveAttribute("style", /top: 20%/);
+  await verticalPosition.fill("80");
+  await expect(previewCaptionLayer).toHaveAttribute("style", /top: 80%/);
+  const verticalPositionSlider = subtitleStyleSettings.getByRole("slider", { name: "垂直位置滑块" });
+  await verticalPositionSlider.focus();
+  await verticalPositionSlider.press("Home");
+  await expect(previewCaptionLayer).toHaveAttribute("style", /top: 5%/);
+  await verticalPositionSlider.press("End");
+  await expect(previewCaptionLayer).toHaveAttribute("style", /top: 95%/);
+  const previewCaption = subtitleStylePreview.locator(".subtitle-style-preview-caption");
+  const previewCaptionText = previewCaption.locator("span").first();
+  const backgroundSwitch = subtitleStyleSettings.getByRole("switch", { name: "背景" });
+  const backgroundOpacity = subtitleStyleSettings.getByRole("spinbutton", { name: "背景不透明度" });
+  await backgroundSwitch.click();
+  await expect(backgroundOpacity).toBeDisabled();
+  await expect(previewCaptionText).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  const outlineSwitch = subtitleStyleSettings.getByRole("switch", { name: "描边" });
+  const outlineWidth = subtitleStyleSettings.getByRole("spinbutton", { name: "描边宽度" });
+  await expect(outlineWidth).toBeDisabled();
+  await outlineSwitch.click();
+  await expect(outlineWidth).toBeEnabled();
+  await expect(previewCaption).not.toHaveCSS("text-shadow", "none");
+  await outlineSwitch.click();
+  await expect(previewCaption).toHaveCSS("text-shadow", "none");
   await page.getByRole("menuitem", { name: "用户管理" }).click();
   const usersPage = page.getByTestId("users-page");
   await expect(usersPage).toBeVisible();

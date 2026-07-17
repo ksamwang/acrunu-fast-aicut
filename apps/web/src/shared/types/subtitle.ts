@@ -10,6 +10,7 @@ export type SubtitleStyleLayout = {
   vertical_position: SubtitleVerticalPosition;
   text_align: SubtitleTextAlign;
   vertical_offset_ratio: number;
+  vertical_position_ratio?: number;
   max_width_ratio: number;
   font_size_ratio: number;
   max_chars_per_line: number;

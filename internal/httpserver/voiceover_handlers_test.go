@@ -286,7 +286,7 @@ func TestCreateVoiceoverTaskSnapshotsOutputRatioAndSubtitleStyle(t *testing.T) {
 		t.Fatalf("unexpected generation snapshot %#v", snapshot)
 	}
 	style, ok := snapshot["subtitle_style"].(map[string]any)
-	if !ok || style["vertical_offset_ratio"] != 0.1 {
+	if !ok || style["vertical_position_ratio"] != 0.84 {
 		t.Fatalf("unexpected subtitle style snapshot %#v", snapshot["subtitle_style"])
 	}
 }

@@ -30,15 +30,16 @@ var (
 )
 
 type SubtitleStyleLayout struct {
-	Width               int     `json:"width"`
-	Height              int     `json:"height"`
-	FPS                 int     `json:"fps"`
-	VerticalPosition    string  `json:"vertical_position"`
-	TextAlign           string  `json:"text_align"`
-	VerticalOffsetRatio float64 `json:"vertical_offset_ratio"`
-	MaxWidthRatio       float64 `json:"max_width_ratio"`
-	FontSizeRatio       float64 `json:"font_size_ratio"`
-	MaxCharsPerLine     int     `json:"max_chars_per_line"`
+	Width                 int     `json:"width"`
+	Height                int     `json:"height"`
+	FPS                   int     `json:"fps"`
+	VerticalPosition      string  `json:"vertical_position"`
+	TextAlign             string  `json:"text_align"`
+	VerticalOffsetRatio   float64 `json:"vertical_offset_ratio"`
+	VerticalPositionRatio float64 `json:"vertical_position_ratio"`
+	MaxWidthRatio         float64 `json:"max_width_ratio"`
+	FontSizeRatio         float64 `json:"font_size_ratio"`
+	MaxCharsPerLine       int     `json:"max_chars_per_line"`
 }
 
 type SubtitleStylePreset struct {
@@ -77,21 +78,22 @@ type SubtitleStylePresetInput struct {
 }
 
 type ResolvedSubtitleStyle struct {
-	FontFamily        string  `json:"font_family"`
-	FontWeight        int     `json:"font_weight"`
-	TextColor         string  `json:"text_color"`
-	BackgroundColor   string  `json:"background_color"`
-	BackgroundOpacity float64 `json:"background_opacity"`
-	OutlineColor      string  `json:"outline_color"`
-	OutlineWidth      float64 `json:"outline_width"`
-	Shadow            bool    `json:"shadow"`
-	MaxLines          int     `json:"max_lines"`
-	VerticalPosition  string  `json:"vertical_position"`
-	TextAlign         string  `json:"text_align"`
-	VerticalOffset    float64 `json:"vertical_offset_ratio"`
-	MaxWidthRatio     float64 `json:"max_width_ratio"`
-	FontSizeRatio     float64 `json:"font_size_ratio"`
-	MaxCharsPerLine   int     `json:"max_chars_per_line"`
+	FontFamily            string  `json:"font_family"`
+	FontWeight            int     `json:"font_weight"`
+	TextColor             string  `json:"text_color"`
+	BackgroundColor       string  `json:"background_color"`
+	BackgroundOpacity     float64 `json:"background_opacity"`
+	OutlineColor          string  `json:"outline_color"`
+	OutlineWidth          float64 `json:"outline_width"`
+	Shadow                bool    `json:"shadow"`
+	MaxLines              int     `json:"max_lines"`
+	VerticalPosition      string  `json:"vertical_position"`
+	TextAlign             string  `json:"text_align"`
+	VerticalOffset        float64 `json:"vertical_offset_ratio"`
+	VerticalPositionRatio float64 `json:"vertical_position_ratio"`
+	MaxWidthRatio         float64 `json:"max_width_ratio"`
+	FontSizeRatio         float64 `json:"font_size_ratio"`
+	MaxCharsPerLine       int     `json:"max_chars_per_line"`
 }
 
 type SubtitleRenderConfig struct {
@@ -403,7 +405,8 @@ func (s *SubtitleStylePresetService) Resolve(ctx context.Context, presetID strin
 			BackgroundColor: preset.BackgroundColor, BackgroundOpacity: preset.BackgroundOpacity,
 			OutlineColor: preset.OutlineColor, OutlineWidth: preset.OutlineWidth, Shadow: preset.Shadow,
 			MaxLines: preset.MaxLines, VerticalPosition: layout.VerticalPosition, TextAlign: layout.TextAlign,
-			VerticalOffset: layout.VerticalOffsetRatio, MaxWidthRatio: layout.MaxWidthRatio,
+			VerticalOffset: layout.VerticalOffsetRatio, VerticalPositionRatio: layout.VerticalPositionRatio,
+			MaxWidthRatio: layout.MaxWidthRatio,
 			FontSizeRatio: layout.FontSizeRatio, MaxCharsPerLine: layout.MaxCharsPerLine,
 		},
 	}, nil
@@ -428,6 +431,7 @@ func scanSubtitlePreset(row subtitlePresetScanner) (SubtitleStylePreset, error) 
 	if err := json.Unmarshal(layouts, &preset.Layouts); err != nil {
 		return SubtitleStylePreset{}, err
 	}
+	preset.Layouts = normalizeSubtitleLayouts(preset.Layouts)
 	return preset, nil
 }
 
@@ -438,8 +442,8 @@ func defaultSubtitleStylePreset() SubtitleStylePreset {
 		TextColor: "#FFFFFF", BackgroundColor: "#000000", BackgroundOpacity: 0.3,
 		OutlineColor: "#000000", OutlineWidth: 0, Shadow: false, MaxLines: 2,
 		Layouts: map[string]SubtitleStyleLayout{
-			OutputRatioNineSixteen: {Width: 1080, Height: 1920, FPS: 30, VerticalPosition: "bottom", TextAlign: "center", VerticalOffsetRatio: 0.14, MaxWidthRatio: 0.84, FontSizeRatio: 0.054, MaxCharsPerLine: 16},
-			OutputRatioThreeFour:   {Width: 1080, Height: 1440, FPS: 30, VerticalPosition: "bottom", TextAlign: "center", VerticalOffsetRatio: 0.10, MaxWidthRatio: 0.88, FontSizeRatio: 0.052, MaxCharsPerLine: 18},
+			OutputRatioNineSixteen: {Width: 1080, Height: 1920, FPS: 30, VerticalPosition: "center", TextAlign: "center", VerticalOffsetRatio: 0, VerticalPositionRatio: 0.82, MaxWidthRatio: 0.84, FontSizeRatio: 0.054, MaxCharsPerLine: 16},
+			OutputRatioThreeFour:   {Width: 1080, Height: 1440, FPS: 30, VerticalPosition: "center", TextAlign: "center", VerticalOffsetRatio: 0, VerticalPositionRatio: 0.84, MaxWidthRatio: 0.88, FontSizeRatio: 0.052, MaxCharsPerLine: 18},
 		},
 		Status: "enabled", IsDefault: true, Version: 1, CreatedAt: now, UpdatedAt: now,
 	}
@@ -455,7 +459,36 @@ func normalizeSubtitlePresetInput(input SubtitleStylePresetInput) SubtitleStyleP
 	if input.Status == "" {
 		input.Status = "enabled"
 	}
+	input.Layouts = normalizeSubtitleLayouts(input.Layouts)
 	return input
+}
+
+func normalizeSubtitleLayouts(layouts map[string]SubtitleStyleLayout) map[string]SubtitleStyleLayout {
+	result := cloneSubtitleLayouts(layouts)
+	for ratio, layout := range result {
+		if layout.VerticalPositionRatio <= 0 {
+			layout.VerticalPositionRatio = legacySubtitlePositionRatio(layout)
+			result[ratio] = layout
+		}
+	}
+	return result
+}
+
+func legacySubtitlePositionRatio(layout SubtitleStyleLayout) float64 {
+	position := 0.5
+	switch layout.VerticalPosition {
+	case "top":
+		position = layout.VerticalOffsetRatio + 0.05
+	case "bottom":
+		position = 1 - layout.VerticalOffsetRatio - 0.05
+	}
+	if position < 0.05 {
+		return 0.05
+	}
+	if position > 0.95 {
+		return 0.95
+	}
+	return position
 }
 
 func validateSubtitlePresetInput(input SubtitleStylePresetInput) error {
@@ -508,7 +541,7 @@ func validateSubtitleLayout(ratio string, layout SubtitleStyleLayout) error {
 	if layout.TextAlign != "left" && layout.TextAlign != "center" && layout.TextAlign != "right" {
 		return fmt.Errorf("subtitle layout %s text_align is invalid", ratio)
 	}
-	if layout.VerticalOffsetRatio < 0 || layout.VerticalOffsetRatio > 0.4 || layout.MaxWidthRatio < 0.3 || layout.MaxWidthRatio > 0.96 || layout.FontSizeRatio < 0.02 || layout.FontSizeRatio > 0.12 {
+	if layout.VerticalOffsetRatio < 0 || layout.VerticalOffsetRatio > 0.4 || layout.VerticalPositionRatio < 0.05 || layout.VerticalPositionRatio > 0.95 || layout.MaxWidthRatio < 0.3 || layout.MaxWidthRatio > 0.96 || layout.FontSizeRatio < 0.02 || layout.FontSizeRatio > 0.12 {
 		return fmt.Errorf("subtitle layout %s ratios are out of range", ratio)
 	}
 	if layout.MaxCharsPerLine < 4 || layout.MaxCharsPerLine > 40 {
