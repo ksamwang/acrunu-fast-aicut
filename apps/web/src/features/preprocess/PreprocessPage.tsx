@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Pagination,
   Select,
   Space,
   Switch,
@@ -24,6 +25,7 @@ import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/li
 import type { Product, SellingPoint } from "../../shared/types/product";
 import type {
   UploadToken,
+  WorkspaceImportResponse,
   WorkspaceItem,
   WorkspaceItemResponse,
   WorkspaceListResponse,
@@ -36,9 +38,40 @@ import "./styles.css";
 type ImportPreview = {
   id: string;
   file: File;
-  objectUrl: string;
-  thumbnailUrl?: string;
-  durationMs?: number;
+  status: "waiting" | "importing" | "completed" | "failed";
+  error?: string;
+};
+
+const workspacePageSize = 50;
+const importQueuePageSize = 50;
+const importConcurrency = 2;
+
+type WorkspaceStatsState = {
+  pending: number;
+  saved: number;
+  ready: number;
+  submitted: number;
+};
+
+const workspaceStatKeys: Record<WorkspaceItem["status"], keyof WorkspaceStatsState> = {
+  pending: "pending",
+  saved: "saved",
+  ready_to_submit: "ready",
+  submitted: "submitted"
+};
+
+const importStatusLabels: Record<ImportPreview["status"], string> = {
+  waiting: "等待导入",
+  importing: "复制并分析中",
+  completed: "导入完成",
+  failed: "导入失败"
+};
+
+const importStatusColors: Record<ImportPreview["status"], string> = {
+  waiting: "default",
+  importing: "processing",
+  completed: "success",
+  failed: "error"
 };
 
 function SvgIcon({
@@ -196,7 +229,7 @@ function transcriptTextFromSegments(segments: WorkspaceTranscriptSegment[]) {
 }
 
 function getWorkspacePreviewUrl(item: WorkspaceItem) {
-  return item.frame_snapshots[0]?.image_url;
+  return item.thumbnail_url || item.frame_snapshots[0]?.image_url;
 }
 
 function sourceIdentityKey(item: WorkspaceItem) {
@@ -210,45 +243,6 @@ function sourceIdentityKey(item: WorkspaceItem) {
 function productReferenceImage(product?: Product | null) {
   const image = product?.metadata?.reference_image;
   return typeof image === "string" ? image : "";
-}
-
-function createImportThumbnail(objectUrl: string): Promise<{ thumbnailUrl?: string; durationMs?: number }> {
-  return new Promise((resolve) => {
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-    video.src = objectUrl;
-
-    const finish = (result: { thumbnailUrl?: string; durationMs?: number }) => {
-      video.removeAttribute("src");
-      video.load();
-      resolve(result);
-    };
-
-    video.onerror = () => finish({});
-    video.onloadedmetadata = () => {
-      const durationMs = Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined;
-      const seekTime = Math.min(Math.max(video.duration * 0.08, 0.2), 1);
-      if (!Number.isFinite(video.duration) || video.duration <= 0) {
-        finish({ durationMs });
-        return;
-      }
-      video.currentTime = seekTime;
-      video.onseeked = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth || 320;
-        canvas.height = video.videoHeight || 180;
-        const context = canvas.getContext("2d");
-        if (!context) {
-          finish({ durationMs });
-          return;
-        }
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        finish({ durationMs, thumbnailUrl: canvas.toDataURL("image/jpeg", 0.76) });
-      };
-    };
-  });
 }
 
 function disableButtonTabStops(root: HTMLElement | null) {
@@ -295,6 +289,11 @@ export function PreprocessPage({ token }: { token: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importPreviews, setImportPreviews] = useState<ImportPreview[]>([]);
+  const [importQueuePage, setImportQueuePage] = useState(1);
+  const [workspacePage, setWorkspacePage] = useState(1);
+  const [workspaceTotal, setWorkspaceTotal] = useState(0);
+  const [workspaceStats, setWorkspaceStats] = useState<WorkspaceStatsState>({ pending: 0, saved: 0, ready: 0, submitted: 0 });
+  const [hasRunningVLMLabel, setHasRunningVLMLabel] = useState(false);
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
   const lastSubmitProductIDRef = useRef(loadLastSubmitProductID());
   const [submitProductID, setSubmitProductID] = useState<string>(lastSubmitProductIDRef.current);
@@ -309,7 +308,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [subtitleEditingText, setSubtitleEditingText] = useState("");
   const [savingSubtitle, setSavingSubtitle] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
-  const importPreviewsRef = useRef<ImportPreview[]>([]);
+  const cancelledImportIDsRef = useRef(new Set<string>());
   const initializedEditorItemIDRef = useRef<string | null>(null);
   const selectedItemIDRef = useRef<string | null>(null);
   const preprocessWorkbenchRef = useRef<HTMLDivElement | null>(null);
@@ -326,6 +325,36 @@ export function PreprocessPage({ token }: { token: string }) {
     [products, submitProductID]
   );
   const selectedProductReferenceImage = productReferenceImage(selectedSubmitProduct);
+  const importQueueStats = useMemo(() => ({
+    waiting: importPreviews.filter((item) => item.status === "waiting").length,
+    importing: importPreviews.filter((item) => item.status === "importing").length,
+    completed: importPreviews.filter((item) => item.status === "completed").length,
+    failed: importPreviews.filter((item) => item.status === "failed").length
+  }), [importPreviews]);
+  const pagedImportPreviews = useMemo(() => {
+    const start = (importQueuePage - 1) * importQueuePageSize;
+    return importPreviews.slice(start, start + importQueuePageSize);
+  }, [importPreviews, importQueuePage]);
+
+  useEffect(() => {
+    const pageCount = Math.max(1, Math.ceil(importPreviews.length / importQueuePageSize));
+    if (importQueuePage > pageCount) {
+      setImportQueuePage(pageCount);
+    }
+  }, [importPreviews.length, importQueuePage]);
+
+  const replaceWorkspaceItem = (nextItem: WorkspaceItem, previousItem?: WorkspaceItem | null) => {
+    setItems((current) => current.map((item) => (item.id === nextItem.id ? nextItem : item)));
+    if (previousItem && previousItem.status !== nextItem.status) {
+      const previousKey = workspaceStatKeys[previousItem.status];
+      const nextKey = workspaceStatKeys[nextItem.status];
+      setWorkspaceStats((current) => ({
+        ...current,
+        [previousKey]: Math.max(0, current[previousKey] - 1),
+        [nextKey]: current[nextKey] + 1
+      }));
+    }
+  };
 
   useEffect(() => {
     if (watchedSourceType === "talking_head" && watchedInterpretFPS) {
@@ -340,11 +369,32 @@ export function PreprocessPage({ token }: { token: string }) {
     setUseProductReferenceImage(watchedSourceType === "visual_only" && !!selectedProductReferenceImage);
   }, [selectedProductReferenceImage, watchedSourceType]);
 
-  const loadItems = async () => {
+  const loadItems = async (page = workspacePage) => {
     setLoading(true);
     try {
-      const response = await localAgentRequest<WorkspaceListResponse>("/workspace/items");
+      const response = await localAgentRequest<WorkspaceListResponse>(`/workspace/items?page=${page}&page_size=${workspacePageSize}`);
+      const total = response.total ?? response.items?.length ?? 0;
+      const pageCount = Math.max(1, Math.ceil(total / workspacePageSize));
+      if (page > pageCount) {
+        setWorkspacePage(pageCount);
+        return;
+      }
       setItems(response.items ?? []);
+      setWorkspaceTotal(total);
+      setWorkspaceStats(response.stats ? {
+        pending: response.stats.pending,
+        saved: response.stats.saved,
+        ready: response.stats.ready_to_submit,
+        submitted: response.stats.submitted
+      } : {
+        pending: (response.items ?? []).filter((item) => item.status === "pending").length,
+        saved: (response.items ?? []).filter((item) => item.status === "saved").length,
+        ready: (response.items ?? []).filter((item) => item.status === "ready_to_submit").length,
+        submitted: (response.items ?? []).filter((item) => item.status === "submitted").length
+      });
+      setHasRunningVLMLabel(Boolean(response.has_running_vlm ?? (response.items ?? []).some(
+        (item) => item.vlm_status === "queued" || item.vlm_status === "running"
+      )));
     } catch (error) {
       message.error(error instanceof Error ? error.message : "加载预处理工作区失败");
     } finally {
@@ -353,18 +403,8 @@ export function PreprocessPage({ token }: { token: string }) {
   };
 
   useEffect(() => {
-    void loadItems();
-  }, []);
-
-  useEffect(() => {
-    importPreviewsRef.current = importPreviews;
-  }, [importPreviews]);
-
-  useEffect(() => {
-    return () => {
-      importPreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview.objectUrl));
-    };
-  }, []);
+    void loadItems(workspacePage);
+  }, [workspacePage]);
 
   useEffect(() => {
     void (async () => {
@@ -382,17 +422,6 @@ export function PreprocessPage({ token }: { token: string }) {
     [items, selectedItemID]
   );
   const selectedItem = selectedIndex >= 0 ? items[selectedIndex] : null;
-  const workspaceStats = useMemo(
-    () => ({
-      pending: items.filter((item) => item.status === "pending").length,
-      saved: items.filter((item) => item.status === "saved").length,
-      ready: items.filter((item) => item.status === "ready_to_submit").length,
-      submitted: items.filter((item) => item.status === "submitted").length
-    }),
-    [items]
-  );
-  const hasRunningVLMLabel = items.some((item) => item.vlm_status === "queued" || item.vlm_status === "running");
-
   useEffect(() => {
     selectedItemIDRef.current = selectedItemID;
   }, [selectedItemID]);
@@ -402,10 +431,10 @@ export function PreprocessPage({ token }: { token: string }) {
       return;
     }
     const timer = window.setInterval(() => {
-      void loadItems();
+      void loadItems(workspacePage);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [hasRunningVLMLabel]);
+  }, [hasRunningVLMLabel, workspacePage]);
 
   useEffect(() => {
     if (!selectedItem) {
@@ -495,67 +524,101 @@ export function PreprocessPage({ token }: { token: string }) {
   }, [submitProductID, token]);
 
   const clearImportPreviews = () => {
-    importPreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview.objectUrl));
+    cancelledImportIDsRef.current.clear();
     setImportPreviews([]);
+    setImportQueuePage(1);
   };
 
   const closeImportModal = () => {
-    if (importing) {
-      return;
-    }
-    clearImportPreviews();
     setImportModalOpen(false);
   };
 
   const selectImportFiles = (files: File[]) => {
-    clearImportPreviews();
-    const nextPreviews = files.map((file, index) => ({
+    cancelledImportIDsRef.current.clear();
+    setImportQueuePage(1);
+    setImportPreviews(files.map((file, index) => ({
       id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
       file,
-      objectUrl: URL.createObjectURL(file)
-    }));
-    setImportPreviews(nextPreviews);
-
-    nextPreviews.forEach((preview) => {
-      void createImportThumbnail(preview.objectUrl).then((result) => {
-        setImportPreviews((current) =>
-          current.map((item) => (item.id === preview.id ? { ...item, ...result } : item))
-        );
-      });
-    });
+      status: "waiting"
+    })));
   };
 
   const removeImportPreview = (id: string) => {
-    setImportPreviews((current) => {
-      const target = current.find((item) => item.id === id);
-      if (target) {
-        URL.revokeObjectURL(target.objectUrl);
-      }
-      return current.filter((item) => item.id !== id);
-    });
+    cancelledImportIDsRef.current.add(id);
+    setImportPreviews((current) => current.filter((item) => item.id !== id || item.status === "importing"));
   };
 
-  const importFiles = async () => {
-    if (importPreviews.length === 0) {
+  const importFiles = async (onlyIDs?: string[]) => {
+    if (importing) {
+      return;
+    }
+    const selectedIDs = onlyIDs ? new Set(onlyIDs) : null;
+    const queue = importPreviews.filter((item) =>
+      (item.status === "waiting" || item.status === "failed") && (!selectedIDs || selectedIDs.has(item.id))
+    );
+    if (queue.length === 0) {
       message.warning("请先选择原始视频文件");
       return;
     }
-
-    const body = new FormData();
-    importPreviews.forEach((preview) => body.append("files", preview.file));
-
     setImporting(true);
+    let cursor = 0;
+    let completed = 0;
+    let failed = 0;
+    let importedTotal = workspaceTotal;
+    const updateQueueItem = (id: string, values: Partial<ImportPreview>) => {
+      setImportPreviews((current) => current.map((item) => item.id === id ? { ...item, ...values } : item));
+    };
+    const worker = async () => {
+      while (cursor < queue.length) {
+        const preview = queue[cursor];
+        cursor += 1;
+        if (cancelledImportIDsRef.current.has(preview.id)) {
+          continue;
+        }
+        updateQueueItem(preview.id, { status: "importing", error: undefined });
+        const body = new FormData();
+        body.append("files", preview.file);
+        try {
+          const response = await localAgentRequest<WorkspaceImportResponse>("/workspace/import", {
+            method: "POST",
+            body
+          });
+          const importedItem = response.items?.[0];
+          if (!importedItem) {
+            throw new Error("Local Agent 未返回导入结果");
+          }
+          completed += 1;
+          importedTotal += 1;
+          updateQueueItem(preview.id, { status: "completed" });
+          if (Math.ceil(importedTotal / workspacePageSize) === workspacePage) {
+            setItems((current) => current.some((item) => item.id === importedItem.id)
+              ? current
+              : [...current, importedItem].slice(0, workspacePageSize));
+          }
+          setWorkspaceTotal((current) => current + 1);
+          setWorkspaceStats((current) => ({ ...current, pending: current.pending + 1 }));
+        } catch (error) {
+          failed += 1;
+          updateQueueItem(preview.id, {
+            status: "failed",
+            error: error instanceof Error ? error.message : "导入失败"
+          });
+        }
+      }
+    };
     try {
-      await localAgentRequest("/workspace/import", {
-        method: "POST",
-        body
-      });
-      clearImportPreviews();
-      setImportModalOpen(false);
-      await loadItems();
-      message.success("原始视频已导入预处理工作区");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "导入原始视频失败");
+      await Promise.all(Array.from({ length: Math.min(importConcurrency, queue.length) }, () => worker()));
+      const targetPage = Math.max(1, Math.ceil(importedTotal / workspacePageSize));
+      if (targetPage !== workspacePage) {
+        setWorkspacePage(targetPage);
+      } else {
+        await loadItems(targetPage);
+      }
+      if (failed > 0) {
+        message.warning(`已导入 ${completed} 个，失败 ${failed} 个`);
+      } else {
+        message.success(`已导入 ${completed} 个原始视频`);
+      }
     } finally {
       setImporting(false);
     }
@@ -573,7 +636,7 @@ export function PreprocessPage({ token }: { token: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values)
       });
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      replaceWorkspaceItem(response.item, selectedItem);
       message.success("本地草稿已保存");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "保存草稿失败");
@@ -626,7 +689,7 @@ export function PreprocessPage({ token }: { token: string }) {
         source_out_ms: range.sourceOutMs
       })
     });
-    setItems((current) => current.map((currentItem) => (currentItem.id === response.item.id ? response.item : currentItem)));
+    replaceWorkspaceItem(response.item, item);
     return response.item;
   };
 
@@ -648,7 +711,7 @@ export function PreprocessPage({ token }: { token: string }) {
         reviewer_notes: item.reviewer_notes ?? ""
       })
     });
-    setItems((current) => current.map((currentItem) => (currentItem.id === response.item.id ? response.item : currentItem)));
+    replaceWorkspaceItem(response.item, item);
     if (selectedItemIDRef.current === response.item.id) {
       form.setFieldsValue({
         transcript: response.item.transcript ?? transcript,
@@ -677,7 +740,7 @@ export function PreprocessPage({ token }: { token: string }) {
           auth_token: token
         })
       });
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      replaceWorkspaceItem(response.item, syncedItem);
       const segments = response.item.asr_draft?.segments ?? [];
       if (segments.length === 0) {
         throw new Error("语音识别未返回可用句段");
@@ -717,7 +780,7 @@ export function PreprocessPage({ token }: { token: string }) {
       const prepared = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/prepare`, {
         method: "POST"
       });
-      setItems((current) => current.map((item) => (item.id === prepared.item.id ? prepared.item : item)));
+      replaceWorkspaceItem(prepared.item, selectedItem);
       setSelectedItemID(prepared.item.id);
       message.success("本地预处理已完成，当前状态为待提交");
     } catch (error) {
@@ -758,7 +821,7 @@ export function PreprocessPage({ token }: { token: string }) {
           source_out_ms: Math.round(sourceOutMs)
         })
       });
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      replaceWorkspaceItem(response.item, selectedItem);
       setFramesPreviewOpen(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "三帧抽样失败");
@@ -809,7 +872,8 @@ export function PreprocessPage({ token }: { token: string }) {
           auth_token: token
         })
       });
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      replaceWorkspaceItem(response.item, selectedItem);
+      setHasRunningVLMLabel(true);
       message.success("VLM 标注已开始，可继续处理其他视频");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "VLM 标注启动失败");
@@ -825,15 +889,27 @@ export function PreprocessPage({ token }: { token: string }) {
     const values = await form.validateFields();
     setDuplicating(true);
     try {
-      await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}`, {
+      const saved = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values)
       });
+      replaceWorkspaceItem(saved.item, selectedItem);
       const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${selectedItem.id}/duplicate`, {
         method: "POST"
       });
-      setItems((current) => [...current, response.item]);
+      const total = workspaceTotal + 1;
+      const targetPage = Math.max(1, Math.ceil(total / workspacePageSize));
+      setWorkspaceTotal(total);
+      setWorkspaceStats((current) => ({
+        ...current,
+        [workspaceStatKeys[response.item.status]]: current[workspaceStatKeys[response.item.status]] + 1
+      }));
+      if (targetPage === workspacePage) {
+        setItems((current) => [...current, response.item].slice(0, workspacePageSize));
+      } else {
+        setWorkspacePage(targetPage);
+      }
       setSelectedItemID(response.item.id);
       message.success("已从当前原始视频派生一个新的 clean shot 条目");
     } catch (error) {
@@ -847,7 +923,11 @@ export function PreprocessPage({ token }: { token: string }) {
     setClearing(true);
     try {
       await localAgentRequest("/workspace/clear", { method: "POST" });
-      await loadItems();
+      if (workspacePage !== 1) {
+        setWorkspacePage(1);
+      } else {
+        await loadItems(1);
+      }
       setSelectedItemID(null);
       setSubmitSellingPointIDs([]);
       message.success("本地预处理工作区已清空");
@@ -890,7 +970,7 @@ export function PreprocessPage({ token }: { token: string }) {
         })
       });
 
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      replaceWorkspaceItem(response.item, selectedItem);
       setSelectedItemID(response.item.id);
       message.success("素材已正式提交入库");
     } catch (error) {
@@ -1002,7 +1082,7 @@ export function PreprocessPage({ token }: { token: string }) {
           transcript_segments: segments
         })
       });
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      replaceWorkspaceItem(response.item, selectedItem);
       if (selectedItemIDRef.current === response.item.id) {
         form.setFieldsValue({
           transcript: response.item.transcript ?? transcript,
@@ -1115,7 +1195,7 @@ export function PreprocessPage({ token }: { token: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values)
       });
-      setItems((current) => current.map((item) => (item.id === response.item.id ? response.item : item)));
+      replaceWorkspaceItem(response.item, selectedItem);
       const sourceOutMs = response.item.source_out_ms > 0 ? response.item.source_out_ms : response.item.probe.duration_ms ?? 0;
       form.setFieldsValue({
         source_in_ms: response.item.source_in_ms ?? 0,
@@ -1155,43 +1235,56 @@ export function PreprocessPage({ token }: { token: string }) {
             <Typography.Text type="secondary">点击右下角按钮导入原始视频，处理完成前不会进入服务端素材库。</Typography.Text>
           </div>
         ) : (
-          <div className="preprocess-asset-grid">
-            {items.map((item) => {
-              const previewUrl = getWorkspacePreviewUrl(item);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="preprocess-asset-card"
-                  onClick={() => setSelectedItemID(item.id)}
-                  title={item.asset_name || item.original_file_name}
-                >
-                  <div className="preprocess-asset-preview">
-                    {previewUrl ? (
-                      <img src={previewUrl} alt={item.asset_name || item.original_file_name} />
-                    ) : (
-                      <video src={item.source_url} muted preload="metadata" />
-                    )}
-                    <Tag color={workspaceStatusColors[item.status]} className="preprocess-asset-status">
-                      {workspaceStatusLabels[item.status]}
-                    </Tag>
-                    <Tag color={sourceTypeColors[item.source_type || defaultSourceType] ?? "default"} className="preprocess-asset-type">
-                      {sourceTypeLabels[item.source_type || defaultSourceType] ?? "-"}
-                    </Tag>
-                  </div>
-                  <div className="preprocess-asset-meta">
-                    <Typography.Text className="preprocess-asset-name">
-                      {item.asset_name || item.original_file_name}
-                    </Typography.Text>
-                    <Typography.Text className="preprocess-asset-detail">
-                      {formatDuration(item.probe.duration_ms)} · {formatResolution(item.probe.width, item.probe.height)}
-                    </Typography.Text>
-                    <Typography.Text className="preprocess-asset-detail">{formatDateTime(item.updated_at)}</Typography.Text>
-                  </div>
-                  {item.last_error ? <div className="preprocess-asset-error">{item.last_error}</div> : null}
-                </button>
-              );
-            })}
+          <div className="preprocess-asset-list-shell">
+            <div className="preprocess-asset-grid">
+              {items.map((item) => {
+                const previewUrl = getWorkspacePreviewUrl(item);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="preprocess-asset-card"
+                    onClick={() => setSelectedItemID(item.id)}
+                    title={item.asset_name || item.original_file_name}
+                  >
+                    <div className="preprocess-asset-preview">
+                      {previewUrl ? (
+                        <img loading="lazy" decoding="async" src={previewUrl} alt={item.asset_name || item.original_file_name} />
+                      ) : (
+                        <span className="preprocess-asset-preview-placeholder"><UploadIcon /></span>
+                      )}
+                      <Tag color={workspaceStatusColors[item.status]} className="preprocess-asset-status">
+                        {workspaceStatusLabels[item.status]}
+                      </Tag>
+                      <Tag color={sourceTypeColors[item.source_type || defaultSourceType] ?? "default"} className="preprocess-asset-type">
+                        {sourceTypeLabels[item.source_type || defaultSourceType] ?? "-"}
+                      </Tag>
+                    </div>
+                    <div className="preprocess-asset-meta">
+                      <Typography.Text className="preprocess-asset-name">
+                        {item.asset_name || item.original_file_name}
+                      </Typography.Text>
+                      <Typography.Text className="preprocess-asset-detail">
+                        {formatDuration(item.probe.duration_ms)} · {formatResolution(item.probe.width, item.probe.height)}
+                      </Typography.Text>
+                      <Typography.Text className="preprocess-asset-detail">{formatDateTime(item.updated_at)}</Typography.Text>
+                    </div>
+                    {item.last_error ? <div className="preprocess-asset-error">{item.last_error}</div> : null}
+                  </button>
+                );
+              })}
+            </div>
+            {workspaceTotal > workspacePageSize ? (
+              <Pagination
+                className="preprocess-workspace-pagination"
+                size="small"
+                current={workspacePage}
+                pageSize={workspacePageSize}
+                total={workspaceTotal}
+                showSizeChanger={false}
+                onChange={setWorkspacePage}
+              />
+            ) : null}
           </div>
         )}
 
@@ -1220,7 +1313,11 @@ export function PreprocessPage({ token }: { token: string }) {
               type="file"
               accept="video/*"
               multiple
-              onChange={(event) => selectImportFiles(Array.from(event.target.files ?? []))}
+              disabled={importing}
+              onChange={(event) => {
+                selectImportFiles(Array.from(event.target.files ?? []));
+                event.currentTarget.value = "";
+              }}
             />
             <UploadIcon />
             <span>选择视频文件</span>
@@ -1228,38 +1325,69 @@ export function PreprocessPage({ token }: { token: string }) {
           </label>
 
           {importPreviews.length > 0 ? (
-            <div className="preprocess-import-preview-grid">
-              {importPreviews.map((preview) => (
-                <div key={preview.id} className="preprocess-import-preview-card">
-                  <div className="preprocess-import-thumbnail">
-                    {preview.thumbnailUrl ? (
-                      <img src={preview.thumbnailUrl} alt={preview.file.name} />
+            <div className="preprocess-import-queue">
+              <div className="preprocess-import-preview-grid">
+                {pagedImportPreviews.map((preview) => (
+                  <div key={preview.id} className="preprocess-import-preview-card">
+                    <div className="preprocess-import-thumbnail">
+                      <UploadIcon />
+                    </div>
+                    <div className="preprocess-import-info">
+                      <Typography.Text className="preprocess-import-name">{preview.file.name}</Typography.Text>
+                      <Typography.Text type="secondary">{formatFileSize(preview.file.size)}</Typography.Text>
+                      <Tag color={importStatusColors[preview.status]}>{importStatusLabels[preview.status]}</Tag>
+                      {preview.error ? <Typography.Text type="danger" ellipsis={{ tooltip: preview.error }}>{preview.error}</Typography.Text> : null}
+                    </div>
+                    {preview.status === "failed" ? (
+                      <Button size="small" disabled={importing} onClick={() => void importFiles([preview.id])}>重试</Button>
                     ) : (
-                      <video src={preview.objectUrl} muted preload="metadata" />
+                      <Button
+                        size="small"
+                        icon={<CloseIcon />}
+                        loading={preview.status === "importing"}
+                        disabled={preview.status === "importing"}
+                        onClick={() => removeImportPreview(preview.id)}
+                      >
+                        移除
+                      </Button>
                     )}
                   </div>
-                  <div className="preprocess-import-info">
-                    <Typography.Text className="preprocess-import-name">{preview.file.name}</Typography.Text>
-                    <Typography.Text type="secondary">
-                      {formatFileSize(preview.file.size)} · {formatDuration(preview.durationMs)}
-                    </Typography.Text>
-                  </div>
-                  <Button size="small" icon={<CloseIcon />} onClick={() => removeImportPreview(preview.id)}>
-                    移除
-                  </Button>
-                </div>
-              ))}
+                ))}
+              </div>
+              {importPreviews.length > importQueuePageSize ? (
+                <Pagination
+                  className="preprocess-import-pagination"
+                  size="small"
+                  current={importQueuePage}
+                  pageSize={importQueuePageSize}
+                  total={importPreviews.length}
+                  showSizeChanger={false}
+                  onChange={setImportQueuePage}
+                />
+              ) : null}
             </div>
           ) : (
-            <div className="preprocess-import-empty">选择文件后将在这里显示缩略预览。</div>
+            <div className="preprocess-import-empty">选择文件后将在这里显示导入队列。</div>
           )}
 
           <div className="preprocess-import-actions">
-            <Button onClick={closeImportModal} disabled={importing}>
-              取消
+            <Typography.Text type="secondary" className="preprocess-import-summary">
+              等待 {importQueueStats.waiting} / 进行中 {importQueueStats.importing} / 完成 {importQueueStats.completed} / 失败 {importQueueStats.failed}
+            </Typography.Text>
+            <Button onClick={clearImportPreviews} disabled={importing || importPreviews.length === 0}>
+              清空队列
             </Button>
-            <Button type="primary" icon={<UploadIcon />} loading={importing} disabled={importPreviews.length === 0} onClick={() => void importFiles()}>
-              确认导入工作区
+            <Button onClick={closeImportModal}>
+              关闭
+            </Button>
+            <Button
+              type="primary"
+              icon={<UploadIcon />}
+              loading={importing}
+              disabled={importQueueStats.waiting + importQueueStats.failed === 0}
+              onClick={() => void importFiles()}
+            >
+              开始导入 {importQueueStats.waiting + importQueueStats.failed > 0 ? `(${importQueueStats.waiting + importQueueStats.failed})` : ""}
             </Button>
           </div>
         </div>

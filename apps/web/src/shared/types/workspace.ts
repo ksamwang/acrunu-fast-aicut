@@ -76,11 +76,27 @@ export type WorkspaceItem = {
   vlm_error?: string;
   frame_snapshots: WorkspaceFrameSnapshot[];
   source_url: string;
+  thumbnail_url?: string;
   clean_shot_url?: string;
   checksum?: string;
   last_error?: string;
   updated_at: string;
 };
 
-export type WorkspaceListResponse = { items: WorkspaceItem[] };
+export type WorkspaceStats = {
+  pending: number;
+  saved: number;
+  ready_to_submit: number;
+  submitted: number;
+};
+
+export type WorkspaceListResponse = {
+  items: WorkspaceItem[];
+  total?: number;
+  page?: number;
+  page_size?: number;
+  stats?: WorkspaceStats;
+  has_running_vlm?: boolean;
+};
+export type WorkspaceImportResponse = { items: WorkspaceItem[] };
 export type WorkspaceItemResponse = { item: WorkspaceItem };

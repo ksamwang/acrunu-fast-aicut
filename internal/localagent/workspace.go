@@ -53,6 +53,7 @@ type WorkspaceItem struct {
 	SourceFileName      string                       `json:"source_file_name"`
 	SourceFileSize      int64                        `json:"source_file_size"`
 	SourcePath          string                       `json:"source_path"`
+	ThumbnailPath       string                       `json:"thumbnail_path,omitempty"`
 	CleanShotPath       string                       `json:"clean_shot_path,omitempty"`
 	CleanShotName       string                       `json:"clean_shot_name,omitempty"`
 	CleanShotProbe      ffmpeg.ProbeResult           `json:"clean_shot_probe,omitempty"`
@@ -156,6 +157,20 @@ type workspaceState struct {
 	Items []WorkspaceItem `json:"items"`
 }
 
+type readerWithContext struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r readerWithContext) Read(buffer []byte) (int, error) {
+	select {
+	case <-r.ctx.Done():
+		return 0, r.ctx.Err()
+	default:
+		return r.reader.Read(buffer)
+	}
+}
+
 func NewWorkspace(root string, processor Processor) (*Workspace, error) {
 	if root == "" {
 		root = filepath.Join(os.TempDir(), "aicut-local-workspace")
@@ -192,21 +207,99 @@ func (w *Workspace) GetItem(itemID string) (WorkspaceItem, bool) {
 }
 
 func (w *Workspace) ImportFiles(ctx context.Context, headers []*multipart.FileHeader) ([]WorkspaceItem, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	items := make([]WorkspaceItem, 0, len(headers))
 	for _, header := range headers {
-		item, err := w.importFileLocked(ctx, header)
+		file, err := header.Open()
 		if err != nil {
 			return nil, err
 		}
+		item, importErr := w.ImportFile(ctx, header.Filename, file)
+		closeErr := file.Close()
+		if importErr != nil {
+			return nil, importErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
 		items = append(items, item)
 	}
-	if err := w.persistLocked(); err != nil {
-		return nil, err
-	}
 	return items, nil
+}
+
+func (w *Workspace) ImportFile(ctx context.Context, fileName string, source io.Reader) (WorkspaceItem, error) {
+	if strings.TrimSpace(fileName) == "" {
+		return WorkspaceItem{}, fmt.Errorf("source file name is required")
+	}
+	itemID := uuid.NewString()
+	itemDir := filepath.Join(w.root, "items", itemID)
+	if err := os.MkdirAll(itemDir, 0755); err != nil {
+		return WorkspaceItem{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(itemDir)
+		}
+	}()
+
+	sourceFileName := sanitizeFileName(fileName)
+	sourcePath := filepath.Join(itemDir, "source"+filepath.Ext(sourceFileName))
+	out, err := os.Create(sourcePath)
+	if err != nil {
+		return WorkspaceItem{}, err
+	}
+	written, copyErr := io.Copy(out, readerWithContext{ctx: ctx, reader: source})
+	closeErr := out.Close()
+	if copyErr != nil {
+		return WorkspaceItem{}, copyErr
+	}
+	if closeErr != nil {
+		return WorkspaceItem{}, closeErr
+	}
+
+	now := time.Now()
+	item := WorkspaceItem{
+		ID:                 itemID,
+		Status:             workspaceStatusPending,
+		OriginalFileName:   fileName,
+		OriginalSourcePath: sourcePath,
+		SourceFileName:     sourceFileName,
+		SourceFileSize:     written,
+		SourcePath:         sourcePath,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	probe, probeErr := w.processor.Probe(ctx, sourcePath)
+	if probeErr == nil {
+		item.Probe = probe
+		item.OriginalProbe = probe
+		item.SourceOutMs = probe.DurationMs
+	} else {
+		item.LastError = probeErr.Error()
+	}
+
+	thumbnailPath := filepath.Join(itemDir, "thumbnail.jpg")
+	if err := w.processor.ExtractThumbnail(ctx, sourcePath, thumbnailPath, 320, 180); err == nil {
+		item.ThumbnailPath = thumbnailPath
+	}
+
+	w.mu.Lock()
+	w.items[itemID] = item
+	w.order = append(w.order, itemID)
+	if err := w.persistLocked(); err != nil {
+		delete(w.items, itemID)
+		for index, id := range w.order {
+			if id == itemID {
+				w.order = append(w.order[:index], w.order[index+1:]...)
+				break
+			}
+		}
+		w.mu.Unlock()
+		return WorkspaceItem{}, err
+	}
+	w.mu.Unlock()
+	committed = true
+	return item, nil
 }
 
 func (w *Workspace) DuplicateItem(itemID string) (WorkspaceItem, error) {
@@ -637,60 +730,6 @@ func (w *Workspace) listItemsLocked() []WorkspaceItem {
 		}
 	}
 	return items
-}
-
-func (w *Workspace) importFileLocked(ctx context.Context, header *multipart.FileHeader) (WorkspaceItem, error) {
-	file, err := header.Open()
-	if err != nil {
-		return WorkspaceItem{}, err
-	}
-	defer file.Close()
-
-	itemID := uuid.NewString()
-	itemDir := filepath.Join(w.root, "items", itemID)
-	if err := os.MkdirAll(itemDir, 0755); err != nil {
-		return WorkspaceItem{}, err
-	}
-
-	sourceFileName := sanitizeFileName(header.Filename)
-	sourcePath := filepath.Join(itemDir, "source"+filepath.Ext(sourceFileName))
-	out, err := os.Create(sourcePath)
-	if err != nil {
-		return WorkspaceItem{}, err
-	}
-	if _, err := io.Copy(out, file); err != nil {
-		out.Close()
-		return WorkspaceItem{}, err
-	}
-	if err := out.Close(); err != nil {
-		return WorkspaceItem{}, err
-	}
-
-	now := time.Now()
-	item := WorkspaceItem{
-		ID:                 itemID,
-		Status:             workspaceStatusPending,
-		OriginalFileName:   header.Filename,
-		OriginalSourcePath: sourcePath,
-		SourceFileName:     sourceFileName,
-		SourceFileSize:     header.Size,
-		SourcePath:         sourcePath,
-		CreatedAt:          now,
-		UpdatedAt:          now,
-	}
-
-	probe, err := w.processor.Probe(ctx, sourcePath)
-	if err == nil {
-		item.Probe = probe
-		item.OriginalProbe = probe
-		item.SourceOutMs = probe.DurationMs
-	} else {
-		item.LastError = err.Error()
-	}
-
-	w.items[itemID] = item
-	w.order = append(w.order, itemID)
-	return item, nil
 }
 
 func (w *Workspace) duplicateItemLocked(source WorkspaceItem) (WorkspaceItem, error) {

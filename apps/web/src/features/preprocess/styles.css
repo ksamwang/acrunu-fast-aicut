@@ -43,6 +43,13 @@
   gap: 28px 30px;
 }
 
+.preprocess-asset-list-shell {
+  display: grid;
+  gap: 22px;
+  min-height: 100%;
+  align-content: space-between;
+}
+
 .preprocess-asset-card {
   width: 190px;
   padding: 0;
@@ -73,11 +80,29 @@
 }
 
 .preprocess-asset-preview img,
-.preprocess-asset-preview video {
+.preprocess-asset-preview video,
+.preprocess-asset-preview-placeholder {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+.preprocess-asset-preview-placeholder {
+  display: grid;
+  place-items: center;
+  color: #64748b;
+}
+
+.preprocess-asset-preview-placeholder .ui-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.preprocess-workspace-pagination,
+.preprocess-import-pagination {
+  display: flex;
+  justify-content: center;
 }
 
 .preprocess-asset-status,
@@ -229,6 +254,12 @@
   overflow: auto;
 }
 
+.preprocess-import-queue {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+
 .preprocess-import-preview-card {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr) auto;
@@ -247,6 +278,7 @@
   overflow: hidden;
   border-radius: 8px;
   background: #020617;
+  color: #94a3b8;
 }
 
 .preprocess-import-thumbnail img,
@@ -257,10 +289,21 @@
   object-fit: cover;
 }
 
+.preprocess-import-thumbnail .ui-icon {
+  width: 24px;
+  height: 24px;
+  margin: 17px 34px;
+}
+
 .preprocess-import-info {
   display: grid;
   min-width: 0;
   gap: 2px;
+}
+
+.preprocess-import-info .ant-tag {
+  width: fit-content;
+  margin: 2px 0 0;
 }
 
 .preprocess-import-empty {
@@ -275,6 +318,11 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.preprocess-import-summary {
+  margin-right: auto;
+  align-self: center;
 }
 
 .preprocess-video {

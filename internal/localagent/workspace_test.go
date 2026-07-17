@@ -31,6 +31,22 @@ type cleanShotProbeProcessor struct {
 	stubProcessor
 }
 
+type blockingImportProcessor struct {
+	stubProcessor
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p blockingImportProcessor) Probe(ctx context.Context, _ string) (ffmpeg.ProbeResult, error) {
+	close(p.started)
+	select {
+	case <-p.release:
+		return p.stubProcessor.Probe(ctx, "")
+	case <-ctx.Done():
+		return ffmpeg.ProbeResult{}, ctx.Err()
+	}
+}
+
 func (cleanShotProbeProcessor) Probe(_ context.Context, path string) (ffmpeg.ProbeResult, error) {
 	if filepath.Base(path) == "clean-shot.mp4" {
 		return ffmpeg.ProbeResult{
@@ -95,6 +111,10 @@ func (stubProcessor) ExtractFrames(_ context.Context, _ string, outputDir string
 		})
 	}
 	return frames, nil
+}
+
+func (stubProcessor) ExtractThumbnail(_ context.Context, _ string, outputPath string, _ int, _ int) error {
+	return os.WriteFile(outputPath, []byte("thumbnail"), 0644)
 }
 
 func (stubProcessor) Analyze(_ context.Context, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
@@ -178,6 +198,97 @@ func TestWorkspaceImportSavePrepareAndClear(t *testing.T) {
 	}
 	if len(workspace.ListItems()) != 0 {
 		t.Fatalf("expected workspace to be empty after clear")
+	}
+}
+
+func TestWorkspaceImportDoesNotHoldListLockDuringProbe(t *testing.T) {
+	processor := blockingImportProcessor{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	workspace, err := NewWorkspace(t.TempDir(), processor)
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+	importDone := make(chan error, 1)
+	go func() {
+		_, importErr := workspace.ImportFile(context.Background(), "sample.mp4", strings.NewReader("video"))
+		importDone <- importErr
+	}()
+	<-processor.started
+	listDone := make(chan struct{})
+	go func() {
+		_ = workspace.ListItems()
+		close(listDone)
+	}()
+	select {
+	case <-listDone:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("ListItems blocked while an imported file was being probed")
+	}
+	close(processor.release)
+	if err := <-importDone; err != nil {
+		t.Fatalf("ImportFile() error = %v", err)
+	}
+}
+
+func TestWorkspaceServerStreamsImportAndPaginatesItems(t *testing.T) {
+	server := New(Options{WorkspaceRoot: t.TempDir(), Processor: stubProcessor{}})
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("files", "streamed.mp4")
+	if err != nil {
+		t.Fatalf("CreateFormFile() error = %v", err)
+	}
+	if _, err := part.Write([]byte("video")); err != nil {
+		t.Fatalf("write multipart file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/workspace/import", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	server.handleWorkspaceImport(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("import status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if request.MultipartForm == nil || len(request.MultipartForm.File) != 0 || len(request.MultipartForm.Value) != 0 {
+		t.Fatalf("streaming import unexpectedly parsed multipart form: %#v", request.MultipartForm)
+	}
+	items := server.workspace.ListItems()
+	if len(items) != 1 || items[0].SourceFileSize != 5 || items[0].ThumbnailPath == "" {
+		t.Fatalf("unexpected streamed items %#v", items)
+	}
+	if _, err := os.Stat(items[0].ThumbnailPath); err != nil {
+		t.Fatalf("thumbnail was not created: %v", err)
+	}
+
+	for index := 0; index < 2; index++ {
+		if _, err := server.workspace.ImportFile(context.Background(), fmt.Sprintf("page-%d.mp4", index), strings.NewReader("video")); err != nil {
+			t.Fatalf("ImportFile(%d) error = %v", index, err)
+		}
+	}
+	listRequest := httptest.NewRequest(http.MethodGet, "/workspace/items?page=2&page_size=2", nil)
+	listRecorder := httptest.NewRecorder()
+	server.handleWorkspaceItems(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var response struct {
+		Items []map[string]any `json:"items"`
+		Total int              `json:"total"`
+		Page  int              `json:"page"`
+		Stats map[string]int   `json:"stats"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode paginated response: %v", err)
+	}
+	if response.Total != 3 || response.Page != 2 || len(response.Items) != 1 || response.Stats[workspaceStatusPending] != 3 {
+		t.Fatalf("unexpected paginated response %#v", response)
+	}
+	if thumbnailURL, _ := response.Items[0]["thumbnail_url"].(string); !strings.Contains(thumbnailURL, "/thumbnail") {
+		t.Fatalf("missing thumbnail URL in %#v", response.Items[0])
 	}
 }
 

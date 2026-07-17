@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -83,20 +84,36 @@ func (s *Server) handleWorkspaceImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(512 << 20); err != nil {
+	reader, err := r.MultipartReader()
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid multipart form"})
 		return
 	}
-
-	files := r.MultipartForm.File["files"]
-	if len(files) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "missing files"})
-		return
+	items := make([]WorkspaceItem, 0, 1)
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid multipart form"})
+			return
+		}
+		if part.FormName() != "files" || strings.TrimSpace(part.FileName()) == "" {
+			_, _ = io.Copy(io.Discard, part)
+			_ = part.Close()
+			continue
+		}
+		item, importErr := s.workspace.ImportFile(r.Context(), part.FileName(), part)
+		_ = part.Close()
+		if importErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": importErr.Error()})
+			return
+		}
+		items = append(items, item)
 	}
-
-	items, err := s.workspace.ImportFiles(r.Context(), files)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	if len(items) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "missing files"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.enrichItems(r, items)})
@@ -107,7 +124,39 @@ func (s *Server) handleWorkspaceItems(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": s.enrichItems(r, s.workspace.ListItems())})
+	items := s.workspace.ListItems()
+	stats := map[string]int{
+		workspaceStatusPending: 0, workspaceStatusSaved: 0,
+		workspaceStatusReadyToSubmit: 0, workspaceStatusSubmitted: 0,
+	}
+	hasRunningVLM := false
+	for _, item := range items {
+		stats[item.Status]++
+		if item.VLMStatus == vlmStatusQueued || item.VLMStatus == vlmStatusRunning {
+			hasRunningVLM = true
+		}
+	}
+	total := len(items)
+	page := positiveQueryInt(r, "page", 1)
+	pageSize := positiveQueryInt(r, "page_size", total)
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	if pageSize > 0 {
+		start := (page - 1) * pageSize
+		if start > total {
+			start = total
+		}
+		end := start + pageSize
+		if end > total {
+			end = total
+		}
+		items = items[start:end]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": s.enrichItems(r, items), "total": total, "page": page,
+		"page_size": pageSize, "stats": stats, "has_running_vlm": hasRunningVLM,
+	})
 }
 
 func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +232,12 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 			return
 		}
 		s.handleWorkspaceItemFile(w, r, itemID, "source", 0)
+	case "thumbnail":
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		s.handleWorkspaceItemFile(w, r, itemID, "thumbnail", 0)
 	case "clean-shot":
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
@@ -317,6 +372,8 @@ func (s *Server) handleWorkspaceItemFile(w http.ResponseWriter, r *http.Request,
 	switch kind {
 	case "source":
 		path = item.SourcePath
+	case "thumbnail":
+		path = item.ThumbnailPath
 	case "clean-shot":
 		path = item.CleanShotPath
 	case "preview-frame":
@@ -404,6 +461,9 @@ func (s *Server) enrichItem(r *http.Request, item WorkspaceItem) map[string]any 
 		"source_url":            versionedURL(s.fileURL(r, item.ID, "source", 0), item.UpdatedAt),
 		"clean_shot_url":        versionedURL(s.fileURL(r, item.ID, "clean-shot", 0), item.UpdatedAt),
 	}
+	if item.ThumbnailPath != "" {
+		data["thumbnail_url"] = versionedURL(s.fileURL(r, item.ID, "thumbnail", 0), item.UpdatedAt)
+	}
 
 	frames := make([]map[string]any, 0, len(item.FrameSnapshots))
 	for _, frame := range item.FrameSnapshots {
@@ -432,6 +492,8 @@ func (s *Server) fileURL(r *http.Request, itemID string, kind string, frameIndex
 	switch kind {
 	case "source":
 		return base + "/workspace/items/" + itemID + "/source"
+	case "thumbnail":
+		return base + "/workspace/items/" + itemID + "/thumbnail"
 	case "clean-shot":
 		return base + "/workspace/items/" + itemID + "/clean-shot"
 	case "preview-frame":
@@ -441,6 +503,14 @@ func (s *Server) fileURL(r *http.Request, itemID string, kind string, frameIndex
 	default:
 		return ""
 	}
+}
+
+func positiveQueryInt(r *http.Request, key string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get(key)))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
 }
 
 func versionedURL(value string, updatedAt time.Time) string {
