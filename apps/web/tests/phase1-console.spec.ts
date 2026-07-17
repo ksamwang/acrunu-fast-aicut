@@ -142,12 +142,15 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     }
   ];
   let generatedWorkPolls = 0;
+  let downloadBatchWorkIDs: string[] = [];
   let finishedWorks = [
     {
       id: "work-completed-1",
       run_id: "work-completed-1",
       product_id: "product-1",
       product_name: "Smart Light",
+      created_by_user_id: "dev-admin",
+      created_by_name: "Admin",
       title: "灯光自动唤醒，夜间更安心",
       hook: "回到家，灯光自动亮起。",
       voice_profile_id: "voice-warm-female",
@@ -177,6 +180,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       run_id: "work-delete-1",
       product_id: "product-1",
       product_name: "Smart Light",
+      created_by_user_id: "dev-admin",
+      created_by_name: "Admin",
       title: "用于删除测试的成片",
       hook: "删除测试",
       script_text: "这是一条可以删除的成片。",
@@ -408,6 +413,27 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       return;
     }
 
+    if (url.includes("/api/workbench/works/download-batches")) {
+      const body = route.request().postDataJSON() as { work_ids: string[] };
+      downloadBatchWorkIDs = body.work_ids;
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ data: { download_url: "/api/workbench/download-batches/mock-token", file_name: "AICut_成品.zip", file_count: body.work_ids.length, expires_at: "2026-07-17T10:00:00.000Z" } })
+      });
+      return;
+    }
+
+    if (url.includes("/api/workbench/download-batches/mock-token")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/zip",
+        headers: { "Content-Disposition": "attachment; filename=AICut-finished-works.zip" },
+        body: "mock-zip"
+      });
+      return;
+    }
+
     if (url.includes("/api/workbench/voiceover-tasks")) {
       const body = route.request().postDataJSON() as {
         product_id: string;
@@ -423,6 +449,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         run_id: `work-generated-${index + 1}`,
         product_id: body.product_id,
         product_name: "Smart Light",
+        created_by_user_id: "dev-admin",
+        created_by_name: "Admin",
         title: variant.hook,
         hook: variant.hook,
         voice_profile_id: profile.id,
@@ -985,10 +1013,21 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await page.getByRole("menuitem", { name: "成品库" }).click();
   const completedWork = page.getByTestId("finished-work-work-completed-1");
   await expect(completedWork).toBeVisible();
+  await expect(completedWork.getByText("创建人：Admin", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "批量选择" }).click();
+  await completedWork.locator(".finished-work-media").click();
+  await expect(page.getByText("已选 1 项", { exact: true })).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "下载选中" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("AICut_成品.zip");
+  expect(downloadBatchWorkIDs).toEqual(["work-completed-1"]);
+  await expect(page.getByRole("button", { name: "批量选择" })).toBeVisible();
   const completedDetailButton = completedWork.getByRole("button");
   await expect(completedDetailButton).toHaveCount(1);
   await completedDetailButton.click();
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
+  await expect(page.locator(".finished-detail-header-meta").getByText("Admin", { exact: true })).toBeVisible();
   await expect(page.getByLabel("灯光自动唤醒，夜间更安心成品视频")).toBeVisible();
   await expect(page.getByRole("tab", { name: /概览/ })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("tab", { name: /字幕/ }).click();

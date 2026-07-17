@@ -98,6 +98,8 @@ export type FinishedWork = {
   run_id: string;
   product_id: string;
   product_name: string;
+  created_by_user_id?: string;
+  created_by_name?: string;
   product_cover_url?: string;
   title: string;
   hook: string;

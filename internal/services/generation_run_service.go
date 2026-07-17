@@ -55,6 +55,7 @@ type GenerationRun struct {
 	ID                  string         `json:"id"`
 	ProductID           string         `json:"product_id"`
 	CreatedByUserID     string         `json:"created_by_user_id,omitempty"`
+	CreatedByName       string         `json:"created_by_name,omitempty"`
 	VoiceoverTaskID     string         `json:"voiceover_task_id,omitempty"`
 	ScriptVariantID     string         `json:"script_variant_id,omitempty"`
 	VoiceoverID         string         `json:"voiceover_id,omitempty"`
@@ -133,6 +134,7 @@ type EditPlan struct {
 type CreateGenerationRunInput struct {
 	ProductID       string
 	CreatedByUserID string
+	CreatedByName   string
 	ConfigSnapshot  map[string]any
 }
 
@@ -177,12 +179,14 @@ func (s *GenerationRunService) Create(ctx context.Context, input CreateGeneratio
 		return GenerationRun{}, fmt.Errorf("product id is required")
 	}
 	input.CreatedByUserID = normalizeID(input.CreatedByUserID)
+	input.CreatedByName = strings.TrimSpace(input.CreatedByName)
 	if s.pool == nil {
 		now := time.Now()
 		run := GenerationRun{
 			ID:              uuid.NewString(),
 			ProductID:       input.ProductID,
 			CreatedByUserID: input.CreatedByUserID,
+			CreatedByName:   input.CreatedByName,
 			Status:          generationRunStatusGenerating,
 			Stage:           generationRunStageQueued,
 			Progress:        4,
@@ -202,9 +206,9 @@ func (s *GenerationRunService) Create(ctx context.Context, input CreateGeneratio
 	}
 	var runID string
 	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO generation_runs (product_id, created_by_user_id, status, stage, progress, config_snapshot)
-		VALUES ($1::uuid, NULLIF($2, '')::uuid, 'generating', 'queued', 4, $3::jsonb)
-		RETURNING id::text`, input.ProductID, input.CreatedByUserID, snapshot).Scan(&runID); err != nil {
+		INSERT INTO generation_runs (product_id, created_by_user_id, created_by_name_snapshot, status, stage, progress, config_snapshot)
+		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, 'generating', 'queued', 4, $4::jsonb)
+		RETURNING id::text`, input.ProductID, input.CreatedByUserID, input.CreatedByName, snapshot).Scan(&runID); err != nil {
 		return GenerationRun{}, err
 	}
 	return s.Get(ctx, runID)
@@ -1051,6 +1055,8 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	work.StageLabel = generationRunStageLabel(run.Stage)
 	work.Progress = run.Progress
 	work.ErrorMessage = run.ErrorMessage
+	work.CreatedByUserID = run.CreatedByUserID
+	work.CreatedByName = run.CreatedByName
 	if run.OutputStorageKey != "" {
 		work.VideoURL = publicStorageURL(run.OutputStorageKey)
 	}
@@ -1105,7 +1111,7 @@ func editPlanWorkClips(clips []EditPlanClip) []VoiceoverEditPlanClip {
 }
 
 const generationRunColumns = `
-	SELECT id::text, product_id::text, COALESCE(created_by_user_id::text, ''),
+	SELECT id::text, product_id::text, COALESCE(created_by_user_id::text, ''), COALESCE(created_by_name_snapshot, ''),
 		COALESCE(voiceover_task_id::text, ''), COALESCE(script_variant_id::text, ''), COALESCE(voiceover_id::text, ''),
 		status, stage, progress, COALESCE(error_message, ''), config_snapshot,
 		COALESCE(output_storage_key, ''), COALESCE(output_mime_type, ''), COALESCE(output_duration_ms, 0),
@@ -1125,6 +1131,7 @@ func scanGenerationRun(row generationRunScanner) (GenerationRun, error) {
 		&run.ID,
 		&run.ProductID,
 		&run.CreatedByUserID,
+		&run.CreatedByName,
 		&run.VoiceoverTaskID,
 		&run.ScriptVariantID,
 		&run.VoiceoverID,

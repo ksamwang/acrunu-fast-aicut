@@ -147,6 +147,8 @@ type VoiceoverWork struct {
 	RunID               string                  `json:"run_id"`
 	ProductID           string                  `json:"product_id"`
 	ProductName         string                  `json:"product_name"`
+	CreatedByUserID     string                  `json:"created_by_user_id,omitempty"`
+	CreatedByName       string                  `json:"created_by_name,omitempty"`
 	Title               string                  `json:"title"`
 	Hook                string                  `json:"hook"`
 	VoiceProfileID      string                  `json:"voice_profile_id"`

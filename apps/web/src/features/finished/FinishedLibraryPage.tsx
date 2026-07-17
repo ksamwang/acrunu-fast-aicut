@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Dropdown, Empty, Input, message, Modal, Progress, Segmented, Select, Tag } from "antd";
+import { Button, Checkbox, Dropdown, Empty, Input, message, Modal, Progress, Segmented, Select, Tag } from "antd";
 import type { MenuProps } from "antd";
-import { CircleAlert, LoaderCircle, Play, RotateCcw, Trash2 } from "lucide-react";
+import { CheckSquare2, CircleAlert, Download, LoaderCircle, Play, RotateCcw, Trash2, UserRound, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import type { FinishedWork } from "../../shared/types/generation";
@@ -10,6 +10,7 @@ import { listProducts } from "../products/api";
 import { deleteVoiceoverWork, listVoiceoverWorks, regenerateVoiceoverWork } from "../workbench/api";
 import { FinishedWorkDetail } from "./FinishedWorkDetail";
 import { FinishedWorkVisual } from "./FinishedWorkVisual";
+import { createFinishedWorkDownload } from "./api";
 import "./styles.css";
 
 type StatusFilter = "all" | "generating" | "completed";
@@ -63,6 +64,9 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   const [keyword, setKeyword] = useState("");
   const [selectedWorkID, setSelectedWorkID] = useState(readFinishedWorkID);
   const [actionWorkID, setActionWorkID] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedWorkIDs, setSelectedWorkIDs] = useState<Set<string>>(() => new Set());
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -110,6 +114,67 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   }, [keyword, productID, statusFilter, works]);
 
   const selectedWork = selectedWorkID ? works.find((work) => work.id === selectedWorkID) : undefined;
+  const selectableWorks = filteredWorks.filter((work) => work.status === "completed" && Boolean(work.video_url));
+  const allSelectableSelected = selectableWorks.length > 0 && selectableWorks.every((work) => selectedWorkIDs.has(work.id));
+
+  useEffect(() => {
+    const availableIDs = new Set(works.filter((work) => work.status === "completed" && Boolean(work.video_url)).map((work) => work.id));
+    setSelectedWorkIDs((current) => {
+      const next = new Set(Array.from(current).filter((workID) => availableIDs.has(workID)));
+      return next.size === current.size ? current : next;
+    });
+  }, [works]);
+
+  const toggleWorkSelection = (workID: string) => {
+    setSelectedWorkIDs((current) => {
+      const next = new Set(current);
+      if (next.has(workID)) {
+        next.delete(workID);
+      } else {
+        next.add(workID);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedWorkIDs((current) => {
+      const next = new Set(current);
+      if (allSelectableSelected) {
+        selectableWorks.forEach((work) => next.delete(work.id));
+      } else {
+        selectableWorks.forEach((work) => next.add(work.id));
+      }
+      return next;
+    });
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedWorkIDs(new Set());
+  };
+
+  const downloadSelectedWorks = async () => {
+    if (selectedWorkIDs.size === 0) {
+      return;
+    }
+    setDownloading(true);
+    try {
+      const batch = await createFinishedWorkDownload(Array.from(selectedWorkIDs), token);
+      const link = document.createElement("a");
+      link.href = batch.download_url;
+      link.download = batch.file_name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      message.success(`正在下载 ${batch.file_count} 个成品`);
+      exitSelectionMode();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "批量下载失败");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const regenerateWork = async (workID: string) => {
     setActionWorkID(workID);
@@ -205,24 +270,39 @@ export function FinishedLibraryPage({ token }: { token: string }) {
 
   return (
     <div className="finished-library-page" data-testid="finished-library-page">
-      <section className="finished-toolbar" aria-label="成品筛选">
-        <Select
-          allowClear
-          value={productID}
-          placeholder="产品"
-          options={(products.data ?? []).filter((product) => product.status !== "archived").map((product) => ({ value: product.id, label: product.name }))}
-          onChange={(value) => setProductID(value)}
-        />
-        <Segmented<StatusFilter>
-          value={statusFilter}
-          options={[
-            { label: "全部", value: "all" },
-            { label: "生成中", value: "generating" },
-            { label: "已完成", value: "completed" }
-          ]}
-          onChange={(value) => setStatusFilter(value)}
-        />
-        <Input value={keyword} allowClear placeholder="搜索成品" onChange={(event) => setKeyword(event.target.value)} />
+      <section className={`finished-toolbar${selectionMode ? " is-selection" : ""}`} aria-label={selectionMode ? "批量选择成品" : "成品筛选"}>
+        {selectionMode ? (
+          <>
+            <span className="finished-selection-summary"><CheckSquare2 size={17} />已选 {selectedWorkIDs.size} 项</span>
+            <Button onClick={toggleSelectAll} disabled={selectableWorks.length === 0}>{allSelectableSelected ? "取消全选" : "全选当前结果"}</Button>
+            <Button onClick={() => setSelectedWorkIDs(new Set())} disabled={selectedWorkIDs.size === 0}>清空</Button>
+            <span className="finished-toolbar-spacer" />
+            <Button type="primary" icon={<Download size={16} />} loading={downloading} disabled={selectedWorkIDs.size === 0} onClick={() => void downloadSelectedWorks()}>下载选中</Button>
+            <Button icon={<X size={16} />} onClick={exitSelectionMode}>退出选择</Button>
+          </>
+        ) : (
+          <>
+            <Select
+              allowClear
+              value={productID}
+              placeholder="产品"
+              options={(products.data ?? []).filter((product) => product.status !== "archived").map((product) => ({ value: product.id, label: product.name }))}
+              onChange={(value) => setProductID(value)}
+            />
+            <Segmented<StatusFilter>
+              value={statusFilter}
+              options={[
+                { label: "全部", value: "all" },
+                { label: "生成中", value: "generating" },
+                { label: "已完成", value: "completed" }
+              ]}
+              onChange={(value) => setStatusFilter(value)}
+            />
+            <Input value={keyword} allowClear placeholder="搜索成品" onChange={(event) => setKeyword(event.target.value)} />
+            <span className="finished-toolbar-spacer" />
+            <Button icon={<CheckSquare2 size={16} />} onClick={() => setSelectionMode(true)}>批量选择</Button>
+          </>
+        )}
       </section>
 
       <main className="finished-work-scroll">
@@ -235,23 +315,31 @@ export function FinishedLibraryPage({ token }: { token: string }) {
             {filteredWorks.map((work) => {
               const isGenerating = work.status === "generating";
               const isFailed = work.status === "failed";
+              const selectable = work.status === "completed" && Boolean(work.video_url);
+              const selected = selectedWorkIDs.has(work.id);
               return (
-                <Dropdown key={work.id} menu={workContextMenu(work)} trigger={["contextMenu"]}>
+                <Dropdown key={work.id} menu={workContextMenu(work)} trigger={["contextMenu"]} disabled={selectionMode}>
                   <article
-                    className={`finished-work-card${isGenerating ? " is-generating" : ""}${isFailed ? " is-failed" : ""}`}
+                    className={`finished-work-card${isGenerating ? " is-generating" : ""}${isFailed ? " is-failed" : ""}${selectionMode ? " is-selection-mode" : ""}${selected ? " is-selected" : ""}`}
                     data-status={work.status}
                     data-testid={`finished-work-${work.id}`}
                   >
+                    {selectionMode ? (
+                      <span className="finished-work-selector" onClick={(event) => event.stopPropagation()}>
+                        <Checkbox checked={selected} disabled={!selectable} aria-label={`选择 ${work.title}`} onChange={() => selectable && toggleWorkSelection(work.id)} />
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       className={`finished-work-media${isGenerating ? " is-generating" : ""}`}
-                      aria-label={`查看 ${work.title}`}
-                      onClick={() => writeFinishedWorkID(work.id)}
+                      aria-label={selectionMode ? `${selected ? "取消选择" : "选择"} ${work.title}` : `查看 ${work.title}`}
+                      onClick={() => selectionMode ? (selectable && toggleWorkSelection(work.id)) : writeFinishedWorkID(work.id)}
                     >
                       <FinishedWorkVisual work={work} compact />
                       <span className="finished-work-overlay-top">
                         <span className="finished-work-overlay-labels">
                           <Tag className="finished-work-product">{work.product_name}</Tag>
+                          <span className="finished-work-creator"><UserRound size={12} />创建人：{work.created_by_name || "未知用户"}</span>
                         </span>
                         <Tag className="finished-work-status" color={isGenerating ? "processing" : isFailed ? "error" : "green"}>
                           {isGenerating ? "生成中" : isFailed ? "生成失败" : "已完成"}

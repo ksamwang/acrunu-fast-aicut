@@ -225,6 +225,10 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 	}
 
 	works := make([]services.VoiceoverWork, 0, len(request.Variants))
+	creatorName := strings.TrimSpace(user.DisplayName)
+	if creatorName == "" {
+		creatorName = strings.TrimSpace(user.Username)
+	}
 	for index, variant := range request.Variants {
 		configSnapshot := renderConfig.Snapshot()
 		configSnapshot["voice_profile_id"] = request.VoiceProfileID
@@ -235,6 +239,7 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		run, err := s.generationRunService.Create(c.Request.Context(), services.CreateGenerationRunInput{
 			ProductID:       product.ID,
 			CreatedByUserID: user.ID,
+			CreatedByName:   creatorName,
 			ConfigSnapshot:  configSnapshot,
 		})
 		if err != nil {

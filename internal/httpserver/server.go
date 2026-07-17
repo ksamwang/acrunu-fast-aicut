@@ -40,6 +40,7 @@ type Server struct {
 	generationRunService       *services.GenerationRunService
 	subtitleStylePresetService *services.SubtitleStylePresetService
 	bgmTrackService            *services.BGMTrackService
+	workDownloadService        *services.FinishedWorkDownloadService
 	uploadTokenService         *services.UploadTokenService
 	localStore                 *storage.LocalStore
 	taskService                *services.TaskService
@@ -93,6 +94,7 @@ func New(opts Options) *Server {
 	if bgmTrackService == nil {
 		bgmTrackService = services.NewBGMTrackService(opts.Config.StorageRoot)
 	}
+	workDownloadService := services.NewFinishedWorkDownloadService(generationRunService, opts.Config.StorageRoot)
 
 	userService := opts.UserService
 	if userService == nil {
@@ -113,6 +115,7 @@ func New(opts Options) *Server {
 		generationRunService:       generationRunService,
 		subtitleStylePresetService: subtitleStylePresetService,
 		bgmTrackService:            bgmTrackService,
+		workDownloadService:        workDownloadService,
 		uploadTokenService:         services.NewUploadTokenService(),
 		localStore:                 storage.NewLocalStore(opts.Config.StorageRoot),
 		taskService:                taskService,
@@ -138,6 +141,7 @@ func (s *Server) routes() {
 
 	api := s.engine.Group("/api")
 	api.GET("/healthz", s.handleHealth)
+	api.GET("/workbench/download-batches/:token", s.handleDownloadFinishedWorks)
 	s.engine.GET("/metrics", s.handleMetrics)
 
 	authGroup := api.Group("/auth")
@@ -229,6 +233,7 @@ func (s *Server) routes() {
 	protected.GET("/voice-auditions/:auditionID", s.handleGetVoiceAudition)
 	protected.POST("/workbench/voiceover-tasks", s.handleCreateVoiceoverTasks)
 	protected.GET("/workbench/works", s.handleListVoiceoverWorks)
+	protected.POST("/workbench/works/download-batches", s.handleCreateFinishedWorkDownload)
 	protected.GET("/workbench/works/:taskID", s.handleGetVoiceoverWork)
 	protected.POST("/workbench/works/:taskID/retry", s.handleRetryVoiceoverWork)
 	protected.POST("/workbench/works/:taskID/regenerate", s.handleRegenerateVoiceoverWork)

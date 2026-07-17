@@ -43,6 +43,11 @@
   border-radius: 5px;
 }
 
+.finished-toolbar-spacer { flex: 1 1 auto; }
+.finished-toolbar.is-selection { min-height: 59px; flex-wrap: nowrap; background: #f7fbfa; }
+.finished-selection-summary { display: inline-flex; min-width: 92px; align-items: center; gap: 7px; color: #176b65; font-size: 13px; font-weight: 600; }
+.finished-toolbar.is-selection .ant-btn-primary { background: var(--finished-teal); box-shadow: none; }
+
 .finished-work-scroll {
   min-height: 0;
   overflow: auto;
@@ -86,6 +91,12 @@
   border-color: #91cfc7;
   box-shadow: 0 14px 28px rgba(23, 33, 43, 0.1);
 }
+
+.finished-work-card.is-selected { border-color: #0f766e; box-shadow: 0 0 0 2px rgba(15, 118, 110, .22), 0 14px 28px rgba(23, 33, 43, .1); }
+.finished-work-card.is-selection-mode:not(.is-selected) .finished-work-media { cursor: default; }
+.finished-work-selector { position: absolute; z-index: 3; top: 10px; left: 10px; display: grid; width: 24px; height: 24px; place-items: center; border-radius: 4px; background: rgba(15, 23, 28, .62); }
+.finished-work-selector .ant-checkbox-inner { border-color: rgba(255, 255, 255, .9); }
+.finished-work-card.is-selection-mode .finished-work-overlay-top { left: 44px; }
 
 .finished-work-media {
   position: relative;
@@ -214,10 +225,15 @@
 
 .finished-work-overlay-labels {
   display: flex;
+  max-width: calc(100% - 68px);
+  flex: 1 1 auto;
   min-width: 0;
   flex-wrap: wrap;
   gap: 5px;
 }
+
+.finished-work-creator { display: inline-flex; min-width: 0; max-width: 150px; align-items: center; gap: 4px; padding: 3px 6px; overflow: hidden; border-radius: 4px; background: rgba(16, 28, 35, .52); color: rgba(255, 255, 255, .9); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.finished-work-creator svg { flex: none; }
 
 .finished-work-overlay-labels .ant-tag {
   margin: 0;
@@ -225,6 +241,7 @@
 
 .finished-work-status {
   position: static;
+  flex: none;
   margin: 0;
   border: 0;
   border-radius: 4px;
@@ -969,6 +986,16 @@
 @media (max-width: 760px) {
   .finished-library-page {
     overflow: auto;
+  }
+
+  .finished-toolbar.is-selection {
+    overflow-x: auto;
+  }
+
+  .finished-toolbar.is-selection .ant-btn,
+  .finished-selection-summary {
+    flex: none;
+    white-space: nowrap;
   }
 
   .finished-work-scroll {
