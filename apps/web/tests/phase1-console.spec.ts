@@ -848,6 +848,9 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(previewCaptionLayer).toHaveAttribute("style", /top: 95%/);
   const previewCaption = subtitleStylePreview.locator(".subtitle-style-preview-caption");
   const previewCaptionText = previewCaption.locator("span").first();
+  await expect(previewCaption.locator("span")).toHaveCount(1);
+  await expect(previewCaptionText).toHaveText("这款束裤带来帮你");
+  await expect.poll(() => page.evaluate(() => document.fonts.check('700 16px "Noto Sans SC"'))).toBe(true);
   const backgroundSwitch = subtitleStyleSettings.getByRole("switch", { name: "背景" });
   const backgroundOpacity = subtitleStyleSettings.getByRole("spinbutton", { name: "背景不透明度" });
   await backgroundSwitch.click();
@@ -858,9 +861,9 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(outlineWidth).toBeDisabled();
   await outlineSwitch.click();
   await expect(outlineWidth).toBeEnabled();
-  await expect(previewCaption).not.toHaveCSS("text-shadow", "none");
+  await expect(previewCaption).not.toHaveCSS("-webkit-text-stroke-width", "0px");
   await outlineSwitch.click();
-  await expect(previewCaption).toHaveCSS("text-shadow", "none");
+  await expect(previewCaption).toHaveCSS("-webkit-text-stroke-width", "0px");
   await subtitleStyleSettings.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("字幕样式已保存")).toBeVisible();
   expect(savedSubtitlePresetPayload?.layouts["9:16"].text_align).toBe("center");

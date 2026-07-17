@@ -236,6 +236,10 @@ func buildASS(cues []SubtitleCue, width int, height int, rawStyle SubtitleStyle)
 	if style.Shadow {
 		shadow = 2
 	}
+	backOpacity := style.BackgroundOpacity
+	if style.Shadow && backOpacity == 0 {
+		backOpacity = 0.72
+	}
 	alignment := subtitleASSAlignment("center", style.TextAlign)
 	positionX := subtitleASSPositionX(style.TextAlign, width, marginH)
 	positionY := int(math.Round(float64(height) * style.VerticalPositionRatio))
@@ -249,7 +253,7 @@ func buildASS(cues []SubtitleCue, width int, height int, rawStyle SubtitleStyle)
 		assColor(style.TextColor, 1),
 		assColor(style.TextColor, 1),
 		assColor(style.OutlineColor, 1),
-		assColor(style.BackgroundColor, style.BackgroundOpacity),
+		assColor(style.BackgroundColor, backOpacity),
 		bold,
 		borderStyle,
 		style.OutlineWidth,

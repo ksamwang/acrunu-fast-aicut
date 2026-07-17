@@ -51,6 +51,19 @@ func TestBuildASSUsesCleanTextAndTransparentBackground(t *testing.T) {
 	}
 }
 
+func TestBuildASSKeepsShadowVisibleWithoutSubtitleBackground(t *testing.T) {
+	t.Parallel()
+	content := buildASS([]SubtitleCue{{StartMs: 0, EndMs: 1000, Text: "骑行更安全"}}, 1080, 1920, SubtitleStyle{
+		FontFamily: "Noto Sans CJK SC", FontWeight: 700, TextColor: "#FFFFFF",
+		BackgroundColor: "#000000", BackgroundOpacity: 0, OutlineColor: "#000000",
+		OutlineWidth: 0, Shadow: true, MaxLines: 2, VerticalPosition: "center", TextAlign: "center",
+		VerticalPositionRatio: 0.8, MaxWidthRatio: 0.84, FontSizeRatio: 0.06, MaxCharsPerLine: 16,
+	})
+	if !strings.Contains(content, "&H47000000") || !strings.Contains(content, ",1,0.00,2,5,") {
+		t.Fatalf("shadow style is not visible without a background:\n%s", content)
+	}
+}
+
 func TestBuildASSUsesConfiguredAlignmentColorAndWrapping(t *testing.T) {
 	t.Parallel()
 	content := buildASS([]SubtitleCue{{StartMs: 0, EndMs: 2000, Text: "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"}}, 1080, 1440, SubtitleStyle{
