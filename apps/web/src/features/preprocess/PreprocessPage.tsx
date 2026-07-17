@@ -3,7 +3,9 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Descriptions,
+  Dropdown,
   Empty,
   Form,
   Image,
@@ -18,6 +20,7 @@ import {
   Typography,
   message
 } from "antd";
+import { Check, ScanSearch, Send, Trash2 } from "lucide-react";
 import { VideoTrimEditor } from "./VideoTrimEditor";
 import { localAgentRequest } from "../../shared/api/local-agent-api";
 import { authenticatedApiRequest } from "../../shared/api/server-api";
@@ -45,6 +48,37 @@ type ImportPreview = {
 const workspacePageSize = 50;
 const importQueuePageSize = 50;
 const importConcurrency = 16;
+const batchRequestConcurrency = 2;
+
+type BatchAction = "vlm" | "submit" | "delete";
+
+type BatchOperationState = {
+  action: BatchAction;
+  total: number;
+  completed: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  running: boolean;
+};
+
+type MarqueeRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+type MarqueeStart = {
+  pointerID: number;
+  clientX: number;
+  clientY: number;
+  boardX: number;
+  boardY: number;
+  append: boolean;
+  initialIDs: Set<string>;
+  dragged: boolean;
+};
 
 type WorkspaceStatsState = {
   pending: number;
@@ -73,6 +107,58 @@ const importStatusColors: Record<ImportPreview["status"], string> = {
   completed: "success",
   failed: "error"
 };
+
+const workspaceVLMStatusLabels: Record<NonNullable<WorkspaceItem["vlm_status"]>, string> = {
+  idle: "",
+  queued: "VLM 排队中",
+  running: "VLM 识别中",
+  ready: "VLM 已完成",
+  failed: "VLM 失败"
+};
+
+const batchActionLabels: Record<BatchAction, string> = {
+  vlm: "批量 VLM",
+  submit: "正式提交",
+  delete: "批量删除"
+};
+
+async function runWithConcurrency<T>(
+  entries: T[],
+  concurrency: number,
+  worker: (entry: T) => Promise<void>
+) {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, entries.length) }, async () => {
+    while (cursor < entries.length) {
+      const index = cursor;
+      cursor += 1;
+      await worker(entries[index]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+function workspaceSavePayload(item: WorkspaceItem) {
+  const sourceInMs = Math.max(0, Math.round(item.source_in_ms ?? 0));
+  const durationMs = Math.max(item.probe.duration_ms ?? 0, sourceInMs + 1);
+  const sourceOutMs = Math.max(sourceInMs + 1, Math.min(Math.round(item.source_out_ms || durationMs), durationMs));
+  return {
+    asset_name: item.asset_name || item.original_file_name,
+    source_type: item.source_type || defaultSourceType,
+    use_original_audio: Boolean(item.use_original_audio),
+    source_in_ms: sourceInMs,
+    source_out_ms: sourceOutMs,
+    interpret_fps_enabled: Boolean(item.interpret_fps_enabled),
+    playback_fps: item.playback_fps || 25,
+    transcript: item.transcript ?? "",
+    transcript_segments: item.transcript_segments ?? [],
+    reviewer_notes: item.reviewer_notes ?? ""
+  };
+}
+
+function isWorkspaceItemBusy(item: WorkspaceItem) {
+  return item.vlm_status === "queued" || item.vlm_status === "running";
+}
 
 function SvgIcon({
   children,
@@ -295,6 +381,15 @@ export function PreprocessPage({ token }: { token: string }) {
   const [workspaceStats, setWorkspaceStats] = useState<WorkspaceStatsState>({ pending: 0, saved: 0, ready: 0, submitted: 0 });
   const [hasRunningVLMLabel, setHasRunningVLMLabel] = useState(false);
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
+  const [selectedItemIDs, setSelectedItemIDs] = useState<Set<string>>(() => new Set());
+  const [selectedItemCache, setSelectedItemCache] = useState<Record<string, WorkspaceItem>>({});
+  const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
+  const [batchVLMModalOpen, setBatchVLMModalOpen] = useState(false);
+  const [batchVLMProductID, setBatchVLMProductID] = useState("");
+  const [batchVLMUseReference, setBatchVLMUseReference] = useState(false);
+  const [batchSubmitModalOpen, setBatchSubmitModalOpen] = useState(false);
+  const [batchSubmitProductID, setBatchSubmitProductID] = useState("");
+  const [batchOperation, setBatchOperation] = useState<BatchOperationState | null>(null);
   const lastSubmitProductIDRef = useRef(loadLastSubmitProductID());
   const [submitProductID, setSubmitProductID] = useState<string>(lastSubmitProductIDRef.current);
   const [submitSellingPointIDs, setSubmitSellingPointIDs] = useState<string[]>([]);
@@ -311,6 +406,12 @@ export function PreprocessPage({ token }: { token: string }) {
   const cancelledImportIDsRef = useRef(new Set<string>());
   const initializedEditorItemIDRef = useRef<string | null>(null);
   const selectedItemIDRef = useRef<string | null>(null);
+  const selectedItemIDsRef = useRef<Set<string>>(new Set());
+  const selectedItemCacheRef = useRef<Record<string, WorkspaceItem>>({});
+  const selectionAnchorIDRef = useRef<string | null>(null);
+  const marqueeStartRef = useRef<MarqueeStart | null>(null);
+  const preprocessBoardRef = useRef<HTMLElement | null>(null);
+  const assetCardRefs = useRef(new Map<string, HTMLButtonElement>());
   const preprocessWorkbenchRef = useRef<HTMLDivElement | null>(null);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
@@ -325,6 +426,15 @@ export function PreprocessPage({ token }: { token: string }) {
     [products, submitProductID]
   );
   const selectedProductReferenceImage = productReferenceImage(selectedSubmitProduct);
+  const selectedBatchItems = useMemo(
+    () => Array.from(selectedItemIDs).map((id) => selectedItemCache[id]).filter((item): item is WorkspaceItem => !!item),
+    [selectedItemCache, selectedItemIDs]
+  );
+  const selectedBatchVLMProduct = useMemo(
+    () => products.find((product) => product.id === batchVLMProductID) ?? null,
+    [batchVLMProductID, products]
+  );
+  const selectedBatchVLMReferenceImage = productReferenceImage(selectedBatchVLMProduct);
   const importQueueStats = useMemo(() => ({
     waiting: importPreviews.filter((item) => item.status === "waiting").length,
     importing: importPreviews.filter((item) => item.status === "importing").length,
@@ -343,8 +453,44 @@ export function PreprocessPage({ token }: { token: string }) {
     }
   }, [importPreviews.length, importQueuePage]);
 
+  useEffect(() => {
+    selectedItemIDsRef.current = selectedItemIDs;
+  }, [selectedItemIDs]);
+
+  useEffect(() => {
+    selectedItemCacheRef.current = selectedItemCache;
+  }, [selectedItemCache]);
+
+  const applyWorkspaceSelection = (nextIDs: Set<string>, visibleItems = items) => {
+    const normalized = new Set(nextIDs);
+    selectedItemIDsRef.current = normalized;
+    setSelectedItemIDs(normalized);
+    setSelectedItemCache((current) => {
+      const next = { ...current };
+      visibleItems.forEach((item) => {
+        if (normalized.has(item.id)) {
+          next[item.id] = item;
+        }
+      });
+      Object.keys(next).forEach((id) => {
+        if (!normalized.has(id)) {
+          delete next[id];
+        }
+      });
+      selectedItemCacheRef.current = next;
+      return next;
+    });
+  };
+
   const replaceWorkspaceItem = (nextItem: WorkspaceItem, previousItem?: WorkspaceItem | null) => {
     setItems((current) => current.map((item) => (item.id === nextItem.id ? nextItem : item)));
+    if (selectedItemIDsRef.current.has(nextItem.id)) {
+      setSelectedItemCache((current) => {
+        const next = { ...current, [nextItem.id]: nextItem };
+        selectedItemCacheRef.current = next;
+        return next;
+      });
+    }
     if (previousItem && previousItem.status !== nextItem.status) {
       const previousKey = workspaceStatKeys[previousItem.status];
       const nextKey = workspaceStatKeys[nextItem.status];
@@ -379,7 +525,18 @@ export function PreprocessPage({ token }: { token: string }) {
         setWorkspacePage(pageCount);
         return;
       }
-      setItems(response.items ?? []);
+      const loadedItems = response.items ?? [];
+      setItems(loadedItems);
+      setSelectedItemCache((current) => {
+        const next = { ...current };
+        loadedItems.forEach((item) => {
+          if (selectedItemIDsRef.current.has(item.id)) {
+            next[item.id] = item;
+          }
+        });
+        selectedItemCacheRef.current = next;
+        return next;
+      });
       setWorkspaceTotal(total);
       setWorkspaceStats(response.stats ? {
         pending: response.stats.pending,
@@ -865,6 +1022,7 @@ export function PreprocessPage({ token }: { token: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          product_id: selectedSubmitProduct?.id ?? "",
           source_type: sourceType,
           product_name: productName,
           product_reference_image_data_url: productReferenceImageDataURL,
@@ -931,6 +1089,7 @@ export function PreprocessPage({ token }: { token: string }) {
         await loadItems(1);
       }
       setSelectedItemID(null);
+      applyWorkspaceSelection(new Set(), []);
       setSubmitSellingPointIDs([]);
       message.success("本地预处理工作区已清空");
     } catch (error) {
@@ -987,6 +1146,413 @@ export function PreprocessPage({ token }: { token: string }) {
     setSubmitSellingPointIDs([]);
     lastSubmitProductIDRef.current = productID;
     persistLastSubmitProductID(productID);
+  };
+
+  const selectedItemsSnapshot = () => Array.from(selectedItemIDsRef.current)
+    .map((id) => selectedItemCacheRef.current[id])
+    .filter((item): item is WorkspaceItem => !!item);
+
+  const commonSelectedProductID = (selected: WorkspaceItem[]) => {
+    const productIDs = Array.from(new Set(selected.map((item) => item.product_id).filter(Boolean)));
+    return productIDs.length === 1 ? productIDs[0] ?? "" : "";
+  };
+
+  const fetchWorkspaceItem = async (itemID: string) => {
+    const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${itemID}`);
+    return response.item;
+  };
+
+  const updateBatchOutcome = (outcome: "succeeded" | "failed" | "skipped") => {
+    setBatchOperation((current) => current ? {
+      ...current,
+      completed: current.completed + 1,
+      [outcome]: current[outcome] + 1
+    } : current);
+  };
+
+  const openBatchVLM = () => {
+    if (batchOperation?.running) {
+      message.warning("请等待当前批量操作完成");
+      return;
+    }
+    const selected = selectedItemsSnapshot();
+    if (selected.length === 0) {
+      message.warning("请先选择素材");
+      return;
+    }
+    const productID = commonSelectedProductID(selected) || lastSubmitProductIDRef.current;
+    const product = products.find((item) => item.id === productID);
+    setBatchVLMProductID(productID);
+    setBatchVLMUseReference(!!productReferenceImage(product));
+    setBatchVLMModalOpen(true);
+  };
+
+  const startBatchVLM = async () => {
+    const product = products.find((item) => item.id === batchVLMProductID);
+    if (!product) {
+      message.warning("请选择产品");
+      return;
+    }
+    const itemIDs = Array.from(selectedItemIDsRef.current);
+    if (itemIDs.length === 0) {
+      setBatchVLMModalOpen(false);
+      return;
+    }
+
+    setBatchVLMModalOpen(false);
+    setBatchOperation({ action: "vlm", total: itemIDs.length, completed: 0, succeeded: 0, failed: 0, skipped: 0, running: true });
+    let succeeded = 0;
+    let failed = 0;
+    let firstError = "";
+    await runWithConcurrency(itemIDs, batchRequestConcurrency, async (itemID) => {
+      try {
+        const item = await fetchWorkspaceItem(itemID);
+        if (isWorkspaceItemBusy(item)) {
+          throw new Error("素材正在进行 VLM 识别");
+        }
+        const sourceType = item.source_type || defaultSourceType;
+        const range = clampCurrentSourceRange(
+          item.source_in_ms ?? 0,
+          item.source_out_ms || item.probe.duration_ms || 0,
+          item
+        );
+        const response = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${itemID}/vlm-label`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            product_id: product.id,
+            source_type: sourceType,
+            product_name: sourceType === "visual_only" ? product.name : "",
+            product_reference_image_data_url:
+              sourceType === "visual_only" && batchVLMUseReference ? productReferenceImage(product) : "",
+            source_in_ms: range.sourceInMs,
+            source_out_ms: range.sourceOutMs,
+            server_base_url: window.location.origin,
+            auth_token: token
+          })
+        });
+        replaceWorkspaceItem(response.item, item);
+        succeeded += 1;
+        updateBatchOutcome("succeeded");
+      } catch (error) {
+        failed += 1;
+        firstError ||= error instanceof Error ? error.message : "VLM 标注启动失败";
+        updateBatchOutcome("failed");
+      }
+    });
+    setBatchOperation((current) => current ? { ...current, running: false } : current);
+    setHasRunningVLMLabel(succeeded > 0);
+    await loadItems(workspacePage);
+    if (failed > 0) {
+      message.warning(`批量 VLM 已排队 ${succeeded} 项，失败 ${failed} 项${firstError ? `：${firstError}` : ""}`);
+    } else {
+      message.success(`已将 ${succeeded} 项素材加入 VLM 队列`);
+    }
+  };
+
+  const openBatchSubmit = () => {
+    if (batchOperation?.running) {
+      message.warning("请等待当前批量操作完成");
+      return;
+    }
+    const selected = selectedItemsSnapshot();
+    if (selected.length === 0) {
+      message.warning("请先选择素材");
+      return;
+    }
+    setBatchSubmitProductID(commonSelectedProductID(selected) || lastSubmitProductIDRef.current);
+    setBatchSubmitModalOpen(true);
+  };
+
+  const startBatchSubmit = async () => {
+    if (!batchSubmitProductID) {
+      message.warning("请选择产品");
+      return;
+    }
+    const itemIDs = Array.from(selectedItemIDsRef.current);
+    if (itemIDs.length === 0) {
+      setBatchSubmitModalOpen(false);
+      return;
+    }
+
+    lastSubmitProductIDRef.current = batchSubmitProductID;
+    persistLastSubmitProductID(batchSubmitProductID);
+    setBatchSubmitModalOpen(false);
+    setBatchOperation({ action: "submit", total: itemIDs.length, completed: 0, succeeded: 0, failed: 0, skipped: 0, running: true });
+    let succeeded = 0;
+    let failed = 0;
+    let skipped = 0;
+    let firstError = "";
+    await runWithConcurrency(itemIDs, batchRequestConcurrency, async (itemID) => {
+      try {
+        let item = await fetchWorkspaceItem(itemID);
+        if (item.status === "submitted") {
+          skipped += 1;
+          updateBatchOutcome("skipped");
+          return;
+        }
+        if (isWorkspaceItemBusy(item)) {
+          throw new Error("素材正在进行 VLM 识别，请完成后再提交");
+        }
+        if (item.status === "pending" || item.status === "saved") {
+          const saved = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${itemID}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(workspaceSavePayload(item))
+          });
+          item = saved.item;
+          replaceWorkspaceItem(item);
+          const prepared = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${itemID}/prepare`, {
+            method: "POST"
+          });
+          item = prepared.item;
+          replaceWorkspaceItem(item);
+        }
+        if (item.status !== "ready_to_submit") {
+          throw new Error("素材未进入待提交状态");
+        }
+
+        const uploadToken = await authenticatedApiRequest<UploadToken>("/api/uploads/tokens", token, {
+          method: "POST",
+          body: JSON.stringify({ product_id: batchSubmitProductID })
+        });
+        const submitted = await localAgentRequest<WorkspaceItemResponse>(`/workspace/items/${itemID}/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            product_id: batchSubmitProductID,
+            upload_url: `${window.location.origin}/api/uploads/clean-shot`,
+            upload_token: uploadToken.token,
+            selling_point_ids: [],
+            use_original_audio: Boolean(item.use_original_audio)
+          })
+        });
+        replaceWorkspaceItem(submitted.item, item);
+        succeeded += 1;
+        updateBatchOutcome("succeeded");
+      } catch (error) {
+        failed += 1;
+        firstError ||= error instanceof Error ? error.message : "正式提交失败";
+        updateBatchOutcome("failed");
+      }
+    });
+    setBatchOperation((current) => current ? { ...current, running: false } : current);
+    await loadItems(workspacePage);
+    if (failed > 0) {
+      message.warning(`正式提交完成：成功 ${succeeded}，失败 ${failed}，跳过 ${skipped}${firstError ? `。${firstError}` : ""}`);
+    } else {
+      message.success(`正式提交完成：成功 ${succeeded}，跳过 ${skipped}`);
+    }
+  };
+
+  const deleteSelectedItems = () => {
+    if (batchOperation?.running) {
+      message.warning("请等待当前批量操作完成");
+      return;
+    }
+    const selected = selectedItemsSnapshot();
+    if (selected.length === 0) {
+      message.warning("请先选择素材");
+      return;
+    }
+    const busy = selected.filter(isWorkspaceItemBusy);
+    const deletable = selected.filter((item) => !isWorkspaceItemBusy(item));
+    if (deletable.length === 0) {
+      message.warning("所选素材正在处理，暂时不能删除");
+      return;
+    }
+    const submittedCount = deletable.filter((item) => item.status === "submitted").length;
+    Modal.confirm({
+      title: `删除 ${deletable.length} 项本地素材？`,
+      content: (
+        <div className="preprocess-batch-confirm-copy">
+          <p>将删除 Local Agent 中的视频副本、缩略图、抽帧和 clean shot。</p>
+          {submittedCount > 0 ? <p>其中 {submittedCount} 项已正式提交，只删除本地副本，不影响服务端素材库。</p> : null}
+          {busy.length > 0 ? <p>{busy.length} 项正在处理，将跳过。</p> : null}
+        </div>
+      ),
+      okText: "删除",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      async onOk() {
+        setBatchOperation({
+          action: "delete",
+          total: selected.length,
+          completed: busy.length,
+          succeeded: 0,
+          failed: 0,
+          skipped: busy.length,
+          running: true
+        });
+        const deletedIDs = new Set<string>();
+        let failed = 0;
+        let firstError = "";
+        await runWithConcurrency(deletable, batchRequestConcurrency, async (item) => {
+          try {
+            await localAgentRequest(`/workspace/items/${item.id}`, { method: "DELETE" });
+            deletedIDs.add(item.id);
+            updateBatchOutcome("succeeded");
+          } catch (error) {
+            failed += 1;
+            firstError ||= error instanceof Error ? error.message : "删除失败";
+            updateBatchOutcome("failed");
+          }
+        });
+        const nextSelection = new Set(Array.from(selectedItemIDsRef.current).filter((id) => !deletedIDs.has(id)));
+        applyWorkspaceSelection(nextSelection, []);
+        setItems((current) => current.filter((item) => !deletedIDs.has(item.id)));
+        if (selectedItemIDRef.current && deletedIDs.has(selectedItemIDRef.current)) {
+          setSelectedItemID(null);
+        }
+        setBatchOperation((current) => current ? { ...current, running: false } : current);
+        await loadItems(workspacePage);
+        if (failed > 0) {
+          message.warning(`已删除 ${deletedIDs.size} 项，失败 ${failed} 项${firstError ? `：${firstError}` : ""}`);
+        } else {
+          message.success(`已删除 ${deletedIDs.size} 项本地素材${busy.length > 0 ? `，跳过 ${busy.length} 项` : ""}`);
+        }
+      }
+    });
+  };
+
+  const handleBatchContextAction = (key: string) => {
+    if (key === "vlm") {
+      openBatchVLM();
+    } else if (key === "submit") {
+      openBatchSubmit();
+    } else if (key === "delete") {
+      deleteSelectedItems();
+    }
+  };
+
+  const selectAssetCard = (event: React.MouseEvent<HTMLButtonElement>, item: WorkspaceItem, index: number) => {
+    const additive = event.ctrlKey || event.metaKey;
+    let next = new Set(selectedItemIDsRef.current);
+    if (event.shiftKey && selectionAnchorIDRef.current) {
+      const anchorIndex = items.findIndex((candidate) => candidate.id === selectionAnchorIDRef.current);
+      if (anchorIndex >= 0) {
+        const start = Math.min(anchorIndex, index);
+        const end = Math.max(anchorIndex, index);
+        if (!additive) {
+          next = new Set();
+        }
+        items.slice(start, end + 1).forEach((candidate) => next.add(candidate.id));
+      } else {
+        next.add(item.id);
+      }
+    } else if (additive) {
+      if (next.has(item.id)) {
+        next.delete(item.id);
+      } else {
+        next.add(item.id);
+      }
+    } else {
+      next = new Set([item.id]);
+    }
+    selectionAnchorIDRef.current = item.id;
+    applyWorkspaceSelection(next);
+  };
+
+  const selectAssetCardForContextMenu = (item: WorkspaceItem) => {
+    if (!selectedItemIDsRef.current.has(item.id)) {
+      selectionAnchorIDRef.current = item.id;
+      applyWorkspaceSelection(new Set([item.id]));
+    }
+  };
+
+  const handleBoardPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const board = preprocessBoardRef.current;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!board || !target || !board.contains(target)) {
+      return;
+    }
+    if (target?.closest(".preprocess-asset-card, .preprocess-import-fab, .ant-pagination")) {
+      return;
+    }
+    const boardBounds = board.getBoundingClientRect();
+    marqueeStartRef.current = {
+      pointerID: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      boardX: event.clientX - boardBounds.left + board.scrollLeft,
+      boardY: event.clientY - boardBounds.top + board.scrollTop,
+      append: event.ctrlKey || event.metaKey || event.shiftKey,
+      initialIDs: new Set(selectedItemIDsRef.current),
+      dragged: false
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleBoardPointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    const start = marqueeStartRef.current;
+    const board = preprocessBoardRef.current;
+    if (!start || start.pointerID !== event.pointerId || !board) {
+      return;
+    }
+    const deltaX = event.clientX - start.clientX;
+    const deltaY = event.clientY - start.clientY;
+    if (!start.dragged && Math.hypot(deltaX, deltaY) < 4) {
+      return;
+    }
+    start.dragged = true;
+    const boardBounds = board.getBoundingClientRect();
+    const currentX = event.clientX - boardBounds.left + board.scrollLeft;
+    const currentY = event.clientY - boardBounds.top + board.scrollTop;
+    setMarqueeRect({
+      left: Math.min(start.boardX, currentX),
+      top: Math.min(start.boardY, currentY),
+      width: Math.abs(currentX - start.boardX),
+      height: Math.abs(currentY - start.boardY)
+    });
+
+    const selectionBounds = {
+      left: Math.min(start.clientX, event.clientX),
+      right: Math.max(start.clientX, event.clientX),
+      top: Math.min(start.clientY, event.clientY),
+      bottom: Math.max(start.clientY, event.clientY)
+    };
+    const next = start.append ? new Set(start.initialIDs) : new Set<string>();
+    items.forEach((item) => {
+      const card = assetCardRefs.current.get(item.id);
+      if (!card) {
+        return;
+      }
+      const bounds = card.getBoundingClientRect();
+      if (
+        bounds.left < selectionBounds.right && bounds.right > selectionBounds.left &&
+        bounds.top < selectionBounds.bottom && bounds.bottom > selectionBounds.top
+      ) {
+        next.add(item.id);
+      }
+    });
+    applyWorkspaceSelection(next);
+  };
+
+  const finishBoardPointerSelection = (event: React.PointerEvent<HTMLElement>) => {
+    const start = marqueeStartRef.current;
+    if (!start || start.pointerID !== event.pointerId) {
+      return;
+    }
+    if (!start.dragged && !start.append) {
+      applyWorkspaceSelection(new Set());
+      selectionAnchorIDRef.current = null;
+    }
+    marqueeStartRef.current = null;
+    setMarqueeRect(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const cancelBoardPointerSelection = (event: React.PointerEvent<HTMLElement>) => {
+    if (marqueeStartRef.current?.pointerID !== event.pointerId) {
+      return;
+    }
+    marqueeStartRef.current = null;
+    setMarqueeRect(null);
   };
 
   const openNeighbor = (offset: number) => {
@@ -1217,9 +1783,20 @@ export function PreprocessPage({ token }: { token: string }) {
   return (
     <Space direction="vertical" size="middle" className="page-stack preprocess-page-stack">
       <div className="preprocess-workspace-toolbar">
-        <Typography.Text className="preprocess-workspace-status">
-          待处理 {workspaceStats.pending} / 已保存 {workspaceStats.saved} / 待提交 {workspaceStats.ready} / 已入库 {workspaceStats.submitted}
-        </Typography.Text>
+        <div className="preprocess-workspace-status-group">
+          <Typography.Text className="preprocess-workspace-status">
+            待处理 {workspaceStats.pending} / 已保存 {workspaceStats.saved} / 待提交 {workspaceStats.ready} / 已入库 {workspaceStats.submitted}
+          </Typography.Text>
+          {selectedItemIDs.size > 0 ? <Tag color="blue">已选 {selectedItemIDs.size} 项</Tag> : null}
+          {batchOperation ? (
+            <Typography.Text className={`preprocess-batch-progress${batchOperation.failed > 0 ? " has-error" : ""}`}>
+              {batchActionLabels[batchOperation.action]} {batchOperation.completed}/{batchOperation.total}
+              {batchOperation.succeeded > 0 ? ` · 成功 ${batchOperation.succeeded}` : ""}
+              {batchOperation.failed > 0 ? ` · 失败 ${batchOperation.failed}` : ""}
+              {batchOperation.skipped > 0 ? ` · 跳过 ${batchOperation.skipped}` : ""}
+            </Typography.Text>
+          ) : null}
+        </div>
         <Space wrap>
           <Button icon={<RefreshIcon />} onClick={() => void loadItems()} loading={loading}>
             刷新
@@ -1230,7 +1807,14 @@ export function PreprocessPage({ token }: { token: string }) {
         </Space>
       </div>
 
-      <section className="preprocess-workspace-board">
+      <section
+        ref={preprocessBoardRef}
+        className={`preprocess-workspace-board${marqueeRect ? " is-selecting" : ""}`}
+        onPointerDown={handleBoardPointerDown}
+        onPointerMove={handleBoardPointerMove}
+        onPointerUp={finishBoardPointerSelection}
+        onPointerCancel={cancelBoardPointerSelection}
+      >
         {items.length === 0 ? (
           <div className="preprocess-workspace-empty">
             <Empty description={loading ? "正在加载本地工作区" : "还没有导入视频"} />
@@ -1239,40 +1823,69 @@ export function PreprocessPage({ token }: { token: string }) {
         ) : (
           <div className="preprocess-asset-list-shell">
             <div className="preprocess-asset-grid">
-              {items.map((item) => {
+              {items.map((item, index) => {
                 const previewUrl = getWorkspacePreviewUrl(item);
+                const selected = selectedItemIDs.has(item.id);
+                const vlmStatus = item.vlm_status || "idle";
                 return (
-                  <button
+                  <Dropdown
                     key={item.id}
-                    type="button"
-                    className="preprocess-asset-card"
-                    onClick={() => setSelectedItemID(item.id)}
-                    title={item.asset_name || item.original_file_name}
+                    trigger={["contextMenu"]}
+                    menu={{
+                      items: [
+                        { key: "vlm", icon: <ScanSearch size={15} />, label: "批量VLM" },
+                        { key: "submit", icon: <Send size={15} />, label: "正式提交" },
+                        { type: "divider" },
+                        { key: "delete", icon: <Trash2 size={15} />, label: "删除", danger: true }
+                      ],
+                      onClick: ({ key }) => handleBatchContextAction(key)
+                    }}
                   >
-                    <div className="preprocess-asset-preview">
-                      {previewUrl ? (
-                        <img loading="lazy" decoding="async" src={previewUrl} alt={item.asset_name || item.original_file_name} />
-                      ) : (
-                        <span className="preprocess-asset-preview-placeholder"><UploadIcon /></span>
-                      )}
-                      <Tag color={workspaceStatusColors[item.status]} className="preprocess-asset-status">
-                        {workspaceStatusLabels[item.status]}
-                      </Tag>
-                      <Tag color={sourceTypeColors[item.source_type || defaultSourceType] ?? "default"} className="preprocess-asset-type">
-                        {sourceTypeLabels[item.source_type || defaultSourceType] ?? "-"}
-                      </Tag>
-                    </div>
-                    <div className="preprocess-asset-meta">
-                      <Typography.Text className="preprocess-asset-name">
-                        {item.asset_name || item.original_file_name}
-                      </Typography.Text>
-                      <Typography.Text className="preprocess-asset-detail">
-                        {formatDuration(item.probe.duration_ms)} · {formatResolution(item.probe.width, item.probe.height)}
-                      </Typography.Text>
-                      <Typography.Text className="preprocess-asset-detail">{formatDateTime(item.updated_at)}</Typography.Text>
-                    </div>
-                    {item.last_error ? <div className="preprocess-asset-error">{item.last_error}</div> : null}
-                  </button>
+                    <button
+                      ref={(element) => {
+                        if (element) {
+                          assetCardRefs.current.set(item.id, element);
+                        } else {
+                          assetCardRefs.current.delete(item.id);
+                        }
+                      }}
+                      type="button"
+                      className={`preprocess-asset-card${selected ? " is-selected" : ""}`}
+                      aria-pressed={selected}
+                      onClick={(event) => selectAssetCard(event, item, index)}
+                      onDoubleClick={() => setSelectedItemID(item.id)}
+                      onContextMenu={() => selectAssetCardForContextMenu(item)}
+                      title={item.asset_name || item.original_file_name}
+                    >
+                      <div className="preprocess-asset-preview">
+                        {previewUrl ? (
+                          <img loading="lazy" decoding="async" draggable={false} src={previewUrl} alt={item.asset_name || item.original_file_name} />
+                        ) : (
+                          <span className="preprocess-asset-preview-placeholder"><UploadIcon /></span>
+                        )}
+                        <Tag color={workspaceStatusColors[item.status]} className="preprocess-asset-status">
+                          {workspaceStatusLabels[item.status]}
+                        </Tag>
+                        <Tag color={sourceTypeColors[item.source_type || defaultSourceType] ?? "default"} className="preprocess-asset-type">
+                          {sourceTypeLabels[item.source_type || defaultSourceType] ?? "-"}
+                        </Tag>
+                        {selected ? <span className="preprocess-asset-selection-mark"><Check size={14} /></span> : null}
+                        {vlmStatus !== "idle" ? (
+                          <span className={`preprocess-asset-vlm-status is-${vlmStatus}`}>{workspaceVLMStatusLabels[vlmStatus]}</span>
+                        ) : null}
+                      </div>
+                      <div className="preprocess-asset-meta">
+                        <Typography.Text className="preprocess-asset-name">
+                          {item.asset_name || item.original_file_name}
+                        </Typography.Text>
+                        <Typography.Text className="preprocess-asset-detail">
+                          {formatDuration(item.probe.duration_ms)} · {formatResolution(item.probe.width, item.probe.height)}
+                        </Typography.Text>
+                        <Typography.Text className="preprocess-asset-detail">{formatDateTime(item.updated_at)}</Typography.Text>
+                      </div>
+                      {item.last_error ? <div className="preprocess-asset-error">{item.last_error}</div> : null}
+                    </button>
+                  </Dropdown>
                 );
               })}
             </div>
@@ -1290,6 +1903,13 @@ export function PreprocessPage({ token }: { token: string }) {
           </div>
         )}
 
+        {marqueeRect ? (
+          <div
+            className="preprocess-selection-marquee"
+            style={{ left: marqueeRect.left, top: marqueeRect.top, width: marqueeRect.width, height: marqueeRect.height }}
+          />
+        ) : null}
+
         <Button
           type="primary"
           className="preprocess-import-fab"
@@ -1299,6 +1919,88 @@ export function PreprocessPage({ token }: { token: string }) {
         >
         </Button>
       </section>
+
+      <Modal
+        open={batchVLMModalOpen}
+        onCancel={() => setBatchVLMModalOpen(false)}
+        title="批量 VLM"
+        width={520}
+        className="preprocess-batch-modal"
+        okText="开始"
+        cancelText="取消"
+        okButtonProps={{ disabled: !batchVLMProductID }}
+        onOk={() => void startBatchVLM()}
+      >
+        <div className="preprocess-batch-form">
+          <div className="preprocess-batch-summary-row">
+            <span>已选素材</span>
+            <strong>{selectedItemIDs.size} 项</strong>
+          </div>
+          <label className="preprocess-batch-field">
+            <span>产品</span>
+            <Select
+              value={batchVLMProductID || undefined}
+              placeholder="选择用于识别的产品"
+              showSearch
+              optionFilterProp="label"
+              options={products.map((product) => ({ value: product.id, label: product.name }))}
+              onChange={(productID) => {
+                setBatchVLMProductID(productID);
+                const product = products.find((item) => item.id === productID);
+                setBatchVLMUseReference(!!productReferenceImage(product));
+              }}
+            />
+          </label>
+          <Checkbox
+            checked={batchVLMUseReference}
+            disabled={!selectedBatchVLMReferenceImage}
+            onChange={(event) => setBatchVLMUseReference(event.target.checked)}
+          >
+            使用产品参考图
+          </Checkbox>
+          <Typography.Text type="secondary">
+            参考图仅用于纯画面素材；口播素材按自身画面识别。Local Agent 同时处理 2 项，其余自动排队。
+          </Typography.Text>
+        </div>
+      </Modal>
+
+      <Modal
+        open={batchSubmitModalOpen}
+        onCancel={() => setBatchSubmitModalOpen(false)}
+        title="正式提交"
+        width={520}
+        className="preprocess-batch-modal"
+        okText="确认提交"
+        cancelText="取消"
+        okButtonProps={{ disabled: !batchSubmitProductID }}
+        onOk={() => void startBatchSubmit()}
+      >
+        <div className="preprocess-batch-form">
+          <div className="preprocess-batch-summary-grid">
+            <div><span>已选</span><strong>{selectedItemIDs.size}</strong></div>
+            <div><span>自动完成处理</span><strong>{selectedBatchItems.filter((item) => item.status === "pending" || item.status === "saved").length}</strong></div>
+            <div><span>直接提交</span><strong>{selectedBatchItems.filter((item) => item.status === "ready_to_submit").length}</strong></div>
+            <div><span>已入库跳过</span><strong>{selectedBatchItems.filter((item) => item.status === "submitted").length}</strong></div>
+          </div>
+          <label className="preprocess-batch-field">
+            <span>产品</span>
+            <Select
+              value={batchSubmitProductID || undefined}
+              placeholder="选择正式提交的产品"
+              showSearch
+              optionFilterProp="label"
+              options={products.map((product) => ({ value: product.id, label: product.name }))}
+              onChange={setBatchSubmitProductID}
+            />
+          </label>
+          {selectedBatchItems.some(isWorkspaceItemBusy) ? (
+            <Alert type="warning" showIcon message="所选素材中有 VLM 任务正在处理，这些条目会提交失败，请等待识别完成。" />
+          ) : null}
+          <Typography.Text type="secondary">
+            未完成处理的素材会自动执行完成处理，再正式提交；保留各素材自己的原声音轨设置。
+          </Typography.Text>
+        </div>
+      </Modal>
 
       <Modal
         open={importModalOpen}

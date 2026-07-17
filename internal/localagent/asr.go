@@ -66,7 +66,9 @@ func (w *Workspace) TranscribeItem(ctx context.Context, itemID string, input Wor
 		w.mu.Unlock()
 		return WorkspaceItem{}, err
 	}
+	w.activeItems[itemID]++
 	w.mu.Unlock()
+	defer w.finishItemOperation(itemID)
 
 	tempRoot := filepath.Join(w.root, "temp")
 	if err := os.MkdirAll(tempRoot, 0755); err != nil {

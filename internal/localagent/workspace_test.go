@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -537,6 +539,15 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 		if r.FormValue("product_name") != "车载氛围灯" {
 			t.Fatalf("expected product_name to be forwarded, got %q", r.FormValue("product_name"))
 		}
+		referenceImage, _, err := r.FormFile("product_reference_image")
+		if err != nil {
+			t.Fatalf("expected product reference image: %v", err)
+		}
+		referenceBytes, err := io.ReadAll(referenceImage)
+		_ = referenceImage.Close()
+		if err != nil || string(referenceBytes) != "reference" {
+			t.Fatalf("unexpected product reference image: %q err=%v", referenceBytes, err)
+		}
 		if r.FormValue("frame_count") != "9" {
 			t.Fatalf("expected nine VLM frames, got %q", r.FormValue("frame_count"))
 		}
@@ -568,12 +579,14 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	defer vlmServer.Close()
 
 	queued, err := workspace.StartVLMLabel(item.ID, WorkspaceVLMLabelInput{
-		SourceType:    "visual_only",
-		ProductName:   "车载氛围灯",
-		SourceInMs:    1000,
-		SourceOutMs:   5000,
-		ServerBaseURL: vlmServer.URL,
-		AuthToken:     "test-token",
+		ProductID:                    "product-1",
+		SourceType:                   "visual_only",
+		ProductName:                  "车载氛围灯",
+		ProductReferenceImageDataURL: "data:image/png;base64,cmVmZXJlbmNl",
+		SourceInMs:                   1000,
+		SourceOutMs:                  5000,
+		ServerBaseURL:                vlmServer.URL,
+		AuthToken:                    "test-token",
 	})
 	if err != nil {
 		t.Fatalf("StartVLMLabel() error = %v", err)
@@ -601,8 +614,150 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	if labeled.Analysis == nil || labeled.Analysis.SceneDescription != "server analyzed scene" {
 		t.Fatalf("expected analysis populated")
 	}
+	if labeled.ProductID != "product-1" {
+		t.Fatalf("expected product id persisted, got %q", labeled.ProductID)
+	}
 	if len(labeled.PreviewFrames) != 3 {
 		t.Fatalf("expected preview frames from vlm label, got %d", len(labeled.PreviewFrames))
+	}
+}
+
+func TestWorkspaceLimitsConcurrentVLMLabels(t *testing.T) {
+	workspace, err := NewWorkspace(t.TempDir(), stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+
+	items := make([]WorkspaceItem, 0, 3)
+	for index := 0; index < 3; index++ {
+		header, cleanup := newMultipartHeader(t, fmt.Sprintf("sample-%d.mp4", index), []byte("video"))
+		imported, importErr := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+		cleanup()
+		if importErr != nil {
+			t.Fatalf("ImportFiles() error = %v", importErr)
+		}
+		items = append(items, imported[0])
+	}
+
+	started := make(chan struct{}, 3)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	active := 0
+	maxActive := 0
+	vlmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		mu.Unlock()
+		started <- struct{}{}
+		<-release
+		mu.Lock()
+		active--
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"analysis": map[string]any{"scene_description": "done"}},
+		})
+	}))
+	defer vlmServer.Close()
+
+	for _, item := range items {
+		if _, err := workspace.StartVLMLabel(item.ID, WorkspaceVLMLabelInput{
+			SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 5000,
+			ServerBaseURL: vlmServer.URL, AuthToken: "token",
+		}); err != nil {
+			t.Fatalf("StartVLMLabel() error = %v", err)
+		}
+	}
+
+	for index := 0; index < 2; index++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for VLM workers")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatal("third VLM request started before a worker slot was released")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		ready := 0
+		for _, item := range items {
+			current, _ := workspace.GetItem(item.ID)
+			if current.VLMStatus == vlmStatusReady {
+				ready++
+			}
+		}
+		if ready == len(items) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if maxActive != 2 {
+		t.Fatalf("expected max VLM concurrency 2, got %d", maxActive)
+	}
+}
+
+func TestWorkspaceDeleteItemRemovesLocalFilesAndRejectsActiveVLM(t *testing.T) {
+	root := t.TempDir()
+	workspace, err := NewWorkspace(root, stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	item := imported[0]
+
+	release := make(chan struct{})
+	started := make(chan struct{})
+	vlmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"analysis": map[string]any{"scene_description": "done"}},
+		})
+	}))
+	defer vlmServer.Close()
+	if _, err := workspace.StartVLMLabel(item.ID, WorkspaceVLMLabelInput{
+		SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 5000,
+		ServerBaseURL: vlmServer.URL, AuthToken: "token",
+	}); err != nil {
+		t.Fatalf("StartVLMLabel() error = %v", err)
+	}
+	<-started
+	if err := workspace.DeleteItem(item.ID); !errors.Is(err, ErrWorkspaceItemBusy) {
+		t.Fatalf("expected busy delete error, got %v", err)
+	}
+	close(release)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		current, _ := workspace.GetItem(item.ID)
+		if current.VLMStatus == vlmStatusReady {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := workspace.DeleteItem(item.ID); err != nil {
+		t.Fatalf("DeleteItem() error = %v", err)
+	}
+	if _, ok := workspace.GetItem(item.ID); ok {
+		t.Fatal("expected deleted item to be removed from workspace")
+	}
+	if _, err := os.Stat(filepath.Join(root, "items", item.ID)); !os.IsNotExist(err) {
+		t.Fatalf("expected item directory removed, stat err=%v", err)
 	}
 }
 

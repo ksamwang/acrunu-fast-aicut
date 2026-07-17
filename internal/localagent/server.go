@@ -174,6 +174,8 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 			s.handleWorkspaceItemDetail(w, r, itemID)
 		case http.MethodPut:
 			s.handleWorkspaceItemSave(w, r, itemID)
+		case http.MethodDelete:
+			s.handleWorkspaceItemDelete(w, r, itemID)
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 		}
@@ -258,6 +260,22 @@ func (s *Server) handleWorkspaceItemRoute(w http.ResponseWriter, r *http.Request
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 	}
+}
+
+func (s *Server) handleWorkspaceItemDelete(w http.ResponseWriter, _ *http.Request, itemID string) {
+	if err := s.workspace.DeleteItem(itemID); err != nil {
+		if errors.Is(err, ErrWorkspaceItemBusy) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
 func (s *Server) handleWorkspaceItemDetail(w http.ResponseWriter, r *http.Request, itemID string) {

@@ -13,6 +13,28 @@
   gap: 16px;
 }
 
+.preprocess-workspace-status-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 8px;
+}
+
+.preprocess-workspace-status-group .ant-tag {
+  margin: 0;
+}
+
+.preprocess-batch-progress {
+  color: #475569;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preprocess-batch-progress.has-error {
+  color: #b91c1c;
+}
+
 .preprocess-workspace-status {
   color: #475569;
   font-size: 14px;
@@ -34,6 +56,11 @@
     #ffffff;
   background-size: 28px 28px;
   box-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
+}
+
+.preprocess-workspace-board.is-selecting {
+  cursor: crosshair;
+  user-select: none;
 }
 
 .preprocess-asset-grid {
@@ -70,6 +97,11 @@
   box-shadow: 0 14px 34px rgba(37, 99, 235, 0.16);
   transform: translateY(-2px);
   outline: none;
+}
+
+.preprocess-asset-card.is-selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2), 0 14px 34px rgba(37, 99, 235, 0.16);
 }
 
 .preprocess-asset-preview {
@@ -121,6 +153,60 @@
 .preprocess-asset-type {
   top: 8px;
   right: 8px;
+}
+
+.preprocess-asset-selection-mark {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.32);
+}
+
+.preprocess-asset-vlm-status {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  max-width: 128px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+}
+
+.preprocess-asset-vlm-status.is-queued,
+.preprocess-asset-vlm-status.is-running {
+  background: rgba(29, 78, 216, 0.88);
+}
+
+.preprocess-asset-vlm-status.is-ready {
+  background: rgba(21, 128, 61, 0.88);
+}
+
+.preprocess-asset-vlm-status.is-failed {
+  background: rgba(185, 28, 28, 0.9);
+}
+
+.preprocess-selection-marquee {
+  position: absolute;
+  z-index: 15;
+  pointer-events: none;
+  border: 1px solid #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
 }
 
 .preprocess-asset-meta {
@@ -323,6 +409,77 @@
 .preprocess-import-summary {
   margin-right: auto;
   align-self: center;
+}
+
+.preprocess-batch-modal .ant-modal-body {
+  padding-top: 12px;
+}
+
+.preprocess-batch-form {
+  display: grid;
+  gap: 16px;
+}
+
+.preprocess-batch-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ec;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.preprocess-batch-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid #dbe3ec;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.preprocess-batch-summary-grid > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border-right: 1px solid #dbe3ec;
+}
+
+.preprocess-batch-summary-grid > div:last-child {
+  border-right: 0;
+}
+
+.preprocess-batch-summary-grid span {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.preprocess-batch-summary-grid strong,
+.preprocess-batch-summary-row strong {
+  color: #0f172a;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preprocess-batch-field {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.preprocess-batch-field .ant-select {
+  width: 100%;
+}
+
+.preprocess-batch-confirm-copy p {
+  margin: 0 0 8px;
+  color: #475569;
+}
+
+.preprocess-batch-confirm-copy p:last-child {
+  margin-bottom: 0;
 }
 
 .preprocess-video {
@@ -1129,6 +1286,23 @@
 }
 
 @media (max-width: 768px) {
+  .preprocess-workspace-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .preprocess-batch-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .preprocess-batch-summary-grid > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .preprocess-batch-summary-grid > div:nth-child(-n + 2) {
+    border-bottom: 1px solid #dbe3ec;
+  }
+
   .preprocess-modal .ant-modal {
     max-width: calc(100vw - 16px);
   }

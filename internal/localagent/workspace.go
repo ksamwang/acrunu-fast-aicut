@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -23,6 +24,8 @@ import (
 	"github.com/ksamwang/acrunu-fast-aicut/internal/ffmpeg"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 )
+
+var ErrWorkspaceItemBusy = errors.New("workspace item is being processed")
 
 const (
 	workspaceStatusPending       = "pending"
@@ -125,6 +128,7 @@ type WorkspacePreviewFramesInput struct {
 }
 
 type WorkspaceVLMLabelInput struct {
+	ProductID                    string `json:"product_id"`
 	SourceType                   string `json:"source_type"`
 	ProductName                  string `json:"product_name"`
 	ProductReferenceImageDataURL string `json:"product_reference_image_data_url"`
@@ -146,10 +150,12 @@ type Workspace struct {
 	root      string
 	statePath string
 	processor Processor
+	vlmSlots  chan struct{}
 
-	mu    sync.Mutex
-	items map[string]WorkspaceItem
-	order []string
+	mu          sync.Mutex
+	items       map[string]WorkspaceItem
+	order       []string
+	activeItems map[string]int
 }
 
 type workspaceState struct {
@@ -182,10 +188,12 @@ func NewWorkspace(root string, processor Processor) (*Workspace, error) {
 		return nil, err
 	}
 	w := &Workspace{
-		root:      root,
-		statePath: filepath.Join(root, "workspace.json"),
-		processor: processor,
-		items:     map[string]WorkspaceItem{},
+		root:        root,
+		statePath:   filepath.Join(root, "workspace.json"),
+		processor:   processor,
+		vlmSlots:    make(chan struct{}, 2),
+		items:       map[string]WorkspaceItem{},
+		activeItems: map[string]int{},
 	}
 	if err := w.load(); err != nil {
 		return nil, err
@@ -387,7 +395,9 @@ func (w *Workspace) PrepareItem(ctx context.Context, itemID string) (WorkspaceIt
 		w.mu.Unlock()
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
+	w.activeItems[itemID]++
 	w.mu.Unlock()
+	defer w.finishItemOperation(itemID)
 
 	if err := validateItemForPrepare(item); err != nil {
 		return WorkspaceItem{}, err
@@ -476,6 +486,10 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 		w.mu.Unlock()
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
+	if w.activeItems[itemID] > 0 || item.VLMStatus == vlmStatusQueued || item.VLMStatus == vlmStatusRunning {
+		w.mu.Unlock()
+		return WorkspaceItem{}, ErrWorkspaceItemBusy
+	}
 	sourceInMs, sourceOutMs, err := normalizeSourceRangeForDuration(input.SourceInMs, input.SourceOutMs, item.Probe.DurationMs)
 	if err != nil {
 		w.mu.Unlock()
@@ -498,6 +512,9 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 		item.Status = workspaceStatusSaved
 	}
 	item.SourceType = sourceType
+	if productID := strings.TrimSpace(input.ProductID); productID != "" {
+		item.ProductID = productID
+	}
 	item.SourceInMs = sourceInMs
 	item.SourceOutMs = sourceOutMs
 	invalidateASRDraft(&item)
@@ -507,26 +524,36 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 	item.VLMFinishedAt = nil
 	item.Analysis = nil
 	item.UpdatedAt = time.Now()
+	w.activeItems[itemID]++
 	w.items[itemID] = item
 	if err := w.persistLocked(); err != nil {
+		w.activeItems[itemID]--
 		w.mu.Unlock()
 		return WorkspaceItem{}, err
 	}
 	w.mu.Unlock()
 
 	go w.runVLMLabel(context.Background(), itemID, WorkspaceVLMLabelInput{
-		SourceType:    sourceType,
-		ProductName:   input.ProductName,
-		SourceInMs:    sourceInMs,
-		SourceOutMs:   sourceOutMs,
-		ServerBaseURL: input.ServerBaseURL,
-		AuthToken:     input.AuthToken,
+		ProductID:                    strings.TrimSpace(input.ProductID),
+		SourceType:                   sourceType,
+		ProductName:                  input.ProductName,
+		ProductReferenceImageDataURL: input.ProductReferenceImageDataURL,
+		SourceInMs:                   sourceInMs,
+		SourceOutMs:                  sourceOutMs,
+		ServerBaseURL:                input.ServerBaseURL,
+		AuthToken:                    input.AuthToken,
 	})
 
 	return item, nil
 }
 
 func (w *Workspace) runVLMLabel(ctx context.Context, itemID string, input WorkspaceVLMLabelInput) {
+	w.vlmSlots <- struct{}{}
+	defer func() {
+		<-w.vlmSlots
+		w.finishItemOperation(itemID)
+	}()
+
 	startedAt := time.Now()
 	w.mu.Lock()
 	item, ok := w.items[itemID]
@@ -572,9 +599,50 @@ func (w *Workspace) runVLMLabel(ctx context.Context, itemID string, input Worksp
 	_ = w.persistLocked()
 }
 
+func (w *Workspace) DeleteItem(itemID string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	item, ok := w.items[itemID]
+	if !ok {
+		return fmt.Errorf("workspace item not found")
+	}
+	if w.activeItems[itemID] > 0 || item.VLMStatus == vlmStatusQueued || item.VLMStatus == vlmStatusRunning {
+		return ErrWorkspaceItemBusy
+	}
+	if err := os.RemoveAll(filepath.Join(w.root, "items", item.ID)); err != nil {
+		return err
+	}
+
+	delete(w.items, itemID)
+	delete(w.activeItems, itemID)
+	for index, id := range w.order {
+		if id == itemID {
+			w.order = append(w.order[:index], w.order[index+1:]...)
+			break
+		}
+	}
+	return w.persistLocked()
+}
+
+func (w *Workspace) finishItemOperation(itemID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.activeItems[itemID] <= 1 {
+		delete(w.activeItems, itemID)
+		return
+	}
+	w.activeItems[itemID]--
+}
+
 func (w *Workspace) Clear() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	for _, count := range w.activeItems {
+		if count > 0 {
+			return ErrWorkspaceItemBusy
+		}
+	}
 
 	for _, id := range w.order {
 		_ = os.RemoveAll(filepath.Join(w.root, "items", id))
@@ -582,6 +650,7 @@ func (w *Workspace) Clear() error {
 
 	w.items = map[string]WorkspaceItem{}
 	w.order = nil
+	w.activeItems = map[string]int{}
 	return w.persistLocked()
 }
 
@@ -592,7 +661,9 @@ func (w *Workspace) SubmitItem(ctx context.Context, itemID string, input Workspa
 		w.mu.Unlock()
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
+	w.activeItems[itemID]++
 	w.mu.Unlock()
+	defer w.finishItemOperation(itemID)
 
 	if item.Status != workspaceStatusReadyToSubmit {
 		return WorkspaceItem{}, fmt.Errorf("workspace item is not ready to submit")
