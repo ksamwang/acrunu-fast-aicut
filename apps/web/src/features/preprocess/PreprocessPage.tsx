@@ -44,7 +44,7 @@ type ImportPreview = {
 
 const workspacePageSize = 50;
 const importQueuePageSize = 50;
-const importConcurrency = 2;
+const importConcurrency = 16;
 
 type WorkspaceStatsState = {
   pending: number;
@@ -524,8 +524,10 @@ export function PreprocessPage({ token }: { token: string }) {
   }, [submitProductID, token]);
 
   const clearImportPreviews = () => {
-    cancelledImportIDsRef.current.clear();
-    setImportPreviews([]);
+    setImportPreviews((current) => {
+      current.forEach((item) => cancelledImportIDsRef.current.add(item.id));
+      return [];
+    });
     setImportQueuePage(1);
   };
 
@@ -1374,7 +1376,7 @@ export function PreprocessPage({ token }: { token: string }) {
             <Typography.Text type="secondary" className="preprocess-import-summary">
               等待 {importQueueStats.waiting} / 进行中 {importQueueStats.importing} / 完成 {importQueueStats.completed} / 失败 {importQueueStats.failed}
             </Typography.Text>
-            <Button onClick={clearImportPreviews} disabled={importing || importPreviews.length === 0}>
+            <Button onClick={clearImportPreviews} disabled={importPreviews.length === 0}>
               清空队列
             </Button>
             <Button onClick={closeImportModal}>
