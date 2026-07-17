@@ -78,6 +78,10 @@ type WorkspaceItem struct {
 	FrameSnapshots      []WorkspaceFrameSnapshot     `json:"frame_snapshots,omitempty"`
 	Analysis            *WorkspaceAnalysis           `json:"analysis,omitempty"`
 	VLMStatus           string                       `json:"vlm_status,omitempty"`
+	VLMProductID        string                       `json:"vlm_product_id,omitempty"`
+	VLMSourceType       string                       `json:"vlm_source_type,omitempty"`
+	VLMSourceInMs       int                          `json:"vlm_source_in_ms,omitempty"`
+	VLMSourceOutMs      int                          `json:"vlm_source_out_ms,omitempty"`
 	VLMError            string                       `json:"vlm_error,omitempty"`
 	VLMStartedAt        *time.Time                   `json:"vlm_started_at,omitempty"`
 	VLMFinishedAt       *time.Time                   `json:"vlm_finished_at,omitempty"`
@@ -144,6 +148,7 @@ type WorkspaceSubmitInput struct {
 	UploadToken      string   `json:"upload_token"`
 	SellingPointIDs  []string `json:"selling_point_ids"`
 	UseOriginalAudio bool     `json:"use_original_audio"`
+	RequireVLMReady  bool     `json:"require_vlm_ready"`
 }
 
 type Workspace struct {
@@ -341,7 +346,11 @@ func (w *Workspace) SaveItem(ctx context.Context, itemID string, input Workspace
 	if err := validateSaveInput(input, effectiveOriginalProbe(item).FPS); err != nil {
 		return WorkspaceItem{}, err
 	}
-	selectionChanged := item.SourceType != "" && (item.SourceType != input.SourceType || item.SourceInMs != input.SourceInMs || item.SourceOutMs != input.SourceOutMs)
+	selectionChanged := item.SourceType != "" && (item.SourceType != input.SourceType ||
+		item.SourceInMs != input.SourceInMs ||
+		item.SourceOutMs != input.SourceOutMs ||
+		item.InterpretFPS != input.InterpretFPS ||
+		(input.InterpretFPS && item.PlaybackFPS != input.PlaybackFPS))
 
 	item.AssetName = strings.TrimSpace(input.AssetName)
 	item.SourceType = input.SourceType
@@ -366,14 +375,11 @@ func (w *Workspace) SaveItem(ctx context.Context, itemID string, input Workspace
 		item.Transcript = transcriptTextFromSegments(item.TranscriptSegments)
 	}
 	item.ReviewerNotes = strings.TrimSpace(input.ReviewerNotes)
+	if selectionChanged {
+		invalidateVLMAnalysis(&item)
+	}
 	if item.Status == workspaceStatusReadyToSubmit {
 		clearPreparedOutput(&item)
-		item.PreviewFrames = nil
-		item.Analysis = nil
-		item.VLMStatus = vlmStatusIdle
-		item.VLMError = ""
-		item.VLMStartedAt = nil
-		item.VLMFinishedAt = nil
 		item.Status = workspaceStatusSaved
 	} else if item.Status != workspaceStatusSubmitted {
 		item.Status = workspaceStatusSaved
@@ -512,13 +518,20 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 		item.Status = workspaceStatusSaved
 	}
 	item.SourceType = sourceType
-	if productID := strings.TrimSpace(input.ProductID); productID != "" {
+	productID := strings.TrimSpace(input.ProductID)
+	if productID != "" {
 		item.ProductID = productID
+	} else {
+		productID = item.ProductID
 	}
 	item.SourceInMs = sourceInMs
 	item.SourceOutMs = sourceOutMs
 	invalidateASRDraft(&item)
 	item.VLMStatus = vlmStatusQueued
+	item.VLMProductID = productID
+	item.VLMSourceType = sourceType
+	item.VLMSourceInMs = sourceInMs
+	item.VLMSourceOutMs = sourceOutMs
 	item.VLMError = ""
 	item.VLMStartedAt = nil
 	item.VLMFinishedAt = nil
@@ -534,7 +547,7 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 	w.mu.Unlock()
 
 	go w.runVLMLabel(context.Background(), itemID, WorkspaceVLMLabelInput{
-		ProductID:                    strings.TrimSpace(input.ProductID),
+		ProductID:                    productID,
 		SourceType:                   sourceType,
 		ProductName:                  input.ProductName,
 		ProductReferenceImageDataURL: input.ProductReferenceImageDataURL,
@@ -575,6 +588,12 @@ func (w *Workspace) runVLMLabel(ctx context.Context, itemID string, input Worksp
 	defer w.mu.Unlock()
 	current, ok := w.items[itemID]
 	if !ok {
+		return
+	}
+	if current.VLMProductID != input.ProductID ||
+		current.VLMSourceType != input.SourceType ||
+		current.VLMSourceInMs != input.SourceInMs ||
+		current.VLMSourceOutMs != input.SourceOutMs {
 		return
 	}
 	finishedAt := time.Now()
@@ -661,6 +680,12 @@ func (w *Workspace) SubmitItem(ctx context.Context, itemID string, input Workspa
 		w.mu.Unlock()
 		return WorkspaceItem{}, fmt.Errorf("workspace item not found")
 	}
+	if input.RequireVLMReady {
+		if err := validateVLMReadyForSubmit(item, input.ProductID); err != nil {
+			w.mu.Unlock()
+			return WorkspaceItem{}, err
+		}
+	}
 	w.activeItems[itemID]++
 	w.mu.Unlock()
 	defer w.finishItemOperation(itemID)
@@ -737,6 +762,12 @@ func normalizeWorkspaceItem(item WorkspaceItem) WorkspaceItem {
 	if item.SpeedRatio == 0 {
 		item.SpeedRatio = resolveSpeedRatio(effectiveOriginalProbe(item).FPS, item.InterpretFPS, item.PlaybackFPS)
 	}
+	if item.VLMStatus == vlmStatusReady && item.Analysis != nil && item.VLMSourceOutMs == 0 {
+		item.VLMProductID = item.ProductID
+		item.VLMSourceType = item.SourceType
+		item.VLMSourceInMs = item.SourceInMs
+		item.VLMSourceOutMs = item.SourceOutMs
+	}
 	if item.CleanShotProbe == (ffmpeg.ProbeResult{}) && item.CleanShotPath != "" {
 		// Older workspace records stored the clean shot probe in Probe. Restore the
 		// working-source probe so the editor keeps using the same timeline as I/O.
@@ -773,6 +804,19 @@ func clearPreparedOutput(item *WorkspaceItem) {
 	item.CleanShotProbe = ffmpeg.ProbeResult{}
 	item.Checksum = ""
 	item.FrameSnapshots = nil
+}
+
+func invalidateVLMAnalysis(item *WorkspaceItem) {
+	item.PreviewFrames = nil
+	item.Analysis = nil
+	item.VLMStatus = vlmStatusIdle
+	item.VLMProductID = ""
+	item.VLMSourceType = ""
+	item.VLMSourceInMs = 0
+	item.VLMSourceOutMs = 0
+	item.VLMError = ""
+	item.VLMStartedAt = nil
+	item.VLMFinishedAt = nil
 }
 
 func (w *Workspace) persistLocked() error {
@@ -1499,6 +1543,31 @@ func validateSubmitInput(input WorkspaceSubmitInput) error {
 	}
 	if strings.TrimSpace(input.UploadToken) == "" {
 		return fmt.Errorf("upload_token is required")
+	}
+	return nil
+}
+
+func validateVLMReadyForSubmit(item WorkspaceItem, productID string) error {
+	switch item.VLMStatus {
+	case vlmStatusQueued, vlmStatusRunning:
+		return fmt.Errorf("VLM analysis is still running")
+	case vlmStatusFailed:
+		return fmt.Errorf("VLM analysis failed and must be retried")
+	case vlmStatusReady:
+		// Continue with snapshot validation below.
+	default:
+		return fmt.Errorf("VLM analysis has not been completed")
+	}
+	if item.Analysis == nil {
+		return fmt.Errorf("VLM analysis result is missing")
+	}
+	if item.VLMSourceType != item.SourceType ||
+		item.VLMSourceInMs != item.SourceInMs ||
+		item.VLMSourceOutMs != item.SourceOutMs {
+		return fmt.Errorf("VLM analysis is stale for the current material selection")
+	}
+	if expectedProductID := strings.TrimSpace(productID); expectedProductID != "" && item.VLMProductID != expectedProductID {
+		return fmt.Errorf("VLM analysis was generated for a different product")
 	}
 	return nil
 }

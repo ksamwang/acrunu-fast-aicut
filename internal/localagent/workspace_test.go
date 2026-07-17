@@ -617,6 +617,9 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	if labeled.ProductID != "product-1" {
 		t.Fatalf("expected product id persisted, got %q", labeled.ProductID)
 	}
+	if labeled.VLMProductID != "product-1" || labeled.VLMSourceType != "visual_only" || labeled.VLMSourceInMs != 1000 || labeled.VLMSourceOutMs != 5000 {
+		t.Fatalf("expected VLM input snapshot persisted, got %+v", labeled)
+	}
 	if len(labeled.PreviewFrames) != 3 {
 		t.Fatalf("expected preview frames from vlm label, got %d", len(labeled.PreviewFrames))
 	}
@@ -706,6 +709,92 @@ func TestWorkspaceLimitsConcurrentVLMLabels(t *testing.T) {
 	}
 }
 
+func TestValidateVLMReadyForSubmit(t *testing.T) {
+	valid := WorkspaceItem{
+		ProductID:      "product-1",
+		SourceType:     "visual_only",
+		SourceInMs:     100,
+		SourceOutMs:    5000,
+		Analysis:       &WorkspaceAnalysis{SceneDescription: "ready"},
+		VLMStatus:      vlmStatusReady,
+		VLMProductID:   "product-1",
+		VLMSourceType:  "visual_only",
+		VLMSourceInMs:  100,
+		VLMSourceOutMs: 5000,
+	}
+	if err := validateVLMReadyForSubmit(valid, "product-1"); err != nil {
+		t.Fatalf("expected valid VLM snapshot, got %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*WorkspaceItem)
+	}{
+		{name: "not started", mutate: func(item *WorkspaceItem) { item.VLMStatus = vlmStatusIdle }},
+		{name: "running", mutate: func(item *WorkspaceItem) { item.VLMStatus = vlmStatusRunning }},
+		{name: "failed", mutate: func(item *WorkspaceItem) { item.VLMStatus = vlmStatusFailed }},
+		{name: "missing result", mutate: func(item *WorkspaceItem) { item.Analysis = nil }},
+		{name: "stale range", mutate: func(item *WorkspaceItem) { item.SourceInMs = 200 }},
+		{name: "stale source type", mutate: func(item *WorkspaceItem) { item.SourceType = "talking_head" }},
+		{name: "different product", mutate: func(item *WorkspaceItem) { item.VLMProductID = "product-2" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := valid
+			tt.mutate(&item)
+			if err := validateVLMReadyForSubmit(item, "product-1"); err == nil {
+				t.Fatal("expected VLM validation error")
+			}
+		})
+	}
+}
+
+func TestWorkspaceSaveInvalidatesVLMWhenSelectionChanges(t *testing.T) {
+	workspace, err := NewWorkspace(t.TempDir(), stubProcessor{})
+	if err != nil {
+		t.Fatalf("NewWorkspace() error = %v", err)
+	}
+	header, cleanup := newMultipartHeader(t, "sample.mp4", []byte("video"))
+	defer cleanup()
+	imported, err := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
+	if err != nil {
+		t.Fatalf("ImportFiles() error = %v", err)
+	}
+	item := imported[0]
+
+	workspace.mu.Lock()
+	item.SourceType = "visual_only"
+	item.SourceInMs = 0
+	item.SourceOutMs = 6000
+	item.Status = workspaceStatusSaved
+	item.ProductID = "product-1"
+	item.Analysis = &WorkspaceAnalysis{SceneDescription: "ready"}
+	item.VLMStatus = vlmStatusReady
+	item.VLMProductID = "product-1"
+	item.VLMSourceType = "visual_only"
+	item.VLMSourceInMs = 0
+	item.VLMSourceOutMs = 6000
+	workspace.items[item.ID] = item
+	workspace.mu.Unlock()
+
+	saved, err := workspace.SaveItem(context.Background(), item.ID, WorkspaceSaveInput{
+		AssetName:   "changed selection",
+		SourceType:  "visual_only",
+		SourceInMs:  100,
+		SourceOutMs: 6000,
+		PlaybackFPS: 25,
+	})
+	if err != nil {
+		t.Fatalf("SaveItem() error = %v", err)
+	}
+	if saved.VLMStatus != vlmStatusIdle || saved.Analysis != nil {
+		t.Fatalf("expected VLM analysis invalidated, got status=%s analysis=%+v", saved.VLMStatus, saved.Analysis)
+	}
+	if saved.VLMProductID != "" || saved.VLMSourceType != "" || saved.VLMSourceOutMs != 0 {
+		t.Fatalf("expected VLM snapshot cleared, got %+v", saved)
+	}
+}
+
 func TestWorkspaceDeleteItemRemovesLocalFilesAndRejectsActiveVLM(t *testing.T) {
 	root := t.TempDir()
 	workspace, err := NewWorkspace(root, stubProcessor{})
@@ -790,6 +879,17 @@ func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 	if _, err := workspace.PrepareItem(context.Background(), item.ID); err != nil {
 		t.Fatalf("PrepareItem() error = %v", err)
 	}
+	workspace.mu.Lock()
+	prepared := workspace.items[item.ID]
+	prepared.ProductID = "product-1"
+	prepared.Analysis = &WorkspaceAnalysis{SceneDescription: "ready"}
+	prepared.VLMStatus = vlmStatusReady
+	prepared.VLMProductID = "product-1"
+	prepared.VLMSourceType = prepared.SourceType
+	prepared.VLMSourceInMs = prepared.SourceInMs
+	prepared.VLMSourceOutMs = prepared.SourceOutMs
+	workspace.items[item.ID] = prepared
+	workspace.mu.Unlock()
 
 	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -819,9 +919,10 @@ func TestWorkspaceClearRemovesSubmittedLocalRecords(t *testing.T) {
 	defer uploadServer.Close()
 
 	submitted, err := workspace.SubmitItem(context.Background(), item.ID, WorkspaceSubmitInput{
-		ProductID:   "product-1",
-		UploadURL:   uploadServer.URL,
-		UploadToken: "upload-token",
+		ProductID:       "product-1",
+		UploadURL:       uploadServer.URL,
+		UploadToken:     "upload-token",
+		RequireVLMReady: true,
 	})
 	if err != nil {
 		t.Fatalf("SubmitItem() error = %v", err)

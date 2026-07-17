@@ -473,6 +473,48 @@
   width: 100%;
 }
 
+.preprocess-batch-submit-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preprocess-batch-vlm-alert.ant-alert {
+  min-height: 30px;
+  padding: 5px 9px;
+  border-radius: 5px;
+}
+
+.preprocess-batch-vlm-alert .ant-alert-icon {
+  margin-inline-end: 7px;
+  font-size: 13px;
+}
+
+.preprocess-batch-vlm-alert .ant-alert-message {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.preprocess-batch-vlm-alert-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.preprocess-batch-vlm-alert-content strong {
+  font-weight: 600;
+}
+
+.preprocess-batch-vlm-alert-content span {
+  color: #7c5d12;
+}
+
 .preprocess-batch-confirm-copy p {
   margin: 0 0 8px;
   color: #475569;

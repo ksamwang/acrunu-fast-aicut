@@ -16,9 +16,14 @@ type MockWorkspaceItem = {
   probe: { duration_ms: number; width: number; height: number; fps: number; has_audio: boolean };
   preview_frame_snapshots: never[];
   frame_snapshots: never[];
+  analysis?: { scene_description: string };
   source_url: string;
   thumbnail_url: string;
   vlm_status: "idle" | "queued" | "running" | "ready" | "failed";
+  vlm_product_id?: string;
+  vlm_source_type?: "visual_only";
+  vlm_source_in_ms?: number;
+  vlm_source_out_ms?: number;
   updated_at: string;
 };
 
@@ -51,6 +56,17 @@ function workspaceItem(index: number, status: MockWorkspaceItem["status"] = "pen
     vlm_status: "idle",
     updated_at: "2026-07-17T00:00:00.000Z"
   };
+}
+
+function markVLMReady(item: MockWorkspaceItem) {
+  item.vlm_status = "ready";
+  item.vlm_product_id = product.id;
+  item.vlm_source_type = item.source_type;
+  item.vlm_source_in_ms = item.source_in_ms;
+  item.vlm_source_out_ms = item.source_out_ms;
+  item.product_id = product.id;
+  item.analysis = { scene_description: `已识别 ${item.asset_name}` };
+  return item;
 }
 
 async function installSessionAndAPIMocks(page: Page) {
@@ -135,8 +151,7 @@ test("marquee selects cards and starts batch VLM with the product reference imag
       const payload = request.postDataJSON() as Record<string, unknown>;
       vlmPayloads.push(payload);
       const item = items.find((candidate) => candidate.id === vlmMatch[1])!;
-      item.product_id = String(payload.product_id);
-      item.vlm_status = "ready";
+      markVLMReady(item);
       await fulfillJSON(route, { item }, 202);
       return;
     }
@@ -183,6 +198,50 @@ test("marquee selects cards and starts batch VLM with the product reference imag
   expect(vlmPayloads.every((payload) => payload.product_reference_image_data_url === transparentPixel)).toBe(true);
 });
 
+test("batch formal submit stays disabled until every VLM result is ready", async ({ page }) => {
+  await installSessionAndAPIMocks(page);
+  const items = [markVLMReady(workspaceItem(1)), markVLMReady(workspaceItem(2))];
+  items[1].vlm_status = "running";
+  let submitRequests = 0;
+
+  await page.route("http://127.0.0.1:58721/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+      return;
+    }
+    if (request.method() === "GET" && url.pathname === "/workspace/items") {
+      await fulfillJSON(route, listResponse(items));
+      return;
+    }
+    const itemMatch = url.pathname.match(/^\/workspace\/items\/([^/]+)$/);
+    if (request.method() === "GET" && itemMatch) {
+      await fulfillJSON(route, { item: items.find((item) => item.id === itemMatch[1]) });
+      return;
+    }
+    if (request.method() === "POST" && url.pathname.endsWith("/submit")) {
+      submitRequests += 1;
+    }
+    await fulfillJSON(route, { error: "not found" }, 404);
+  });
+
+  await page.goto("/#/preprocess");
+  const cards = page.locator(".preprocess-asset-card");
+  await cards.first().click();
+  await cards.nth(1).click({ modifiers: ["Control"] });
+  await cards.first().click({ button: "right" });
+  await page.locator(".ant-dropdown-menu").getByText("正式提交", { exact: true }).click();
+
+  const modal = page.locator(".preprocess-batch-modal").filter({ hasText: "正式提交" });
+  await expect(modal.getByText("VLM 未就绪 1", { exact: true })).toBeVisible();
+  const vlmAlertBounds = await modal.locator(".preprocess-batch-vlm-alert").boundingBox();
+  expect(vlmAlertBounds?.height).toBeLessThanOrEqual(32);
+  await expect(modal.locator(".ant-modal-footer .ant-btn-primary")).toBeDisabled();
+  await expect(modal.getByText("刷新状态", { exact: true })).toBeVisible();
+  expect(submitRequests).toBe(0);
+});
+
 test("formal submit auto-prepares mixed statuses and batch delete removes only local records", async ({ page }) => {
   await installSessionAndAPIMocks(page);
   const items = [
@@ -191,6 +250,7 @@ test("formal submit auto-prepares mixed statuses and batch delete removes only l
     workspaceItem(3, "ready_to_submit"),
     workspaceItem(4, "submitted")
   ];
+  items.filter((item) => item.status !== "submitted").forEach(markVLMReady);
   const preparedIDs: string[] = [];
   const submittedIDs: string[] = [];
   const deletedIDs: string[] = [];
@@ -233,6 +293,7 @@ test("formal submit auto-prepares mixed statuses and batch delete removes only l
     }
     const submitMatch = url.pathname.match(/^\/workspace\/items\/([^/]+)\/submit$/);
     if (request.method() === "POST" && submitMatch) {
+      expect(request.postDataJSON()).toMatchObject({ require_vlm_ready: true });
       const submitted = items.find((candidate) => candidate.id === submitMatch[1])!;
       submitted.status = "submitted";
       submitted.product_id = product.id;
@@ -255,8 +316,8 @@ test("formal submit auto-prepares mixed statuses and batch delete removes only l
   await page.locator(".ant-dropdown-menu").getByText("正式提交", { exact: true }).click();
   const submitModal = page.locator(".preprocess-batch-modal").filter({ hasText: "正式提交" });
   await expect(submitModal.getByText("自动完成处理")).toBeVisible();
-  await submitModal.getByRole("combobox").click();
-  await page.getByText("束裤带", { exact: true }).last().click();
+  await expect(submitModal.locator(".ant-select-selection-item")).toHaveText("束裤带");
+  await expect(submitModal.getByText("VLM 状态有效，可以正式提交", { exact: true })).toBeVisible();
   await submitModal.getByRole("button", { name: "确认提交" }).click();
   await expect.poll(() => submittedIDs.length).toBe(3);
   expect(preparedIDs.sort()).toEqual(["workspace-1", "workspace-2"]);

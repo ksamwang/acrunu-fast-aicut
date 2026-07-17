@@ -73,6 +73,10 @@ export type WorkspaceItem = {
   preview_frame_snapshots: WorkspaceFrameSnapshot[];
   analysis?: WorkspaceAnalysis;
   vlm_status?: "idle" | "queued" | "running" | "ready" | "failed";
+  vlm_product_id?: string;
+  vlm_source_type?: "visual_only" | "talking_head";
+  vlm_source_in_ms?: number;
+  vlm_source_out_ms?: number;
   vlm_error?: string;
   frame_snapshots: WorkspaceFrameSnapshot[];
   source_url: string;

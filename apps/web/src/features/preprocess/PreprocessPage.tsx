@@ -62,6 +62,15 @@ type BatchOperationState = {
   running: boolean;
 };
 
+type BatchSubmitVLMBlocker =
+  | "not_started"
+  | "queued"
+  | "running"
+  | "failed"
+  | "missing_result"
+  | "stale_selection"
+  | "product_mismatch";
+
 type MarqueeRect = {
   left: number;
   top: number;
@@ -158,6 +167,38 @@ function workspaceSavePayload(item: WorkspaceItem) {
 
 function isWorkspaceItemBusy(item: WorkspaceItem) {
   return item.vlm_status === "queued" || item.vlm_status === "running";
+}
+
+function batchSubmitVLMBlocker(item: WorkspaceItem, productID: string): BatchSubmitVLMBlocker | null {
+  if (item.status === "submitted") {
+    return null;
+  }
+  switch (item.vlm_status || "idle") {
+    case "queued":
+      return "queued";
+    case "running":
+      return "running";
+    case "failed":
+      return "failed";
+    case "ready":
+      break;
+    default:
+      return "not_started";
+  }
+  if (!item.analysis) {
+    return "missing_result";
+  }
+  if (
+    item.vlm_source_type !== (item.source_type || defaultSourceType) ||
+    item.vlm_source_in_ms !== item.source_in_ms ||
+    item.vlm_source_out_ms !== item.source_out_ms
+  ) {
+    return "stale_selection";
+  }
+  if (productID && item.vlm_product_id !== productID) {
+    return "product_mismatch";
+  }
+  return null;
 }
 
 function SvgIcon({
@@ -389,6 +430,9 @@ export function PreprocessPage({ token }: { token: string }) {
   const [batchVLMUseReference, setBatchVLMUseReference] = useState(false);
   const [batchSubmitModalOpen, setBatchSubmitModalOpen] = useState(false);
   const [batchSubmitProductID, setBatchSubmitProductID] = useState("");
+  const [batchSubmitValidationItems, setBatchSubmitValidationItems] = useState<WorkspaceItem[]>([]);
+  const [batchSubmitChecking, setBatchSubmitChecking] = useState(false);
+  const [batchSubmitCheckError, setBatchSubmitCheckError] = useState("");
   const [batchOperation, setBatchOperation] = useState<BatchOperationState | null>(null);
   const lastSubmitProductIDRef = useRef(loadLastSubmitProductID());
   const [submitProductID, setSubmitProductID] = useState<string>(lastSubmitProductIDRef.current);
@@ -410,6 +454,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const selectedItemCacheRef = useRef<Record<string, WorkspaceItem>>({});
   const selectionAnchorIDRef = useRef<string | null>(null);
   const marqueeStartRef = useRef<MarqueeStart | null>(null);
+  const batchSubmitCheckingRef = useRef(false);
   const preprocessBoardRef = useRef<HTMLElement | null>(null);
   const assetCardRefs = useRef(new Map<string, HTMLButtonElement>());
   const preprocessWorkbenchRef = useRef<HTMLDivElement | null>(null);
@@ -435,6 +480,18 @@ export function PreprocessPage({ token }: { token: string }) {
     [batchVLMProductID, products]
   );
   const selectedBatchVLMReferenceImage = productReferenceImage(selectedBatchVLMProduct);
+  const batchSubmitItems = batchSubmitValidationItems.length > 0 ? batchSubmitValidationItems : selectedBatchItems;
+  const batchSubmitBlockers = useMemo(
+    () => batchSubmitItems.map((item) => ({ item, reason: batchSubmitVLMBlocker(item, batchSubmitProductID) }))
+      .filter((entry): entry is { item: WorkspaceItem; reason: BatchSubmitVLMBlocker } => entry.reason !== null),
+    [batchSubmitItems, batchSubmitProductID]
+  );
+  const batchSubmitVLMStats = useMemo(() => ({
+    ready: batchSubmitItems.filter((item) => item.status !== "submitted" && batchSubmitVLMBlocker(item, batchSubmitProductID) === null).length,
+    notStarted: batchSubmitBlockers.filter((entry) => entry.reason === "not_started").length,
+    processing: batchSubmitBlockers.filter((entry) => entry.reason === "queued" || entry.reason === "running").length,
+    failedOrStale: batchSubmitBlockers.filter((entry) => !["not_started", "queued", "running"].includes(entry.reason)).length
+  }), [batchSubmitBlockers, batchSubmitItems, batchSubmitProductID]);
   const importQueueStats = useMemo(() => ({
     waiting: importPreviews.filter((item) => item.status === "waiting").length,
     importing: importPreviews.filter((item) => item.status === "importing").length,
@@ -1162,6 +1219,40 @@ export function PreprocessPage({ token }: { token: string }) {
     return response.item;
   };
 
+  const refreshBatchSubmitValidation = async (notifyError = false) => {
+    if (batchSubmitCheckingRef.current) {
+      return null;
+    }
+    const itemIDs = Array.from(selectedItemIDsRef.current);
+    if (itemIDs.length === 0) {
+      setBatchSubmitValidationItems([]);
+      return [];
+    }
+    batchSubmitCheckingRef.current = true;
+    setBatchSubmitChecking(true);
+    setBatchSubmitCheckError("");
+    const refreshed: WorkspaceItem[] = [];
+    let firstError = "";
+    await runWithConcurrency(itemIDs, batchRequestConcurrency, async (itemID) => {
+      try {
+        const item = await fetchWorkspaceItem(itemID);
+        refreshed.push(item);
+        replaceWorkspaceItem(item);
+      } catch (error) {
+        firstError ||= error instanceof Error ? error.message : "读取素材状态失败";
+      }
+    });
+    refreshed.sort((left, right) => itemIDs.indexOf(left.id) - itemIDs.indexOf(right.id));
+    setBatchSubmitValidationItems(refreshed);
+    setBatchSubmitCheckError(firstError);
+    batchSubmitCheckingRef.current = false;
+    setBatchSubmitChecking(false);
+    if (firstError && notifyError) {
+      message.error(`无法校验全部素材：${firstError}`);
+    }
+    return firstError ? null : refreshed;
+  };
+
   const updateBatchOutcome = (outcome: "succeeded" | "failed" | "skipped") => {
     setBatchOperation((current) => current ? {
       ...current,
@@ -1261,7 +1352,10 @@ export function PreprocessPage({ token }: { token: string }) {
       return;
     }
     setBatchSubmitProductID(commonSelectedProductID(selected) || lastSubmitProductIDRef.current);
+    setBatchSubmitValidationItems(selected);
+    setBatchSubmitCheckError("");
     setBatchSubmitModalOpen(true);
+    void refreshBatchSubmitValidation();
   };
 
   const startBatchSubmit = async () => {
@@ -1272,6 +1366,16 @@ export function PreprocessPage({ token }: { token: string }) {
     const itemIDs = Array.from(selectedItemIDsRef.current);
     if (itemIDs.length === 0) {
       setBatchSubmitModalOpen(false);
+      return;
+    }
+
+    const verifiedItems = await refreshBatchSubmitValidation(true);
+    if (!verifiedItems) {
+      return;
+    }
+    const blockers = verifiedItems.filter((item) => batchSubmitVLMBlocker(item, batchSubmitProductID) !== null);
+    if (blockers.length > 0) {
+      message.warning(`有 ${blockers.length} 项素材的 VLM 未完成或已过期，不能正式提交`);
       return;
     }
 
@@ -1324,7 +1428,8 @@ export function PreprocessPage({ token }: { token: string }) {
             upload_url: `${window.location.origin}/api/uploads/clean-shot`,
             upload_token: uploadToken.token,
             selling_point_ids: [],
-            use_original_audio: Boolean(item.use_original_audio)
+            use_original_audio: Boolean(item.use_original_audio),
+            require_vlm_ready: true
           })
         });
         replaceWorkspaceItem(submitted.item, item);
@@ -1343,6 +1448,24 @@ export function PreprocessPage({ token }: { token: string }) {
     } else {
       message.success(`正式提交完成：成功 ${succeeded}，跳过 ${skipped}`);
     }
+  };
+
+  useEffect(() => {
+    if (!batchSubmitModalOpen || batchSubmitVLMStats.processing === 0) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void refreshBatchSubmitValidation();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [batchSubmitModalOpen, batchSubmitVLMStats.processing, selectedItemIDs.size]);
+
+  const openBatchVLMFromSubmit = () => {
+    const product = products.find((item) => item.id === batchSubmitProductID);
+    setBatchSubmitModalOpen(false);
+    setBatchVLMProductID(batchSubmitProductID);
+    setBatchVLMUseReference(!!productReferenceImage(product));
+    setBatchVLMModalOpen(true);
   };
 
   const deleteSelectedItems = () => {
@@ -1970,17 +2093,51 @@ export function PreprocessPage({ token }: { token: string }) {
         title="正式提交"
         width={520}
         className="preprocess-batch-modal"
-        okText="确认提交"
-        cancelText="取消"
-        okButtonProps={{ disabled: !batchSubmitProductID }}
-        onOk={() => void startBatchSubmit()}
+        footer={[
+          <Button key="cancel" onClick={() => setBatchSubmitModalOpen(false)}>取消</Button>,
+          batchSubmitCheckError || batchSubmitBlockers.length > 0 ? (
+            <Button
+              key="vlm"
+              icon={<ScanSearch size={15} />}
+              onClick={() => {
+                if (batchSubmitCheckError) {
+                  void refreshBatchSubmitValidation(true);
+                  return;
+                }
+                const onlyProcessing = batchSubmitBlockers.every((entry) => entry.reason === "queued" || entry.reason === "running");
+                if (onlyProcessing) {
+                  void refreshBatchSubmitValidation(true);
+                } else {
+                  openBatchVLMFromSubmit();
+                }
+              }}
+            >
+              {batchSubmitCheckError || batchSubmitBlockers.every((entry) => entry.reason === "queued" || entry.reason === "running") ? "刷新状态" : "批量VLM"}
+            </Button>
+          ) : null,
+          <Button
+            key="submit"
+            type="primary"
+            loading={batchSubmitChecking}
+            disabled={
+              !batchSubmitProductID ||
+              batchSubmitChecking ||
+              !!batchSubmitCheckError ||
+              batchSubmitValidationItems.length !== selectedItemIDs.size ||
+              batchSubmitBlockers.length > 0
+            }
+            onClick={() => void startBatchSubmit()}
+          >
+            确认提交
+          </Button>
+        ]}
       >
         <div className="preprocess-batch-form">
           <div className="preprocess-batch-summary-grid">
             <div><span>已选</span><strong>{selectedItemIDs.size}</strong></div>
-            <div><span>自动完成处理</span><strong>{selectedBatchItems.filter((item) => item.status === "pending" || item.status === "saved").length}</strong></div>
-            <div><span>直接提交</span><strong>{selectedBatchItems.filter((item) => item.status === "ready_to_submit").length}</strong></div>
-            <div><span>已入库跳过</span><strong>{selectedBatchItems.filter((item) => item.status === "submitted").length}</strong></div>
+            <div><span>VLM 已完成</span><strong>{batchSubmitVLMStats.ready}</strong></div>
+            <div><span>VLM 处理中</span><strong>{batchSubmitVLMStats.processing}</strong></div>
+            <div><span>VLM 需处理</span><strong>{batchSubmitVLMStats.notStarted + batchSubmitVLMStats.failedOrStale}</strong></div>
           </div>
           <label className="preprocess-batch-field">
             <span>产品</span>
@@ -1993,9 +2150,32 @@ export function PreprocessPage({ token }: { token: string }) {
               onChange={setBatchSubmitProductID}
             />
           </label>
-          {selectedBatchItems.some(isWorkspaceItemBusy) ? (
-            <Alert type="warning" showIcon message="所选素材中有 VLM 任务正在处理，这些条目会提交失败，请等待识别完成。" />
-          ) : null}
+          <div className="preprocess-batch-submit-breakdown">
+            <span>自动完成处理 {batchSubmitItems.filter((item) => item.status === "pending" || item.status === "saved").length}</span>
+            <span>直接提交 {batchSubmitItems.filter((item) => item.status === "ready_to_submit").length}</span>
+            <span>已入库跳过 {batchSubmitItems.filter((item) => item.status === "submitted").length}</span>
+          </div>
+          {batchSubmitCheckError ? (
+            <Alert className="preprocess-batch-vlm-alert" type="error" showIcon message={`状态校验失败：${batchSubmitCheckError}`} />
+          ) : batchSubmitBlockers.length > 0 ? (
+            <Alert
+              className="preprocess-batch-vlm-alert"
+              type="warning"
+              showIcon
+              message={(
+                <span className="preprocess-batch-vlm-alert-content">
+                  <strong>VLM 未就绪 {batchSubmitBlockers.length}</strong>
+                  <span>未执行 {batchSubmitVLMStats.notStarted}</span>
+                  <span>处理中 {batchSubmitVLMStats.processing}</span>
+                  <span>失败/过期 {batchSubmitVLMStats.failedOrStale}</span>
+                </span>
+              )}
+            />
+          ) : batchSubmitChecking ? (
+            <Alert className="preprocess-batch-vlm-alert" type="info" showIcon message="正在校验 VLM 状态" />
+          ) : (
+            <Alert className="preprocess-batch-vlm-alert" type="success" showIcon message="VLM 状态有效，可以正式提交" />
+          )}
           <Typography.Text type="secondary">
             未完成处理的素材会自动执行完成处理，再正式提交；保留各素材自己的原声音轨设置。
           </Typography.Text>
