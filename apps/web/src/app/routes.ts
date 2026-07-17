@@ -1,9 +1,9 @@
 import type { User } from "../shared/types/auth";
 
-export type ViewKey = "workbench" | "finished" | "products" | "preprocess" | "assets" | "settings" | "users";
+export type ViewKey = "workbench" | "finished" | "products" | "preprocess" | "assets" | "bgm" | "settings" | "users";
 
 const defaultView: ViewKey = "workbench";
-const viewKeys: ViewKey[] = ["workbench", "finished", "products", "preprocess", "assets", "settings", "users"];
+const viewKeys: ViewKey[] = ["workbench", "finished", "products", "preprocess", "assets", "bgm", "settings", "users"];
 
 function isViewKey(value: string): value is ViewKey {
   return viewKeys.includes(value as ViewKey);

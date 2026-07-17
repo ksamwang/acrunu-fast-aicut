@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Empty, Input, InputNumber, Modal, Popover, Segmented, Select, Tag, Tooltip, Typography, message } from "antd";
-import { Captions, Check, CheckCircle2, Circle, Clapperboard, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
+import { Button, Empty, Input, InputNumber, Modal, Popover, Segmented, Select, Slider, Tag, Tooltip, Typography, message } from "antd";
+import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, Music2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
+import type { BGMSelection, BGMTrack } from "../../shared/types/bgm";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import type { VoiceAudition } from "../../shared/types/voice";
 import type { OutputRatio, SubtitleStylePreset } from "../../shared/types/subtitle";
 import { listProducts, listSellingPoints } from "../products/api";
+import { listBGMTracks } from "../bgm/api";
 import { VoiceProfilePicker } from "../voice-profiles/VoiceProfilePicker";
 import { listSubtitleStylePresets } from "../subtitles/api";
 import { SubtitleStylePreview } from "../subtitles/SubtitleStylePreview";
@@ -44,8 +46,11 @@ export function WorkbenchPage({ token }: { token: string }) {
   const [startingTasks, setStartingTasks] = useState(false);
   const [audition, setAudition] = useState<VoiceAudition | null>(null);
   const [creatingAudition, setCreatingAudition] = useState(false);
+  const [playingBGM, setPlayingBGM] = useState(false);
+  const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const defaultedProductIDRef = useRef("");
   const voiceProfilesResource = useVoiceProfiles(token);
+  const bgmTracksResource = useResource<BGMTrack[]>("/api/bgm-tracks", token, [], listBGMTracks);
 
   const sellingPoints = useResource<SellingPoint[]>(
     draft.product_id ? `/api/products/${draft.product_id}/selling-points` : null,
@@ -68,6 +73,9 @@ export function WorkbenchPage({ token }: { token: string }) {
   const selectedVoiceProfile = availableVoiceProfiles.find((profile) => profile.id === draft.voice_profile_id) ?? null;
   const subtitlePresets = subtitlePresetsResource.data ?? [];
   const selectedSubtitlePreset = subtitlePresets.find((preset) => preset.id === draft.subtitle_preset_id) ?? null;
+  const enabledBGMTracks = bgmTracksResource.data ?? [];
+  const activeBGM = activeVariant?.bgm ?? { mode: "none", track_id: "", gain_db: -12 };
+  const selectedBGMTrack = enabledBGMTracks.find((track) => track.id === activeBGM.track_id) ?? null;
   const activeAudition = audition && activeVariant && selectedVoiceProfile
     && audition.voice_profile_id === selectedVoiceProfile.id
     && audition.text === activeVariant.script_text
@@ -77,6 +85,34 @@ export function WorkbenchPage({ token }: { token: string }) {
   useEffect(() => {
     saveWorkbenchDraft(draft);
   }, [draft]);
+
+  useEffect(() => () => bgmAudioRef.current?.pause(), []);
+
+  useEffect(() => {
+    bgmAudioRef.current?.pause();
+    setPlayingBGM(false);
+  }, [activeVariant?.id, activeBGM.track_id]);
+
+  useEffect(() => {
+    if (bgmTracksResource.loading) {
+      return;
+    }
+    setDraft((current) => {
+      let changed = false;
+      const variants = current.variants.map((variant) => {
+        if (enabledBGMTracks.length === 0 && variant.bgm.mode !== "none") {
+          changed = true;
+          return { ...variant, bgm: { ...variant.bgm, mode: "none" as const, track_id: "" } };
+        }
+        if (variant.bgm.mode === "track" && !enabledBGMTracks.some((track) => track.id === variant.bgm.track_id)) {
+          changed = true;
+          return { ...variant, bgm: { ...variant.bgm, mode: "random" as const, track_id: "" } };
+        }
+        return variant;
+      });
+      return changed ? { ...current, variants } : current;
+    });
+  }, [bgmTracksResource.loading, enabledBGMTracks]);
 
   useEffect(() => {
     if (!draft.product_id || sellingPoints.loading || defaultedProductIDRef.current === draft.product_id) {
@@ -200,7 +236,9 @@ export function WorkbenchPage({ token }: { token: string }) {
         custom_selling_points: draft.custom_selling_points,
         variant_count: draft.variant_count
       }, token);
-      setDraft((current) => ({ ...current, variants, active_variant_id: variants[0]?.id ?? "" }));
+      const defaultBGM: BGMSelection = { mode: enabledBGMTracks.length > 0 ? "random" : "none", track_id: "", gain_db: -12 };
+      const normalizedVariants = variants.map((variant) => ({ ...variant, bgm: variant.bgm ?? defaultBGM }));
+      setDraft((current) => ({ ...current, variants: normalizedVariants, active_variant_id: normalizedVariants[0]?.id ?? "" }));
       message.success(`已生成 ${variants.length} 条文案`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : "文案生成失败");
@@ -243,7 +281,8 @@ export function WorkbenchPage({ token }: { token: string }) {
         ...replacement,
         id: activeVariant.id,
         order: activeVariant.order,
-        status: "draft"
+        status: "draft",
+        bgm: activeVariant.bgm
       }));
       message.success("当前文案已重新生成");
     } catch (error) {
@@ -268,6 +307,38 @@ export function WorkbenchPage({ token }: { token: string }) {
     } finally {
       setCreatingAudition(false);
     }
+  };
+
+  const updateActiveBGM = (update: Partial<BGMSelection>) => {
+    if (!activeVariant) {
+      return;
+    }
+    updateVariant(activeVariant.id, (variant) => ({ ...variant, bgm: { ...variant.bgm, ...update } }));
+  };
+
+  const applyBGMToAll = () => {
+    if (!activeVariant) {
+      return;
+    }
+    const selection = { ...activeVariant.bgm };
+    setDraft((current) => ({
+      ...current,
+      variants: current.variants.map((variant) => ({ ...variant, bgm: { ...selection } }))
+    }));
+    message.success("音乐设置已应用到全部文案");
+  };
+
+  const toggleBGMPreview = () => {
+    const audio = bgmAudioRef.current;
+    if (!audio || !selectedBGMTrack) {
+      return;
+    }
+    if (!audio.paused) {
+      audio.pause();
+      setPlayingBGM(false);
+      return;
+    }
+    void audio.play().then(() => setPlayingBGM(true)).catch(() => setPlayingBGM(false));
   };
 
   const startTasks = async () => {
@@ -533,6 +604,38 @@ export function WorkbenchPage({ token }: { token: string }) {
                     }));
                   }}
                 />
+
+                <section className="workbench-bgm" aria-label="背景音乐设置">
+                  <div className="workbench-bgm-heading">
+                    <span><Music2 size={15} />背景音乐</span>
+                    <Button type="text" size="small" icon={<Copy size={14} />} onClick={applyBGMToAll}>应用到全部文案</Button>
+                  </div>
+                  <div className="workbench-bgm-controls">
+                    <Segmented<BGMSelection["mode"]>
+                      value={activeBGM.mode}
+                      options={[{ value: "random", label: "随机" }, { value: "track", label: "指定" }, { value: "none", label: "无音乐" }]}
+                      disabled={enabledBGMTracks.length === 0}
+                      onChange={(mode) => updateActiveBGM({ mode, track_id: mode === "track" ? (activeBGM.track_id || enabledBGMTracks[0]?.id || "") : "" })}
+                    />
+                    {activeBGM.mode === "track" ? (
+                      <div className="workbench-bgm-track">
+                        <Tooltip title={playingBGM ? "暂停音乐" : "试听音乐"}>
+                          <Button type="text" aria-label={playingBGM ? "暂停音乐" : "试听音乐"} icon={playingBGM ? <Pause size={16} /> : <Play size={16} />} disabled={!selectedBGMTrack} onClick={toggleBGMPreview} />
+                        </Tooltip>
+                        <Select
+                          value={activeBGM.track_id || undefined}
+                          placeholder="选择音乐"
+                          options={enabledBGMTracks.map((track) => ({ value: track.id, label: `${track.name}${track.mood ? ` · ${track.mood}` : ""}${track.bpm ? ` · ${track.bpm} BPM` : ""}` }))}
+                          onChange={(trackID) => updateActiveBGM({ track_id: trackID })}
+                        />
+                        <audio ref={bgmAudioRef} preload="none" src={selectedBGMTrack?.audio_url} onPause={() => setPlayingBGM(false)} onEnded={() => setPlayingBGM(false)} />
+                      </div>
+                    ) : activeBGM.mode === "random" ? <span className="workbench-bgm-available">{enabledBGMTracks.length} 首可用</span> : <span />}
+                    <span className="workbench-bgm-gain-label">音量</span>
+                    <Slider min={-30} max={0} step={1} value={activeBGM.gain_db} disabled={activeBGM.mode === "none"} onChange={(gainDB) => updateActiveBGM({ gain_db: gainDB })} />
+                    <InputNumber min={-30} max={0} step={1} precision={0} addonAfter="dB" value={activeBGM.gain_db} disabled={activeBGM.mode === "none"} onChange={(value) => updateActiveBGM({ gain_db: Number(value ?? -12) })} />
+                  </div>
+                </section>
 
                 <section className="workbench-intent" aria-label="镜头意图">
                   <div className="workbench-intent-heading">

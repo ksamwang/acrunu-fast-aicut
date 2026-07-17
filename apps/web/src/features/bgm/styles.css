@@ -1,0 +1,114 @@
+.bgm-page {
+  --bgm-border: #d9e1e5;
+  --bgm-muted: #667085;
+  --bgm-teal: #0f766e;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--bgm-border);
+  background: #fff;
+  color: #17212b;
+}
+
+.bgm-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 150px auto auto auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--bgm-border);
+}
+
+.bgm-search {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: 10px;
+  border: 1px solid #cbd5dc;
+  border-radius: 5px;
+  color: #7b8794;
+}
+
+.bgm-toolbar-count { color: var(--bgm-muted); font-size: 12px; white-space: nowrap; }
+.bgm-toolbar .ant-btn-primary { background: var(--bgm-teal); box-shadow: none; }
+
+.bgm-list-shell { display: grid; grid-template-rows: 38px minmax(0, 1fr); min-height: 0; overflow: hidden; }
+.bgm-list-header,
+.bgm-list-row {
+  display: grid;
+  grid-template-columns: 48px minmax(180px, 1.15fr) minmax(190px, 1.2fr) 70px 76px 100px 62px 84px;
+  gap: 10px;
+  align-items: center;
+}
+
+.bgm-list-header {
+  padding: 0 12px;
+  border-bottom: 1px solid #e5eaed;
+  background: #f7f9fa;
+  color: #697682;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.bgm-list-scroll { min-height: 0; overflow: auto; }
+.bgm-list-row { min-height: 58px; padding: 6px 12px; border-bottom: 1px solid #edf0f2; font-size: 12px; }
+.bgm-list-row:hover { background: #f7fbfa; }
+.bgm-list-row.is-archived { opacity: .52; }
+.bgm-list-row > span { min-width: 0; }
+.bgm-list-row > .ant-btn { color: var(--bgm-teal); }
+.bgm-track-main { display: grid; gap: 2px; }
+.bgm-track-main strong,
+.bgm-track-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bgm-track-main strong { color: #263541; font-size: 13px; }
+.bgm-track-main small,
+.bgm-file-meta small { color: #87929d; font-size: 10px; }
+.bgm-track-tags { display: flex; overflow: hidden; gap: 4px; }
+.bgm-track-tags .ant-tag { flex: none; margin: 0; border-radius: 3px; font-size: 10px; line-height: 18px; }
+.bgm-number { color: #475467; font-variant-numeric: tabular-nums; }
+.bgm-file-meta { display: grid; gap: 1px; color: #475467; }
+.bgm-row-actions { display: flex; gap: 2px; }
+.bgm-row-actions .ant-btn { width: 32px; height: 32px; }
+.bgm-loading { display: flex; min-height: 120px; align-items: center; justify-content: center; gap: 8px; color: var(--bgm-muted); }
+.bgm-list-scroll .ant-empty { margin: 80px 0; }
+
+.bgm-player {
+  display: none;
+  grid-template-columns: minmax(150px, 1fr) minmax(300px, 520px);
+  gap: 16px;
+  align-items: center;
+  min-height: 52px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--bgm-border);
+  background: #f7fbfa;
+}
+.bgm-player.is-visible { display: grid; }
+.bgm-player > span { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--bgm-teal); }
+.bgm-player strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bgm-player audio { width: 100%; height: 34px; }
+
+.bgm-upload-file { display: grid; gap: 6px; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid #edf0f2; }
+.bgm-upload-file > span { color: #7a8692; font-size: 11px; }
+.bgm-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.bgm-form-grid label { display: grid; min-width: 0; gap: 5px; color: #596672; font-size: 12px; }
+.bgm-form-grid .ant-input-number { width: 100%; }
+.bgm-form-wide { grid-column: 1 / -1; }
+
+@media (max-width: 1100px) {
+  .bgm-toolbar { grid-template-columns: minmax(200px, 1fr) 130px auto auto; }
+  .bgm-toolbar-count { display: none; }
+  .bgm-list-header,
+  .bgm-list-row { grid-template-columns: 44px minmax(170px, 1fr) minmax(150px, 1fr) 58px 70px 58px 78px; }
+  .bgm-list-header > :nth-child(6), .bgm-list-row > :nth-child(6) { display: none; }
+}
+
+@media (max-width: 760px) {
+  .bgm-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .bgm-toolbar > .ant-select, .bgm-toolbar > .ant-segmented { display: none; }
+  .bgm-list-shell { overflow-x: auto; }
+  .bgm-list-header, .bgm-list-row { width: 760px; }
+  .bgm-player { grid-template-columns: 1fr; gap: 4px; }
+}

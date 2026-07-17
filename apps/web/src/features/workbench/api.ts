@@ -2,7 +2,7 @@ import { apiRequest } from "../../shared/api/server-api";
 import type { FinishedWork, ScriptVariant } from "../../shared/types/generation";
 import type { VoiceAudition } from "../../shared/types/voice";
 
-type VoiceoverTaskVariant = Pick<ScriptVariant, "hook" | "script_text" | "editing_intent" | "beats">;
+type VoiceoverTaskVariant = Pick<ScriptVariant, "hook" | "script_text" | "editing_intent" | "beats" | "bgm">;
 
 type GenerateWorkbenchScriptsInput = {
   product_id: string;

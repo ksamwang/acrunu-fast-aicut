@@ -23,6 +23,7 @@ type Options struct {
 	ScriptGenerationService    *services.ScriptGenerationService
 	GenerationRunService       *services.GenerationRunService
 	SubtitleStylePresetService *services.SubtitleStylePresetService
+	BGMTrackService            *services.BGMTrackService
 }
 
 type Server struct {
@@ -38,6 +39,7 @@ type Server struct {
 	scriptGenerationService    *services.ScriptGenerationService
 	generationRunService       *services.GenerationRunService
 	subtitleStylePresetService *services.SubtitleStylePresetService
+	bgmTrackService            *services.BGMTrackService
 	uploadTokenService         *services.UploadTokenService
 	localStore                 *storage.LocalStore
 	taskService                *services.TaskService
@@ -87,6 +89,10 @@ func New(opts Options) *Server {
 	if subtitleStylePresetService == nil {
 		subtitleStylePresetService = services.NewSubtitleStylePresetService()
 	}
+	bgmTrackService := opts.BGMTrackService
+	if bgmTrackService == nil {
+		bgmTrackService = services.NewBGMTrackService(opts.Config.StorageRoot)
+	}
 
 	userService := opts.UserService
 	if userService == nil {
@@ -106,6 +112,7 @@ func New(opts Options) *Server {
 		scriptGenerationService:    scriptGenerationService,
 		generationRunService:       generationRunService,
 		subtitleStylePresetService: subtitleStylePresetService,
+		bgmTrackService:            bgmTrackService,
 		uploadTokenService:         services.NewUploadTokenService(),
 		localStore:                 storage.NewLocalStore(opts.Config.StorageRoot),
 		taskService:                taskService,
@@ -214,6 +221,10 @@ func (s *Server) routes() {
 	protected.POST("/workbench/scripts/generate", s.handleGenerateWorkbenchScripts)
 	protected.GET("/voice-profiles", s.handleListVoiceProfiles)
 	protected.GET("/subtitle-presets", s.handleListSubtitleStylePresets)
+	protected.GET("/bgm-tracks", s.handleListBGMTracks)
+	protected.POST("/bgm-tracks", s.handleCreateBGMTrack)
+	protected.PUT("/bgm-tracks/:trackID", s.handleUpdateBGMTrack)
+	protected.DELETE("/bgm-tracks/:trackID", s.handleArchiveBGMTrack)
 	protected.POST("/voice-profiles/:voiceProfileID/auditions", s.handleCreateVoiceAudition)
 	protected.GET("/voice-auditions/:auditionID", s.handleGetVoiceAudition)
 	protected.POST("/workbench/voiceover-tasks", s.handleCreateVoiceoverTasks)

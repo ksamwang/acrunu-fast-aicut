@@ -1058,6 +1058,11 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	work.OutputWidth = run.OutputWidth
 	work.OutputHeight = run.OutputHeight
 	work.OutputFileSizeBytes = run.OutputFileSizeBytes
+	if bgm := renderSnapshotBGM(run.ConfigSnapshot); bgm != nil {
+		work.BGM = &VoiceoverWorkBGM{TrackID: bgm.TrackID, Name: bgm.Name, GainDB: bgm.GainDB}
+	} else {
+		work.BGM = nil
+	}
 	if run.OutputDurationMs > 0 {
 		work.DurationMs = run.OutputDurationMs
 	}

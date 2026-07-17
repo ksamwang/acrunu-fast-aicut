@@ -126,6 +126,21 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     updated_at: "2026-07-16T00:00:00.000Z"
   }];
   let savedSubtitlePresetPayload: Record<string, any> | null = null;
+  let voiceoverTaskPayload: Record<string, any> | null = null;
+  let bgmTracks = [
+    {
+      id: "bgm-light-1", name: "轻快骑行", file_name: "light-ride.mp3", audio_url: "/storage/bgm/bgm-light-1/source.mp3",
+      mime_type: "audio/mpeg", file_size_bytes: 2_400_000, duration_ms: 95_000, sample_rate: 48_000, channels: 2,
+      bpm: 118, mood: "轻快", tags: ["骑行", "活力"], status: "enabled",
+      created_at: "2026-07-16T00:00:00.000Z", updated_at: "2026-07-16T00:00:00.000Z"
+    },
+    {
+      id: "bgm-warm-1", name: "温暖叙事", file_name: "warm-story.wav", audio_url: "/storage/bgm/bgm-warm-1/source.wav",
+      mime_type: "audio/wav", file_size_bytes: 5_800_000, duration_ms: 120_000, sample_rate: 48_000, channels: 2,
+      bpm: 92, mood: "温暖", tags: ["叙事"], status: "enabled",
+      created_at: "2026-07-16T00:00:00.000Z", updated_at: "2026-07-16T00:00:00.000Z"
+    }
+  ];
   let generatedWorkPolls = 0;
   let finishedWorks = [
     {
@@ -145,6 +160,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       created_at: "2026-07-15T08:40:00.000Z",
       completed_at: "2026-07-15T08:42:00.000Z",
       editing_intent: "从回家摸黑的场景切入，再展示自动亮灯的结果。",
+      bgm: { track_id: "bgm-warm-1", name: "温暖叙事", gain_db: -12 },
       narration_segments: [
         { id: "segment-1", start_ms: 0, end_ms: 4000, text: "回到家，灯光自动亮起。" },
         { id: "segment-2", start_ms: 4000, end_ms: 8500, text: "无需摸黑找开关，夜间使用更安心。" }
@@ -227,6 +243,42 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
             }
           ]
         })
+      });
+      return;
+    }
+
+    if (url.includes("/api/bgm-tracks")) {
+      const method = route.request().method();
+      const trackID = new URL(url).pathname.split("/").at(-1);
+      if (method === "POST") {
+        const created = {
+          id: "bgm-uploaded-1", name: "新音乐", file_name: "new-music.mp3", audio_url: "/storage/bgm/bgm-uploaded-1/source.mp3",
+          mime_type: "audio/mpeg", file_size_bytes: 1024, duration_ms: 60_000, sample_rate: 48_000, channels: 2,
+          bpm: 0, mood: "", tags: [], status: "enabled", created_at: new Date().toISOString(), updated_at: new Date().toISOString()
+        };
+        bgmTracks = [created, ...bgmTracks];
+        await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ data: created }) });
+        return;
+      }
+      if (method === "PUT") {
+        const body = route.request().postDataJSON() as Record<string, any>;
+        let updated = bgmTracks.find((track) => track.id === trackID)!;
+        updated = { ...updated, ...body, updated_at: new Date().toISOString() };
+        bgmTracks = bgmTracks.map((track) => track.id === trackID ? updated : track);
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: updated }) });
+        return;
+      }
+      if (method === "DELETE") {
+        let archived = bgmTracks.find((track) => track.id === trackID)!;
+        archived = { ...archived, status: "archived" };
+        bgmTracks = bgmTracks.map((track) => track.id === trackID ? archived : track);
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: archived }) });
+        return;
+      }
+      const includeInactive = url.includes("include_inactive=true");
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: includeInactive ? bgmTracks : bgmTracks.filter((track) => track.status === "enabled") })
       });
       return;
     }
@@ -362,8 +414,9 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         voice_profile_id: string;
         output_ratio: "9:16" | "3:4";
         subtitle_preset_id: string;
-        variants: Array<{ hook: string; script_text: string; editing_intent: string; beats: unknown[] }>;
+        variants: Array<{ hook: string; script_text: string; editing_intent: string; beats: unknown[]; bgm: { mode: string; track_id: string; gain_db: number } }>;
       };
+      voiceoverTaskPayload = body;
       const profile = voiceProfiles.find((item) => item.id === body.voice_profile_id) ?? voiceProfiles[0];
       const createdWorks = body.variants.map((variant, index) => ({
         id: `work-generated-${index + 1}`,
@@ -381,7 +434,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         stage_label: "等待生成",
         created_at: "2026-07-15T09:10:00.000Z",
         editing_intent: variant.editing_intent,
-        beats: variant.beats
+        beats: variant.beats,
+        bgm: variant.bgm.mode === "none" ? undefined : { track_id: variant.bgm.track_id || "bgm-light-1", name: variant.bgm.track_id === "bgm-warm-1" ? "温暖叙事" : "轻快骑行", gain_db: variant.bgm.gain_db }
       }));
       generatedWorkPolls = 0;
       finishedWorks = [...createdWorks, ...finishedWorks];
@@ -850,7 +904,14 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByTestId("workbench-page")).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "工作台" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "成品库" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "音乐库" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "任务" })).toHaveCount(0);
+
+  await page.getByRole("menuitem", { name: "音乐库" }).click();
+  await expect(page.getByTestId("bgm-library-page")).toBeVisible();
+  await expect(page.getByTestId("bgm-track-bgm-light-1")).toContainText("轻快骑行");
+  await expect(page.getByTestId("bgm-track-bgm-warm-1")).toContainText("温暖叙事");
+  await page.getByRole("menuitem", { name: "工作台" }).click();
 
   const voiceSelector = page.getByTestId("workbench-voice-selector");
   await expect(voiceSelector).toContainText("温和女声");
@@ -962,11 +1023,18 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByTestId("workbench-generate")).toBeEnabled();
   await page.getByTestId("workbench-generate").click();
   await expect(page.getByText("文案 01")).toBeVisible();
+  const bgmControls = page.locator(".workbench-bgm");
+  await expect(bgmControls.getByText("2 首可用")).toBeVisible();
+  await bgmControls.getByText("指定", { exact: true }).click();
+  await bgmControls.locator(".ant-select").click();
+  await page.getByText(/温暖叙事 · 温暖 · 92 BPM/).click();
+  await bgmControls.getByRole("spinbutton").fill("-10");
   await page.getByRole("button", { name: "试听当前文案" }).click();
   await expect(page.getByLabel("当前文案试听")).toBeVisible();
   await page.getByRole("button", { name: "确认文案" }).click();
   await expect(page.getByTestId("workbench-start-tasks")).toHaveText("开始 1 条任务");
   await page.getByTestId("workbench-start-tasks").click();
+  expect((voiceoverTaskPayload?.variants as Array<any>)[0].bgm).toEqual({ mode: "track", track_id: "bgm-warm-1", gain_db: -10 });
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
   await expect(page.getByTestId("finished-work-work-generated-1")).toHaveAttribute("data-status", "generating");
   await expect(page.getByText("待提交", { exact: true })).toHaveCount(0);
@@ -985,6 +1053,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   });
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
   await expect(page.locator(".finished-detail-header-meta").getByText("清晰男声", { exact: true })).toBeVisible();
+  await expect(page.locator(".finished-detail-header-meta").getByText("温暖叙事 · -10 dB", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByTestId("finished-work-detail")).toBeVisible();
   await expect(page.locator(".finished-detail-header-meta").getByText("清晰男声", { exact: true })).toBeVisible();

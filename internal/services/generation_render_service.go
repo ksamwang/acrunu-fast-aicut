@@ -19,7 +19,7 @@ const (
 	defaultRenderWidth  = 1080
 	defaultRenderHeight = 1920
 	defaultRenderFPS    = 30
-	ffmpegRenderVersion = "ffmpeg-v2"
+	ffmpegRenderVersion = "ffmpeg-v3-bgm"
 )
 
 type generationTimelineRenderer interface {
@@ -122,6 +122,17 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	if err := requireRegularFile(narrationPath, "narration audio"); err != nil {
 		return err
 	}
+	bgmConfig := renderSnapshotBGM(run.ConfigSnapshot)
+	bgmPath := ""
+	if bgmConfig != nil {
+		bgmPath, err = safeStoragePath(s.storageRoot, bgmConfig.StorageKey)
+		if err != nil {
+			return err
+		}
+		if err := requireRegularFile(bgmPath, "background music"); err != nil {
+			return err
+		}
+	}
 
 	clips := append([]EditPlanClip(nil), plan.Clips...)
 	sort.SliceStable(clips, func(i, j int) bool { return clips[i].StartMs < clips[j].StartMs })
@@ -159,6 +170,10 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	probe, err := s.renderer.RenderTimeline(ctx, ffmpeg.RenderInput{
 		Clips:         renderClips,
 		NarrationPath: narrationPath,
+		BGMPath:       bgmPath,
+		BGMGainDB:     resolvedBGMGain(bgmConfig),
+		BGMFadeInMs:   resolvedBGMFadeIn(bgmConfig),
+		BGMFadeOutMs:  resolvedBGMFadeOut(bgmConfig),
 		Subtitles:     subtitles,
 		SubtitleStyle: renderSnapshotSubtitleStyle(run.ConfigSnapshot),
 		OutputPath:    temporaryOutput,
@@ -226,6 +241,55 @@ func renderSnapshotSubtitleStyle(snapshot map[string]any) ffmpeg.SubtitleStyle {
 		MaxWidthRatio: style.MaxWidthRatio,
 		FontSizeRatio: style.FontSizeRatio, MaxCharsPerLine: style.MaxCharsPerLine,
 	}
+}
+
+func renderSnapshotBGM(snapshot map[string]any) *ResolvedBGMConfig {
+	if snapshot == nil {
+		return nil
+	}
+	raw, ok := snapshot["bgm"]
+	if !ok {
+		return nil
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	config := ResolvedBGMConfig{}
+	if err := json.Unmarshal(payload, &config); err != nil || strings.TrimSpace(config.StorageKey) == "" {
+		return nil
+	}
+	if config.GainDB < -30 || config.GainDB > 0 {
+		config.GainDB = -12
+	}
+	if config.FadeInMs < 0 {
+		config.FadeInMs = 0
+	}
+	if config.FadeOutMs < 0 {
+		config.FadeOutMs = 0
+	}
+	return &config
+}
+
+func resolvedBGMGain(config *ResolvedBGMConfig) float64 {
+	if config == nil {
+		return 0
+	}
+	return config.GainDB
+}
+
+func resolvedBGMFadeIn(config *ResolvedBGMConfig) int {
+	if config == nil {
+		return 0
+	}
+	return config.FadeInMs
+}
+
+func resolvedBGMFadeOut(config *ResolvedBGMConfig) int {
+	if config == nil {
+		return 0
+	}
+	return config.FadeOutMs
 }
 
 func (s *GenerationRenderService) buildRenderClips(run GenerationRun, durationMs int, clips []EditPlanClip) ([]ffmpeg.RenderClip, error) {

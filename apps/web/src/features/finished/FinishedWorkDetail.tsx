@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   Mic2,
   MonitorPlay,
+  Music2,
   Volume2
 } from "lucide-react";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
@@ -71,6 +72,10 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
         <div>
           <dt>音色</dt>
           <dd>{work.voice_profile_name || "-"}</dd>
+        </div>
+        <div>
+          <dt>背景音乐</dt>
+          <dd>{work.bgm ? `${work.bgm.name} · ${work.bgm.gain_db} dB` : "无"}</dd>
         </div>
         <div>
           <dt>时长</dt>
@@ -188,6 +193,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
           <div className="finished-detail-header-meta">
             <span><Clock3 size={13} />{formatDuration(work.duration_ms)}</span>
             {work.voice_profile_name ? <span><Mic2 size={13} />{work.voice_profile_name}</span> : null}
+            {work.bgm ? <span><Music2 size={13} />{work.bgm.name} · {work.bgm.gain_db} dB</span> : null}
             {work.output_width && work.output_height ? <span><MonitorPlay size={13} />{outputResolution(work)}</span> : null}
             <span>{formatDateTime(work.completed_at ?? work.created_at)}</span>
           </div>

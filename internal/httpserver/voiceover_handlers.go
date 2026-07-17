@@ -210,12 +210,28 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 			return
 		}
 	}
+	resolvedBGM := make([]*services.ResolvedBGMConfig, len(request.Variants))
+	usedBGMTracks := map[string]struct{}{}
+	for index, variant := range request.Variants {
+		config, resolveErr := s.bgmTrackService.Resolve(c.Request.Context(), variant.BGM, usedBGMTracks)
+		if resolveErr != nil {
+			handleBGMTrackError(c, resolveErr)
+			return
+		}
+		resolvedBGM[index] = config
+		if config != nil {
+			usedBGMTracks[config.TrackID] = struct{}{}
+		}
+	}
 
 	works := make([]services.VoiceoverWork, 0, len(request.Variants))
 	for index, variant := range request.Variants {
 		configSnapshot := renderConfig.Snapshot()
 		configSnapshot["voice_profile_id"] = request.VoiceProfileID
 		configSnapshot["variant_index"] = index + 1
+		if resolvedBGM[index] != nil {
+			configSnapshot["bgm"] = resolvedBGM[index]
+		}
 		run, err := s.generationRunService.Create(c.Request.Context(), services.CreateGenerationRunInput{
 			ProductID:       product.ID,
 			CreatedByUserID: user.ID,

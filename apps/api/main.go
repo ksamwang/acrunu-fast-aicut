@@ -31,6 +31,8 @@ func main() {
 	defer generationRunService.Close()
 	subtitleStylePresetService := services.NewConfiguredSubtitleStylePresetService(context.Background(), cfg, logger)
 	defer subtitleStylePresetService.Close()
+	bgmTrackService := services.NewConfiguredBGMTrackService(context.Background(), cfg, logger)
+	defer bgmTrackService.Close()
 	scriptGenerationService := services.NewScriptGenerationService(
 		productAssetService.Service,
 		systemConfigService.Service,
@@ -51,6 +53,7 @@ func main() {
 		ScriptGenerationService:    scriptGenerationService,
 		GenerationRunService:       generationRunService.Service,
 		SubtitleStylePresetService: subtitleStylePresetService.Service,
+		BGMTrackService:            bgmTrackService.Service,
 	})
 
 	if err := server.Run(); err != nil {

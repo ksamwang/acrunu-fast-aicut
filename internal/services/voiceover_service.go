@@ -102,10 +102,11 @@ type VoiceoverBeat struct {
 }
 
 type VoiceoverVariantInput struct {
-	Hook          string          `json:"hook"`
-	ScriptText    string          `json:"script_text"`
-	EditingIntent string          `json:"editing_intent"`
-	Beats         []VoiceoverBeat `json:"beats"`
+	Hook          string            `json:"hook"`
+	ScriptText    string            `json:"script_text"`
+	EditingIntent string            `json:"editing_intent"`
+	Beats         []VoiceoverBeat   `json:"beats"`
+	BGM           BGMSelectionInput `json:"bgm"`
 }
 
 type CreateVoiceoverWorkInput struct {
@@ -170,6 +171,13 @@ type VoiceoverWork struct {
 	OutputWidth         int                     `json:"output_width,omitempty"`
 	OutputHeight        int                     `json:"output_height,omitempty"`
 	OutputFileSizeBytes int64                   `json:"output_file_size_bytes,omitempty"`
+	BGM                 *VoiceoverWorkBGM       `json:"bgm,omitempty"`
+}
+
+type VoiceoverWorkBGM struct {
+	TrackID string  `json:"track_id"`
+	Name    string  `json:"name"`
+	GainDB  float64 `json:"gain_db"`
 }
 
 type VoiceAudition struct {

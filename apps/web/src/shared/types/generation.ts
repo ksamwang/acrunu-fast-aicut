@@ -1,3 +1,5 @@
+import type { BGMSelection, ResolvedBGM } from "./bgm";
+
 export type EditingIntentBeat = {
   id: string;
   label: string;
@@ -52,6 +54,7 @@ export type ScriptVariant = {
   beats: EditingIntentBeat[];
   status: ScriptVariantStatus;
   intent_stale?: boolean;
+  bgm: BGMSelection;
   updated_at: string;
 };
 
@@ -120,4 +123,5 @@ export type FinishedWork = {
   output_file_size_bytes?: number;
   error_message?: string;
   is_demo?: boolean;
+  bgm?: ResolvedBGM;
 };

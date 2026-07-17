@@ -50,6 +50,10 @@ type SubtitleStyle struct {
 type RenderInput struct {
 	Clips         []RenderClip
 	NarrationPath string
+	BGMPath       string
+	BGMGainDB     float64
+	BGMFadeInMs   int
+	BGMFadeOutMs  int
 	Subtitles     []SubtitleCue
 	SubtitleStyle SubtitleStyle
 	OutputPath    string
@@ -116,6 +120,9 @@ func renderTimelineArgs(input RenderInput) ([]string, error) {
 		)
 	}
 	args = append(args, "-i", input.NarrationPath)
+	if input.BGMPath != "" {
+		args = append(args, "-stream_loop", "-1", "-i", input.BGMPath)
+	}
 
 	filters := make([]string, 0, len(input.Clips)*2+5)
 	videoInputs := strings.Builder{}
@@ -171,6 +178,26 @@ func renderTimelineArgs(input RenderInput) ([]string, error) {
 		)
 		audioOutput = "[audio]"
 	}
+	if input.BGMPath != "" {
+		bgmIndex := narrationIndex + 1
+		bgmFilter := fmt.Sprintf(
+			"[%d:a:0]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=duration=%s,asetpts=PTS-STARTPTS,volume=%.3fdB",
+			bgmIndex, totalDuration, input.BGMGainDB,
+		)
+		if input.BGMFadeInMs > 0 {
+			bgmFilter += fmt.Sprintf(",afade=t=in:st=0:d=%s", millisecondsAsSeconds(input.BGMFadeInMs))
+		}
+		if input.BGMFadeOutMs > 0 && input.DurationMs > input.BGMFadeOutMs {
+			bgmFilter += fmt.Sprintf(",afade=t=out:st=%s:d=%s",
+				millisecondsAsSeconds(input.DurationMs-input.BGMFadeOutMs), millisecondsAsSeconds(input.BGMFadeOutMs))
+		}
+		filters = append(filters, bgmFilter+"[bgm]")
+		filters = append(filters, fmt.Sprintf(
+			"%s[bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[audio_with_bgm]",
+			audioOutput,
+		))
+		audioOutput = "[audio_with_bgm]"
+	}
 
 	args = append(args,
 		"-filter_complex", strings.Join(filters, ";"),
@@ -199,6 +226,9 @@ func validateRenderInput(input RenderInput) error {
 	}
 	if input.DurationMs <= 0 || input.Width <= 0 || input.Height <= 0 || input.FPS <= 0 {
 		return fmt.Errorf("render duration, dimensions, and fps must be positive")
+	}
+	if input.BGMPath != "" && (input.BGMGainDB < -30 || input.BGMGainDB > 0 || input.BGMFadeInMs < 0 || input.BGMFadeOutMs < 0) {
+		return fmt.Errorf("render background music settings are invalid")
 	}
 	for index, clip := range input.Clips {
 		if strings.TrimSpace(clip.InputPath) == "" || clip.SourceInMs < 0 || clip.SourceOutMs <= clip.SourceInMs {

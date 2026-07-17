@@ -1,4 +1,4 @@
-import type { WorkbenchDraft } from "../../shared/types/generation";
+import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 
 const draftStorageKey = "aicut.workbench.draft.v1";
 const legacyDraftStorageKey = "aicut.workbench.prototype.draft.v1";
@@ -36,10 +36,24 @@ export function loadWorkbenchDraft(): WorkbenchDraft {
   const hasCurrentDraft = window.localStorage.getItem(draftStorageKey) !== null;
   const sourceKey = hasCurrentDraft ? draftStorageKey : legacyDraftStorageKey;
   const draft = { ...emptyDraft, ...readJSON<Partial<WorkbenchDraft>>(sourceKey, emptyDraft) };
+  draft.variants = (draft.variants ?? []).map(normalizeVariant);
   if (!hasCurrentDraft && window.localStorage.getItem(legacyDraftStorageKey) !== null) {
     writeJSON(draftStorageKey, draft);
   }
   return draft;
+}
+
+function normalizeVariant(variant: ScriptVariant): ScriptVariant {
+  const gain = Number(variant.bgm?.gain_db);
+  const mode = variant.bgm?.mode;
+  return {
+    ...variant,
+    bgm: {
+      mode: mode === "track" || mode === "none" ? mode : "random",
+      track_id: variant.bgm?.track_id ?? "",
+      gain_db: Number.isFinite(gain) && gain >= -30 && gain <= 0 ? gain : -12
+    }
+  };
 }
 
 export function saveWorkbenchDraft(draft: WorkbenchDraft) {

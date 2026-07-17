@@ -324,6 +324,43 @@
   box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.1);
 }
 
+.workbench-bgm {
+  display: grid;
+  gap: 10px;
+  max-width: 980px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid #dce7e5;
+  border-radius: 5px;
+  background: #f7fbfa;
+}
+
+.workbench-bgm-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workbench-bgm-heading > span { display: inline-flex; align-items: center; gap: 7px; }
+.workbench-bgm-heading svg { color: var(--workbench-teal); }
+.workbench-bgm-heading .ant-btn { color: #526b68; font-size: 12px; }
+.workbench-bgm-controls {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) auto minmax(120px, .65fr) 108px;
+  gap: 10px;
+  align-items: center;
+}
+.workbench-bgm-track { display: grid; grid-template-columns: 34px minmax(0, 1fr); min-width: 0; }
+.workbench-bgm-track .ant-select { min-width: 0; }
+.workbench-bgm-track audio { display: none; }
+.workbench-bgm-available { color: #708078; font-size: 11px; }
+.workbench-bgm-gain-label { color: #667085; font-size: 11px; white-space: nowrap; }
+.workbench-bgm-controls .ant-input-number { width: 108px; }
+
 .workbench-intent {
   display: grid;
   gap: 12px;
@@ -482,6 +519,9 @@
     padding: 18px;
   }
 
+  .workbench-bgm-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto 100px; }
+  .workbench-bgm-gain-label { display: none; }
+
 }
 
 @media (max-width: 560px) {
@@ -499,6 +539,9 @@
     padding: 14px;
     font-size: 16px;
   }
+
+  .workbench-bgm-controls { grid-template-columns: 1fr; }
+  .workbench-bgm-controls .ant-input-number { width: 100%; }
 
   .workbench-beat-list li {
     grid-template-columns: 48px minmax(0, 1fr);

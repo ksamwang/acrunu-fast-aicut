@@ -43,6 +43,33 @@ func TestRenderTimelineArgsBuildsContinuousVideoAndNarration(t *testing.T) {
 	}
 }
 
+func TestRenderTimelineArgsLoopsAndMixesBackgroundMusic(t *testing.T) {
+	t.Parallel()
+	args, err := renderTimelineArgs(RenderInput{
+		Clips:         []RenderClip{{InputPath: "clip.mp4", SourceInMs: 0, SourceOutMs: 2500}},
+		NarrationPath: "voice.wav", BGMPath: "music.mp3", BGMGainDB: -12,
+		BGMFadeInMs: 300, BGMFadeOutMs: 500, OutputPath: "output.mp4", WorkDir: "work",
+		DurationMs: 2500, Width: 1080, Height: 1920, FPS: 30,
+	})
+	if err != nil {
+		t.Fatalf("renderTimelineArgs() error = %v", err)
+	}
+	joined := strings.Join(args, " ")
+	for _, expected := range []string{
+		"-stream_loop -1 -i music.mp3",
+		"[2:a:0]aresample=48000",
+		"volume=-12.000dB",
+		"afade=t=in:st=0:d=0.300",
+		"afade=t=out:st=2.000:d=0.500",
+		"[narration][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[audio_with_bgm]",
+		"-map [audio_with_bgm]",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("render args missing %q:\n%s", expected, joined)
+		}
+	}
+}
+
 func TestBuildASSUsesCleanTextAndTransparentBackground(t *testing.T) {
 	t.Parallel()
 	content := buildASS([]SubtitleCue{{StartMs: 0, EndMs: 1230, Text: "骑行更安全"}}, 1080, 1920, SubtitleStyle{})
@@ -95,6 +122,7 @@ func TestRenderTimelineIntegration(t *testing.T) {
 	first := filepath.Join(root, "first.mp4")
 	second := filepath.Join(root, "second.mp4")
 	narration := filepath.Join(root, "voice.wav")
+	bgm := filepath.Join(root, "bgm.wav")
 	for _, fixture := range []struct {
 		path string
 		args []string
@@ -102,6 +130,7 @@ func TestRenderTimelineIntegration(t *testing.T) {
 		{first, []string{"-y", "-f", "lavfi", "-i", "color=c=red:s=320x568:r=30:d=0.7", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p"}},
 		{second, []string{"-y", "-f", "lavfi", "-i", "color=c=blue:s=320x568:r=30:d=0.7", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p"}},
 		{narration, []string{"-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1.2", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le"}},
+		{bgm, []string{"-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=0.4", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le"}},
 	} {
 		args := append(fixture.args, fixture.path)
 		if output, err := exec.Command(ffmpegBinary, args...).CombinedOutput(); err != nil {
@@ -115,6 +144,10 @@ func TestRenderTimelineIntegration(t *testing.T) {
 			{InputPath: second, SourceInMs: 0, SourceOutMs: 600},
 		},
 		NarrationPath: narration,
+		BGMPath:       bgm,
+		BGMGainDB:     -12,
+		BGMFadeInMs:   100,
+		BGMFadeOutMs:  100,
 		Subtitles:     []SubtitleCue{{StartMs: 0, EndMs: 600, Text: "骑行更安全"}},
 		OutputPath:    outputPath,
 		WorkDir:       filepath.Join(root, "work"),

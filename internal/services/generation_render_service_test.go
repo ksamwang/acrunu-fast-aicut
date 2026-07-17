@@ -47,3 +47,17 @@ func TestRenderSnapshotSubtitleStyleDecodesResolvedConfig(t *testing.T) {
 		t.Fatalf("unexpected decoded subtitle style %#v", style)
 	}
 }
+
+func TestRenderSnapshotBGMDecodesResolvedConfig(t *testing.T) {
+	t.Parallel()
+	config := renderSnapshotBGM(map[string]any{"bgm": map[string]any{
+		"track_id": "track-1", "name": "轻快骑行", "storage_key": "bgm/track-1/source.mp3",
+		"gain_db": -12.0, "fade_in_ms": 300.0, "fade_out_ms": 500.0,
+	}})
+	if config == nil || config.TrackID != "track-1" || config.GainDB != -12 || config.FadeOutMs != 500 {
+		t.Fatalf("unexpected BGM config %#v", config)
+	}
+	if config := renderSnapshotBGM(map[string]any{"bgm": map[string]any{"name": "invalid"}}); config != nil {
+		t.Fatalf("invalid BGM config = %#v, want nil", config)
+	}
+}

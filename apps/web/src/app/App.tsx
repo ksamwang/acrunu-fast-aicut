@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "./AppShell";
 import { hashTargetsView, normalizeViewForRole, readHashView, writeHashView, type ViewKey } from "./routes";
 import { AssetsPage } from "../features/assets/AssetsPage";
+import { BGMLibraryPage } from "../features/bgm/BGMLibraryPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { FinishedLibraryPage } from "../features/finished/FinishedLibraryPage";
 import { PreprocessPage } from "../features/preprocess/PreprocessPage";
@@ -68,6 +69,7 @@ function ConsoleApp({ session, onLogout, onUserRefresh }: { session: Session; on
       {view === "products" && <ProductManagementPage token={session.token} />}
       {view === "preprocess" && <PreprocessPage token={session.token} />}
       {view === "assets" && <AssetsPage token={session.token} />}
+      {view === "bgm" && <BGMLibraryPage token={session.token} />}
       {view === "settings" && session.user.role === "admin" && <SettingsPage token={session.token} />}
       {view === "users" && session.user.role === "admin" && <UsersPage token={session.token} currentUser={session.user} />}
     </AppShell>

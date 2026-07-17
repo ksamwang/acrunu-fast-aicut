@@ -1,5 +1,5 @@
 import { Button, Layout, Menu, Space, Tag, Typography } from "antd";
-import { Clapperboard, Library, Package, Scissors, Settings, UsersRound, WandSparkles } from "lucide-react";
+import { Clapperboard, Library, Music2, Package, Scissors, Settings, UsersRound, WandSparkles } from "lucide-react";
 import type { ReactNode } from "react";
 import type { User } from "../shared/types/auth";
 import type { ViewKey } from "./routes";
@@ -20,6 +20,7 @@ export function AppShell({ user, view, roleLabel, onNavigate, onLogout, children
     { key: "products", icon: <Package size={17} />, label: "产品" },
     { key: "preprocess", icon: <Scissors size={17} />, label: "预处理" },
     { key: "assets", icon: <Library size={17} />, label: "素材" },
+    { key: "bgm", icon: <Music2 size={17} />, label: "音乐库" },
     ...(user.role === "admin"
       ? [
           { key: "settings", icon: <Settings size={17} />, label: "设置" },
