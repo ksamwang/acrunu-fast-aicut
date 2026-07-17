@@ -125,6 +125,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     created_at: "2026-07-16T00:00:00.000Z",
     updated_at: "2026-07-16T00:00:00.000Z"
   }];
+  let savedSubtitlePresetPayload: Record<string, any> | null = null;
   let generatedWorkPolls = 0;
   let finishedWorks = [
     {
@@ -223,6 +224,20 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
     }
 
     if (url.includes("/api/admin/subtitle-presets")) {
+      if (route.request().method() === "PUT") {
+        savedSubtitlePresetPayload = route.request().postDataJSON() as Record<string, any>;
+        subtitlePresets[0] = {
+          ...subtitlePresets[0],
+          ...savedSubtitlePresetPayload,
+          version: subtitlePresets[0].version + 1,
+          updated_at: "2026-07-16T00:01:00.000Z"
+        };
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({ data: subtitlePresets[0] })
+        });
+        return;
+      }
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ data: subtitlePresets })
@@ -846,6 +861,12 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(previewCaption).not.toHaveCSS("text-shadow", "none");
   await outlineSwitch.click();
   await expect(previewCaption).toHaveCSS("text-shadow", "none");
+  await subtitleStyleSettings.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("字幕样式已保存")).toBeVisible();
+  expect(savedSubtitlePresetPayload?.layouts["9:16"].text_align).toBe("center");
+  expect(savedSubtitlePresetPayload?.layouts["3:4"].text_align).toBe("center");
+  expect(savedSubtitlePresetPayload?.background_opacity).toBe(0);
+  expect(savedSubtitlePresetPayload?.outline_width).toBe(0);
   await page.getByRole("menuitem", { name: "用户管理" }).click();
   const usersPage = page.getByTestId("users-page");
   await expect(usersPage).toBeVisible();

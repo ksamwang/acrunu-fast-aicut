@@ -227,7 +227,8 @@ export function SubtitleStylesSettingsPanel({ token }: { token: string }) {
   };
 
   const save = async () => {
-    const values = await form.validateFields();
+    await form.validateFields();
+    const values = form.getFieldsValue(true);
     setSaving(true);
     try {
       const stored = await saveSubtitleStylePreset(editingID || undefined, formToPresetInput(values), token);
