@@ -167,15 +167,15 @@ test("imports a large preprocess batch without blocking or mounting videos", asy
   await expect(importModal.locator("video")).toHaveCount(0);
 
   await importModal.getByRole("button", { name: /开始导入/ }).click();
-  await expect.poll(() => maxActiveImports).toBe(8);
+  await expect.poll(() => maxActiveImports).toBe(16);
   await expect(importModal.locator(".preprocess-import-actions button").first()).toBeEnabled();
-  await importModal.locator(".preprocess-import-preview-card").nth(10).getByRole("button", { name: "移除" }).click();
+  await importModal.locator(".preprocess-import-preview-card").nth(30).getByRole("button", { name: "移除" }).click();
   await importModal.locator(".preprocess-import-actions button").nth(1).click();
   await expect(importModal).not.toBeVisible();
   await expect(page.getByRole("button", { name: "刷新" })).toBeEnabled();
 
   await expect.poll(() => importedItems.length, { timeout: 15_000 }).toBe(54);
-  expect(maxActiveImports).toBeLessThanOrEqual(8);
+  expect(maxActiveImports).toBeLessThanOrEqual(16);
   await expect(page.locator(".preprocess-asset-card")).toHaveCount(4);
   await expect(page.locator(".preprocess-asset-grid video")).toHaveCount(0);
 

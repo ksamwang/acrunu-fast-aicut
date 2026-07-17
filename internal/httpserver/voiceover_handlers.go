@@ -362,6 +362,71 @@ func (s *Server) handleRetryVoiceoverWork(c *gin.Context) {
 	OK(c, work)
 }
 
+func (s *Server) handleRegenerateVoiceoverWork(c *gin.Context) {
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+	ctx := c.Request.Context()
+	run, err := s.generationRunService.Get(ctx, c.Param("taskID"))
+	if err != nil {
+		handleVoiceoverError(c, err)
+		return
+	}
+	if run.Status == "generating" {
+		Fail(c, http.StatusConflict, "generation_active", "成品正在生成，不能重复生成")
+		return
+	}
+	if run.VoiceoverTaskID == "" {
+		Fail(c, http.StatusConflict, "generation_not_retryable", "原始配音任务不完整，无法重新生成")
+		return
+	}
+	product, err := s.productAssetService.GetProduct(run.ProductID)
+	if err != nil || product.Status == "archived" {
+		Fail(c, http.StatusConflict, "product_not_available", "产品不存在或已归档，无法重新生成")
+		return
+	}
+	original, err := s.voiceoverService.GetVoiceoverWork(ctx, run.VoiceoverTaskID)
+	if err != nil {
+		Fail(c, http.StatusConflict, "generation_not_retryable", "原始配音任务不完整，无法重新生成")
+		return
+	}
+	work, err := s.retryVoiceover(ctx, user.ID, run, product, original)
+	if err != nil {
+		if current, currentErr := s.generationRunService.Get(ctx, run.ID); currentErr == nil && current.Status != "completed" {
+			s.removeGenerationOutput(run.OutputStorageKey)
+		}
+		s.handleVoiceoverTaskCreateError(c, "regenerate_voiceover", err)
+		return
+	}
+	s.removeGenerationOutput(run.OutputStorageKey)
+	OK(c, work)
+}
+
+func (s *Server) handleDeleteVoiceoverWork(c *gin.Context) {
+	run, err := s.generationRunService.Delete(c.Request.Context(), c.Param("taskID"))
+	if err != nil {
+		if errors.Is(err, services.ErrGenerationRunActive) {
+			Fail(c, http.StatusConflict, "generation_active", "成品正在生成，不能删除")
+			return
+		}
+		handleVoiceoverError(c, err)
+		return
+	}
+	s.removeGenerationOutput(run.OutputStorageKey)
+	OK(c, gin.H{"deleted": true})
+}
+
+func (s *Server) removeGenerationOutput(storageKey string) {
+	if storageKey == "" {
+		return
+	}
+	if err := s.localStore.Delete(storageKey); err != nil {
+		s.logger.Warn("remove generation output failed", "storage_key", storageKey, "error", err)
+	}
+}
+
 func (s *Server) retryRender(ctx context.Context, run services.GenerationRun) (services.VoiceoverWork, error) {
 	if _, err := s.generationRunService.PrepareRetry(ctx, run.ID, services.GenerationRunRetryRender); err != nil {
 		return services.VoiceoverWork{}, err

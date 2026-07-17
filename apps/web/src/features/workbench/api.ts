@@ -57,8 +57,14 @@ export function getVoiceoverWork(taskID: string, token: string) {
   return apiRequest<FinishedWork>(`/api/workbench/works/${encodeURIComponent(taskID)}`, {}, token);
 }
 
-export function retryVoiceoverWork(workID: string, token: string) {
-  return apiRequest<FinishedWork>(`/api/workbench/works/${encodeURIComponent(workID)}/retry`, {
+export function regenerateVoiceoverWork(workID: string, token: string) {
+  return apiRequest<FinishedWork>(`/api/workbench/works/${encodeURIComponent(workID)}/regenerate`, {
     method: "POST"
+  }, token);
+}
+
+export function deleteVoiceoverWork(workID: string, token: string) {
+  return apiRequest<{ deleted: boolean }>(`/api/workbench/works/${encodeURIComponent(workID)}`, {
+    method: "DELETE"
   }, token);
 }

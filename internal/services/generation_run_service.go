@@ -39,6 +39,7 @@ const (
 var (
 	ErrGenerationRunNotFound     = errors.New("generation run not found")
 	ErrGenerationRunNotRetryable = errors.New("generation run is not retryable")
+	ErrGenerationRunActive       = errors.New("generation run is active")
 	ErrEditPlanNotFound          = errors.New("edit plan not found")
 )
 
@@ -228,6 +229,55 @@ func (s *GenerationRunService) Get(ctx context.Context, runID string) (Generatio
 		return GenerationRun{}, ErrGenerationRunNotFound
 	}
 	return run, err
+}
+
+func (s *GenerationRunService) Delete(ctx context.Context, runID string) (GenerationRun, error) {
+	runID = normalizeID(runID)
+	if runID == "" {
+		return GenerationRun{}, ErrGenerationRunNotFound
+	}
+	if s.pool == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		run, ok := s.memoryRuns[runID]
+		if !ok {
+			return GenerationRun{}, ErrGenerationRunNotFound
+		}
+		if run.Status == generationRunStatusGenerating {
+			return GenerationRun{}, ErrGenerationRunActive
+		}
+		delete(s.memoryRuns, runID)
+		delete(s.memoryPlans, runID)
+		for taskID, link := range s.memoryTasks {
+			if link.GenerationRunID == runID {
+				delete(s.memoryTasks, taskID)
+			}
+		}
+		return cloneGenerationRun(run), nil
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return GenerationRun{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	run, err := scanGenerationRun(tx.QueryRow(ctx, generationRunColumns+` FROM generation_runs WHERE id = $1::uuid FOR UPDATE`, runID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return GenerationRun{}, ErrGenerationRunNotFound
+	}
+	if err != nil {
+		return GenerationRun{}, err
+	}
+	if run.Status == generationRunStatusGenerating {
+		return GenerationRun{}, ErrGenerationRunActive
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM generation_runs WHERE id = $1::uuid`, runID); err != nil {
+		return GenerationRun{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return GenerationRun{}, err
+	}
+	return run, nil
 }
 
 func (s *GenerationRunService) List(ctx context.Context) ([]GenerationRun, error) {
@@ -605,7 +655,7 @@ func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, m
 			s.mu.Unlock()
 			return GenerationRun{}, ErrGenerationRunNotFound
 		}
-		if run.Status != generationRunStatusFailed {
+		if !generationRunCanRetry(run.Status, mode) {
 			s.mu.Unlock()
 			return GenerationRun{}, ErrGenerationRunNotRetryable
 		}
@@ -653,7 +703,7 @@ func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, m
 	if err != nil {
 		return GenerationRun{}, err
 	}
-	if run.Status != generationRunStatusFailed {
+	if !generationRunCanRetry(run.Status, mode) {
 		return GenerationRun{}, ErrGenerationRunNotRetryable
 	}
 	if mode == GenerationRunRetryVoiceover {
@@ -690,6 +740,10 @@ func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, m
 		return GenerationRun{}, err
 	}
 	return s.Get(ctx, runID)
+}
+
+func generationRunCanRetry(status string, mode GenerationRunRetryMode) bool {
+	return status == generationRunStatusFailed || (status == generationRunStatusCompleted && mode == GenerationRunRetryVoiceover)
 }
 
 func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) (EditPlan, error) {

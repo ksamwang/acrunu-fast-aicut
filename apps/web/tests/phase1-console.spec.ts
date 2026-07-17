@@ -155,6 +155,22 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       ],
       audio_url: "/storage/voiceovers/work-completed-1.wav",
       video_url: "/storage/renders/generations/work-completed-1/final.mp4"
+    },
+    {
+      id: "work-delete-1",
+      run_id: "work-delete-1",
+      product_id: "product-1",
+      product_name: "Smart Light",
+      title: "用于删除测试的成片",
+      hook: "删除测试",
+      script_text: "这是一条可以删除的成片。",
+      duration_ms: 5000,
+      status: "completed",
+      progress: 100,
+      stage_label: "已完成",
+      created_at: "2026-07-15T08:30:00.000Z",
+      completed_at: "2026-07-15T08:31:00.000Z",
+      video_url: "/storage/renders/generations/work-delete-1/final.mp4"
     }
   ];
 
@@ -373,6 +389,35 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         status: 201,
         contentType: "application/json",
         body: JSON.stringify({ data: createdWorks })
+      });
+      return;
+    }
+
+    if (url.includes("/api/workbench/works/") && url.endsWith("/regenerate")) {
+      const workID = url.split("/").at(-2);
+      const regenerated = finishedWorks.find((work) => work.id === workID);
+      if (regenerated) {
+        Object.assign(regenerated, {
+          status: "generating",
+          progress: 8,
+          stage_label: "生成旁白",
+          completed_at: undefined,
+          video_url: undefined
+        });
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: regenerated })
+      });
+      return;
+    }
+
+    if (url.includes("/api/workbench/works/") && route.request().method() === "DELETE") {
+      const workID = url.split("/").at(-1);
+      finishedWorks = finishedWorks.filter((work) => work.id !== workID);
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: { deleted: true } })
       });
       return;
     }
@@ -892,6 +937,23 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByText("自动唤醒", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "返回成品库" }).click();
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
+
+  await completedWork.click({ button: "right" });
+  await expect(page.getByTestId("finished-library-page")).toBeVisible();
+  await page.getByRole("menuitem", { name: "重新生成" }).click();
+  const regenerateConfirm = page.locator(".ant-modal-confirm").filter({ hasText: "重新生成成片？" });
+  await expect(regenerateConfirm).toBeVisible();
+  await regenerateConfirm.getByRole("button", { name: "重新生成" }).click();
+  await expect(completedWork).toHaveAttribute("data-status", "generating");
+
+  const deleteWork = page.getByTestId("finished-work-work-delete-1");
+  await deleteWork.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "删除成片" }).click();
+  const deleteConfirm = page.locator(".ant-modal-confirm").filter({ hasText: "删除成片？" });
+  await expect(deleteConfirm).toBeVisible();
+  await deleteConfirm.locator(".ant-btn-dangerous").click();
+  await expect(deleteWork).toHaveCount(0);
+
   await page.getByRole("menuitem", { name: "工作台" }).click();
 
   await page.getByTestId("workbench-product-select").click();
@@ -906,7 +968,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByTestId("workbench-start-tasks")).toHaveText("开始 1 条任务");
   await page.getByTestId("workbench-start-tasks").click();
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
-  await expect(page.locator('[data-status="generating"]')).toBeVisible();
+  await expect(page.getByTestId("finished-work-work-generated-1")).toHaveAttribute("data-status", "generating");
   await expect(page.getByText("待提交", { exact: true })).toHaveCount(0);
   await expect(page.getByText("已提交", { exact: true })).toHaveCount(0);
 

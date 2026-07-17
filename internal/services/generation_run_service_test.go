@@ -226,3 +226,45 @@ func TestGenerationRunRenderRetryKeepsReadyPlan(t *testing.T) {
 		t.Fatalf("ready plan must survive render retry: %v", err)
 	}
 }
+
+func TestGenerationRunRegeneratesCompletedRunAndDeletesInactiveRun(t *testing.T) {
+	t.Parallel()
+	service := NewGenerationRunService(nil)
+	run, err := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if err := service.LinkTask(context.Background(), run.ID, "voiceover-task-1", generationRunTaskStageVoiceover); err != nil {
+		t.Fatalf("link voiceover task: %v", err)
+	}
+	if err := service.MarkRenderCompleted(context.Background(), run.ID, GenerationRenderOutput{
+		StorageKey: "renders/generations/run/final.mp4", MimeType: "video/mp4", DurationMs: 1000,
+		Width: 1080, Height: 1920, FileSizeBytes: 1024, Renderer: "ffmpeg", RenderVersion: "v1",
+	}); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+
+	regenerated, err := service.PrepareRetry(context.Background(), run.ID, GenerationRunRetryVoiceover)
+	if err != nil {
+		t.Fatalf("regenerate completed run: %v", err)
+	}
+	if regenerated.Status != generationRunStatusGenerating || regenerated.Stage != generationRunStageVoicing || regenerated.OutputStorageKey != "" {
+		t.Fatalf("unexpected regenerated run %#v", regenerated)
+	}
+	if _, err := service.Delete(context.Background(), run.ID); !errors.Is(err, ErrGenerationRunActive) {
+		t.Fatalf("expected active delete error, got %v", err)
+	}
+	if err := service.MarkFailed(context.Background(), run.ID, errors.New("stopped")); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+	deleted, err := service.Delete(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("delete failed run: %v", err)
+	}
+	if deleted.ID != run.ID {
+		t.Fatalf("unexpected deleted run %#v", deleted)
+	}
+	if _, err := service.Get(context.Background(), run.ID); !errors.Is(err, ErrGenerationRunNotFound) {
+		t.Fatalf("expected deleted run to be missing, got %v", err)
+	}
+}

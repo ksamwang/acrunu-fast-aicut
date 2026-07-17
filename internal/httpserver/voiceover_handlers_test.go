@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -220,6 +222,83 @@ func TestRetryFailedVoiceoverWorkReusesCompletedNarration(t *testing.T) {
 	}
 	if _, exists, err := generationRuns.FindTaskByStage(context.Background(), run.ID, "edit_plan"); err != nil || !exists {
 		t.Fatalf("expected retried edit plan task link: exists=%t err=%v", exists, err)
+	}
+
+	beforeRegenerate, err := generationRuns.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("get run before regeneration: %v", err)
+	}
+	if err := generationRuns.MarkFailed(context.Background(), run.ID, errors.New("regenerate from start")); err != nil {
+		t.Fatalf("mark retry failed: %v", err)
+	}
+	regenerateRequest := httptest.NewRequest(http.MethodPost, "/api/workbench/works/"+run.ID+"/regenerate", nil)
+	regenerateRequest.Header.Set("Authorization", voiceoverUserAuthHeader())
+	regenerateRecorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(regenerateRecorder, regenerateRequest)
+	if regenerateRecorder.Code != http.StatusOK {
+		t.Fatalf("regenerate work: %d body=%s", regenerateRecorder.Code, regenerateRecorder.Body.String())
+	}
+	regeneratedRun, err := generationRuns.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("get regenerated run: %v", err)
+	}
+	if regeneratedRun.Status != "generating" || regeneratedRun.Stage != "voicing" || regeneratedRun.VoiceoverTaskID == beforeRegenerate.VoiceoverTaskID {
+		t.Fatalf("unexpected regenerated run %#v", regeneratedRun)
+	}
+}
+
+func TestDeleteVoiceoverWorkRemovesCompletedOutputAndRejectsActiveRun(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	storageRoot := t.TempDir()
+	generationRuns := services.NewGenerationRunService(nil)
+	server := New(Options{
+		Config:               config.Config{StorageRoot: storageRoot, QueueBackend: "file"},
+		GenerationRunService: generationRuns,
+	})
+
+	completed, err := generationRuns.Create(context.Background(), services.CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create completed run: %v", err)
+	}
+	outputKey := filepath.ToSlash(filepath.Join("renders", "generations", completed.ID, "final.mp4"))
+	outputPath := filepath.Join(storageRoot, filepath.FromSlash(outputKey))
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		t.Fatalf("create output directory: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("video"), 0644); err != nil {
+		t.Fatalf("write output: %v", err)
+	}
+	if err := generationRuns.MarkRenderCompleted(context.Background(), completed.ID, services.GenerationRenderOutput{
+		StorageKey: outputKey, MimeType: "video/mp4", DurationMs: 1000, Width: 1080, Height: 1920,
+		FileSizeBytes: 5, Renderer: "ffmpeg", RenderVersion: "v1",
+	}); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/workbench/works/"+completed.ID, nil)
+	deleteRequest.Header.Set("Authorization", voiceoverUserAuthHeader())
+	deleteRecorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(deleteRecorder, deleteRequest)
+	if deleteRecorder.Code != http.StatusOK {
+		t.Fatalf("delete work: %d body=%s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+	if _, err := generationRuns.Get(context.Background(), completed.ID); !errors.Is(err, services.ErrGenerationRunNotFound) {
+		t.Fatalf("expected deleted run, got %v", err)
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("expected output file deletion, got %v", err)
+	}
+
+	active, err := generationRuns.Create(context.Background(), services.CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create active run: %v", err)
+	}
+	activeRequest := httptest.NewRequest(http.MethodDelete, "/api/workbench/works/"+active.ID, nil)
+	activeRequest.Header.Set("Authorization", voiceoverUserAuthHeader())
+	activeRecorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(activeRecorder, activeRequest)
+	if activeRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected active delete conflict, got %d body=%s", activeRecorder.Code, activeRecorder.Body.String())
 	}
 }
 
