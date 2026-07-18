@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 )
 
 const (
@@ -1246,8 +1247,8 @@ func validateEditPlanForStorage(plan EditPlan) error {
 	if plan.Status != "ready" && plan.Status != "planning" && plan.Status != "queued" && plan.Status != "failed" {
 		return fmt.Errorf("invalid edit plan status %q", plan.Status)
 	}
-	if plan.Status == "ready" && (len(plan.VisualBeats) == 0 || len(plan.Clips) != len(plan.VisualBeats)) {
-		return fmt.Errorf("ready edit plan must contain one clip for every visual beat")
+	if plan.Status == "ready" && (len(plan.VisualBeats) == 0 || len(plan.Clips) == 0) {
+		return fmt.Errorf("ready edit plan must contain visual beats and clips")
 	}
 	if len(plan.Clips) > 0 && len(plan.VisualBeats) == 0 {
 		return fmt.Errorf("clip segments require visual beats")
@@ -1276,6 +1277,8 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		visualBeats[beat.ID] = beat
 		expectedStartMs = beat.EndMs
 	}
+	clipCounts := make(map[string]int, len(plan.VisualBeats))
+	expectedClipStartMs := 0
 	for index, clip := range plan.Clips {
 		if normalizeID(clip.VisualBeatID) == "" || normalizeID(clip.NarrationSegmentID) == "" || normalizeID(clip.AssetID) == "" {
 			return fmt.Errorf("clip %d references are required", index+1)
@@ -1287,14 +1290,35 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		if clip.SourceInMs < 0 || clip.SourceOutMs <= clip.SourceInMs {
 			return fmt.Errorf("clip %d source range is invalid", index+1)
 		}
-		if clip.StartMs < 0 || clip.EndMs <= clip.StartMs || clip.TimelineDurationMs != clip.EndMs-clip.StartMs {
+		if clip.StartMs != expectedClipStartMs || clip.EndMs <= clip.StartMs || clip.TimelineDurationMs != clip.EndMs-clip.StartMs {
 			return fmt.Errorf("clip %d timeline range is invalid", index+1)
 		}
-		if clip.StartMs != beat.StartMs || clip.EndMs != beat.EndMs || clip.SourceOutMs-clip.SourceInMs != beat.EndMs-beat.StartMs {
-			return fmt.Errorf("clip %d duration does not match its visual beat", index+1)
+		if clip.StartMs < beat.StartMs || clip.EndMs > beat.EndMs {
+			return fmt.Errorf("clip %d crosses its visual beat boundary", index+1)
+		}
+		if clip.SourceOutMs-clip.SourceInMs != clip.TimelineDurationMs {
+			return fmt.Errorf("clip %d source duration does not match its timeline duration", index+1)
+		}
+		if clip.TimelineDurationMs < modelgateway.MinimumEditPlanClipDurationMs {
+			return fmt.Errorf("clip %d is shorter than %dms", index+1, modelgateway.MinimumEditPlanClipDurationMs)
 		}
 		if clip.SourceType != "visual_only" && clip.SourceType != "talking_head" {
 			return fmt.Errorf("clip %d source type is invalid", index+1)
+		}
+		clipCounts[clip.VisualBeatID]++
+		if clipCounts[clip.VisualBeatID] > modelgateway.MaximumEditPlanClipsPerBeat {
+			return fmt.Errorf("visual beat %q has too many clips", clip.VisualBeatID)
+		}
+		expectedClipStartMs = clip.EndMs
+	}
+	if plan.Status == "ready" {
+		if expectedClipStartMs != expectedStartMs {
+			return fmt.Errorf("clip segments do not cover the visual timeline")
+		}
+		for beatID := range visualBeats {
+			if clipCounts[beatID] == 0 {
+				return fmt.Errorf("visual beat %q has no clips", beatID)
+			}
 		}
 	}
 	return nil

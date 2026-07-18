@@ -25,8 +25,8 @@ func (s *planningCandidateStore) SearchCandidates(_ context.Context, input Candi
 		ObjectType:              "shot",
 		SourceType:              "visual_only",
 		SourceInMs:              0,
-		SourceOutMs:             input.MinimumDurationMs + 1200,
-		AssetDurationMs:         input.MinimumDurationMs + 1200,
+		SourceOutMs:             10_000,
+		AssetDurationMs:         10_000,
 		DefaultUseOriginalAudio: s.call == 2,
 		SemanticScore:           0.9,
 	}}, nil
@@ -52,6 +52,8 @@ func (p deterministicEditPlanner) PlanEdits(_ context.Context, input modelgatewa
 		result.Clips = append(result.Clips, modelgateway.EditPlanClipChoice{
 			VisualBeatID: requirement.VisualBeatID,
 			CandidateID:  candidateID,
+			StartMs:      requirement.StartMs,
+			EndMs:        requirement.EndMs,
 			SourceInMs:   requirement.Candidates[0].SourceInMs,
 			SourceOutMs:  requirement.Candidates[0].SourceInMs + (requirement.EndMs - requirement.StartMs),
 			Label:        "镜头展示",
@@ -346,5 +348,28 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 	}
 	if len([]rune(got[0].SemanticSummary)) != maximumPlannerCandidateSemanticSummaryRunes {
 		t.Fatalf("expected %d-rune summary, got %q", maximumPlannerCandidateSemanticSummaryRunes, got[0].SemanticSummary)
+	}
+}
+
+func TestMaterializeEditPlanAllowsMultipleClipsForVisualBeat(t *testing.T) {
+	sets := []CandidateSet{{
+		Requirement: ShotRequirement{
+			VisualBeatID: "visual-pocket", NarrationSegmentID: "narration-pocket", StartMs: 0, EndMs: 3440,
+			NarrationText: "小小一个，放口袋里完全没负担。", VisualGoal: "展示束裤带小巧，放入口袋", SourceType: "visual_only",
+		},
+		Candidates: []AssetCandidate{
+			{ID: "candidate-detail", AssetID: "asset-detail", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 1800},
+			{ID: "candidate-pocket", AssetID: "asset-pocket", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2500},
+		},
+	}}
+	clips, err := materializeEditPlan(modelgateway.EditPlanResult{Clips: []modelgateway.EditPlanClipChoice{
+		{VisualBeatID: "visual-pocket", CandidateID: "candidate-detail", StartMs: 0, EndMs: 940, SourceInMs: 200, SourceOutMs: 1140, Label: "产品特写", VisualGoal: "展示束裤带小巧"},
+		{VisualBeatID: "visual-pocket", CandidateID: "candidate-pocket", StartMs: 940, EndMs: 3440, SourceInMs: 0, SourceOutMs: 2500, Label: "放入口袋", VisualGoal: "完整展示放入口袋动作"},
+	}}, sets)
+	if err != nil {
+		t.Fatalf("materialize multi-clip edit plan: %v", err)
+	}
+	if len(clips) != 2 || clips[0].AssetID != "asset-detail" || clips[1].AssetID != "asset-pocket" || clips[1].StartMs != clips[0].EndMs {
+		t.Fatalf("unexpected materialized clips %#v", clips)
 	}
 }

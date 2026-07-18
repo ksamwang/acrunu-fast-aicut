@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+const (
+	MinimumEditPlanClipDurationMs = 800
+	MaximumEditPlanClipsPerBeat   = 4
+)
+
 type EditPlanCandidate struct {
 	ID              string  `json:"id"`
 	SourceType      string  `json:"source_type"`
@@ -45,6 +50,8 @@ type EditPlanInput struct {
 type EditPlanClipChoice struct {
 	VisualBeatID string `json:"visual_beat_id"`
 	CandidateID  string `json:"candidate_id"`
+	StartMs      int    `json:"start_ms"`
+	EndMs        int    `json:"end_ms"`
 	SourceInMs   int    `json:"source_in_ms"`
 	SourceOutMs  int    `json:"source_out_ms"`
 	Label        string `json:"label"`
@@ -277,13 +284,15 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 	if len(requirements) == 0 {
 		return NewError(ErrorCodeInvalidResponse, "edit plan requirements are required", false, nil)
 	}
-	if len(result.Clips) != len(requirements) {
-		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("expected %d edit plan clips, got %d", len(requirements), len(result.Clips)), false, nil)
+	if len(result.Clips) < len(requirements) {
+		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("expected at least %d edit plan clips, got %d", len(requirements), len(result.Clips)), false, nil)
 	}
 	if err := validateEditPlanRequirements(requirements); err != nil {
 		return err
 	}
-	seenVisualBeats := map[string]struct{}{}
+	expectedStartMs := requirements[0].StartMs
+	requirementIndex := 0
+	clipCounts := make(map[string]int, len(requirements))
 	for index := range result.Clips {
 		clip := &result.Clips[index]
 		clip.VisualBeatID = strings.TrimSpace(clip.VisualBeatID)
@@ -293,18 +302,28 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 		if clip.VisualBeatID == "" || clip.CandidateID == "" || clip.Label == "" || clip.VisualGoal == "" {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is incomplete", index+1), false, nil)
 		}
+		if clip.StartMs != expectedStartMs || clip.EndMs <= clip.StartMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d does not continue the timeline", index+1), false, nil)
+		}
 		if clip.SourceInMs < 0 || clip.SourceOutMs <= clip.SourceInMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is invalid", index+1), false, nil)
 		}
-		requirement := requirements[index]
+		if requirementIndex >= len(requirements) {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d exceeds the visual timeline", index+1), false, nil)
+		}
+		requirement := requirements[requirementIndex]
 		if clip.VisualBeatID != requirement.VisualBeatID {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is out of visual beat order", index+1), false, nil)
 		}
-		if _, exists := seenVisualBeats[clip.VisualBeatID]; exists {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan visual beat %q is repeated", clip.VisualBeatID), false, nil)
+		if clip.EndMs > requirement.EndMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d crosses its visual beat boundary", index+1), false, nil)
 		}
-		if clip.SourceOutMs-clip.SourceInMs != requirement.EndMs-requirement.StartMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source duration does not match its visual beat", index+1), false, nil)
+		clipDurationMs := clip.EndMs - clip.StartMs
+		if clipDurationMs < MinimumEditPlanClipDurationMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is shorter than %dms", index+1, MinimumEditPlanClipDurationMs), false, nil)
+		}
+		if clip.SourceOutMs-clip.SourceInMs != clipDurationMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source duration does not match its timeline duration", index+1), false, nil)
 		}
 		candidate, ok := findEditPlanCandidate(requirement.Candidates, clip.CandidateID)
 		if !ok {
@@ -313,12 +332,17 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 		if clip.SourceInMs < candidate.SourceInMs || clip.SourceOutMs > candidate.SourceOutMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is outside its candidate", index+1), false, nil)
 		}
-		seenVisualBeats[clip.VisualBeatID] = struct{}{}
-	}
-	for _, requirement := range requirements {
-		if _, ok := seenVisualBeats[requirement.VisualBeatID]; !ok {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan does not cover visual beat %q", requirement.VisualBeatID), false, nil)
+		clipCounts[clip.VisualBeatID]++
+		if clipCounts[clip.VisualBeatID] > MaximumEditPlanClipsPerBeat {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan visual beat %q has more than %d clips", clip.VisualBeatID, MaximumEditPlanClipsPerBeat), false, nil)
 		}
+		expectedStartMs = clip.EndMs
+		if expectedStartMs == requirement.EndMs {
+			requirementIndex++
+		}
+	}
+	if requirementIndex != len(requirements) || expectedStartMs != requirements[len(requirements)-1].EndMs {
+		return NewError(ErrorCodeInvalidResponse, "edit plan clips do not cover the visual timeline", false, nil)
 	}
 	return nil
 }

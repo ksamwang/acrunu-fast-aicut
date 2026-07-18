@@ -179,7 +179,7 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 			Dimension:         queryDimension,
 			QueryEmbedding:    embedding.Embedding,
 			SourceTypes:       requirementSourceTypes(requirement.SourceType),
-			MinimumDurationMs: requirement.EndMs - requirement.StartMs,
+			MinimumDurationMs: modelgateway.MinimumEditPlanClipDurationMs,
 			Limit:             limit,
 		}
 		candidates, err := s.store.SearchCandidates(ctx, searchInput)

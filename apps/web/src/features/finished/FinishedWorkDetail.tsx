@@ -42,6 +42,18 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
   const narrationSegments = work.narration_segments ?? [];
   const editPlan = work.edit_plan ?? [];
   const beats = work.beats ?? [];
+  const clipTotalsByVisualBeat = editPlan.reduce<Map<string, number>>((totals, clip) => {
+    const key = clip.visual_beat_id ?? clip.id;
+    totals.set(key, (totals.get(key) ?? 0) + 1);
+    return totals;
+  }, new Map());
+  const clipIndexesByVisualBeat = new Map<string, number>();
+  const clipPositions = editPlan.map((clip) => {
+    const key = clip.visual_beat_id ?? clip.id;
+    const position = (clipIndexesByVisualBeat.get(key) ?? 0) + 1;
+    clipIndexesByVisualBeat.set(key, position);
+    return { position, total: clipTotalsByVisualBeat.get(key) ?? 1 };
+  });
   const previewCaption = narrationSegments[0] ? subtitleDisplayText(narrationSegments[0].text) : "";
   const statusLabel = isGenerating ? "生成中" : isFailed ? "生成失败" : "已完成";
 
@@ -161,6 +173,7 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
               <span>{clip.visual_goal}</span>
             </span>
             <span className="finished-detail-plan-tags">
+              {clipPositions[index].total > 1 ? <Tag color="cyan">同段 {clipPositions[index].position}/{clipPositions[index].total}</Tag> : null}
               <Tag>{sourceTypeLabels[clip.source_type]}</Tag>
               {clip.use_original_audio ? <Tag color="blue">原声</Tag> : null}
             </span>

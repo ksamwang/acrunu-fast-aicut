@@ -172,6 +172,15 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         { id: "beat-1", label: "开头", selling_point: "自动唤醒", visual_goal: "以回家场景建立需求。", source_type: "mixed" },
         { id: "beat-2", label: "展示", selling_point: "夜间安心", visual_goal: "展示自动亮灯和使用结果。", source_type: "visual_only" }
       ],
+      visual_beats: [
+        { id: "visual-light-1", narration_segment_id: "segment-1", start_ms: 0, end_ms: 4000, label: "自动唤醒", visual_goal: "展示回家后灯光自动亮起", source_type: "visual_only" },
+        { id: "visual-light-2", narration_segment_id: "segment-2", start_ms: 4000, end_ms: 8500, label: "夜间安心", visual_goal: "展示夜间照明结果", source_type: "visual_only" }
+      ],
+      edit_plan: [
+        { id: "clip-light-1", visual_beat_id: "visual-light-1", narration_segment_id: "segment-1", asset_id: "asset-1", start_ms: 0, end_ms: 1200, source_in_ms: 0, source_out_ms: 1200, label: "自动唤醒", visual_goal: "人物进入夜间房间", source_type: "visual_only" },
+        { id: "clip-light-2", visual_beat_id: "visual-light-1", narration_segment_id: "segment-1", asset_id: "asset-2", start_ms: 1200, end_ms: 4000, source_in_ms: 0, source_out_ms: 2800, label: "亮灯结果", visual_goal: "灯光自动亮起", source_type: "visual_only" },
+        { id: "clip-light-3", visual_beat_id: "visual-light-2", narration_segment_id: "segment-2", asset_id: "asset-3", start_ms: 4000, end_ms: 8500, source_in_ms: 0, source_out_ms: 4500, label: "夜间安心", visual_goal: "展示夜间照明结果", source_type: "visual_only" }
+      ],
       audio_url: "/storage/voiceovers/work-completed-1.wav",
       video_url: "/storage/renders/generations/work-completed-1/final.mp4"
     },
@@ -1086,6 +1095,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByText("无需摸黑找开关夜间使用更安心", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: /镜头编排/ }).click();
   await expect(page.getByText("自动唤醒", { exact: true })).toBeVisible();
+  await expect(page.getByText("同段 1/2", { exact: true })).toBeVisible();
+  await expect(page.getByText("同段 2/2", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "返回成品库" }).click();
   await expect(page.getByTestId("finished-library-page")).toBeVisible();
 

@@ -86,6 +86,49 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 	}
 }
 
+func TestGenerationRunPersistsMultipleClipsPerVisualBeat(t *testing.T) {
+	service := NewGenerationRunService(nil)
+	run, err := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create generation run: %v", err)
+	}
+	plan, err := service.SaveEditPlan(context.Background(), EditPlan{
+		GenerationRunID: run.ID,
+		ScriptVariantID: "script-1",
+		VoiceoverID:     "voiceover-1",
+		Status:          "ready",
+		VisualBeats: []VisualBeat{{
+			ID: "visual-pocket", NarrationSegmentID: "narration-pocket", StartMs: 0, EndMs: 3440,
+			Label: "小巧便携", VisualGoal: "展示束裤带小巧并放入口袋", SourceType: "visual_only",
+		}},
+		Clips: []EditPlanClip{
+			{
+				VisualBeatID: "visual-pocket", NarrationSegmentID: "narration-pocket", AssetID: "asset-detail",
+				SourceInMs: 200, SourceOutMs: 1140, StartMs: 0, EndMs: 940, TimelineDurationMs: 940,
+				SourceType: "visual_only", Label: "产品特写", VisualGoal: "展示束裤带小巧",
+			},
+			{
+				VisualBeatID: "visual-pocket", NarrationSegmentID: "narration-pocket", AssetID: "asset-pocket",
+				SourceInMs: 0, SourceOutMs: 2500, StartMs: 940, EndMs: 3440, TimelineDurationMs: 2500,
+				SourceType: "visual_only", Label: "放入口袋", VisualGoal: "完整展示放入口袋动作",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("save multi-clip edit plan: %v", err)
+	}
+	if len(plan.Clips) != 2 || plan.Clips[0].VisualBeatID != plan.Clips[1].VisualBeatID || plan.Clips[1].StartMs != plan.Clips[0].EndMs {
+		t.Fatalf("unexpected multi-clip plan %#v", plan.Clips)
+	}
+	stored, err := service.GetEditPlan(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("get multi-clip edit plan: %v", err)
+	}
+	if len(stored.Clips) != 2 || stored.Clips[1].AssetID != "asset-pocket" {
+		t.Fatalf("multi-clip plan was not retained %#v", stored.Clips)
+	}
+}
+
 func TestGenerationRunSnapshotIsJSONText(t *testing.T) {
 	snapshot, err := generationRunSnapshotJSON(map[string]any{
 		"voice_profile_id": "profile-1",

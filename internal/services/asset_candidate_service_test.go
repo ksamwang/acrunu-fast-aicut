@@ -68,7 +68,7 @@ func TestAssetCandidateServiceUsesVisualGoalWithoutSellingPointRelation(t *testi
 		t.Fatalf("expected visual_goal-only embedding query, got %#v", embedder.inputs)
 	}
 	input := store.inputs[0]
-	if input.MinimumDurationMs != 1800 || input.Limit != maxCandidatesPerNarrationSegment {
+	if input.MinimumDurationMs != modelgateway.MinimumEditPlanClipDurationMs || input.Limit != maxCandidatesPerNarrationSegment {
 		t.Fatalf("unexpected duration or limit %#v", input)
 	}
 	if len(input.SourceTypes) != 2 || input.SourceTypes[0] != "visual_only" || input.SourceTypes[1] != "talking_head" {

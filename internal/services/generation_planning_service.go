@@ -402,24 +402,21 @@ func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet
 	if err := modelgateway.ValidateEditPlanResult(result, input.Requirements); err != nil {
 		return nil, err
 	}
+	requirementsByVisualBeat := make(map[string]ShotRequirement, len(sets))
 	candidatesByVisualBeat := map[string]map[string]AssetCandidate{}
 	for _, set := range sets {
+		requirementsByVisualBeat[set.Requirement.VisualBeatID] = set.Requirement
 		candidateMap := map[string]AssetCandidate{}
 		for _, candidate := range set.Candidates {
 			candidateMap[candidate.ID] = candidate
 		}
 		candidatesByVisualBeat[set.Requirement.VisualBeatID] = candidateMap
 	}
-	choices := make(map[string]modelgateway.EditPlanClipChoice, len(result.Clips))
+	clips := make([]EditPlanClip, 0, len(result.Clips))
 	for _, choice := range result.Clips {
-		choices[choice.VisualBeatID] = choice
-	}
-	clips := make([]EditPlanClip, 0, len(sets))
-	for _, set := range sets {
-		requirement := set.Requirement
-		choice, ok := choices[requirement.VisualBeatID]
+		requirement, ok := requirementsByVisualBeat[choice.VisualBeatID]
 		if !ok {
-			return nil, fmt.Errorf("planner output is missing visual beat %q", requirement.VisualBeatID)
+			return nil, fmt.Errorf("planner output references unknown visual beat %q", choice.VisualBeatID)
 		}
 		candidate, ok := candidatesByVisualBeat[requirement.VisualBeatID][choice.CandidateID]
 		if !ok {
@@ -428,9 +425,9 @@ func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet
 		if choice.SourceInMs < candidate.SourceInMs || choice.SourceOutMs > candidate.SourceOutMs || choice.SourceOutMs <= choice.SourceInMs {
 			return nil, fmt.Errorf("planner source range is outside candidate %q", candidate.ID)
 		}
-		durationMs := requirement.EndMs - requirement.StartMs
+		durationMs := choice.EndMs - choice.StartMs
 		if choice.SourceOutMs-choice.SourceInMs != durationMs {
-			return nil, fmt.Errorf("planner source range must match visual beat %q", requirement.VisualBeatID)
+			return nil, fmt.Errorf("planner source range must match clip timeline in visual beat %q", requirement.VisualBeatID)
 		}
 		clips = append(clips, EditPlanClip{
 			ID:                 "",
@@ -440,8 +437,8 @@ func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet
 			SpeechSegmentID:    candidate.SpeechSegmentID,
 			SourceInMs:         choice.SourceInMs,
 			SourceOutMs:        choice.SourceOutMs,
-			StartMs:            requirement.StartMs,
-			EndMs:              requirement.EndMs,
+			StartMs:            choice.StartMs,
+			EndMs:              choice.EndMs,
 			TimelineDurationMs: durationMs,
 			Label:              strings.TrimSpace(choice.Label),
 			VisualGoal:         strings.TrimSpace(choice.VisualGoal),
