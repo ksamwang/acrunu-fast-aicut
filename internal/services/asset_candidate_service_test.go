@@ -76,20 +76,22 @@ func TestAssetCandidateServiceUsesVisualGoalWithoutSellingPointRelation(t *testi
 	}
 }
 
-func TestBuildShotRequirementsAllowsMultipleVisualBeatsForOneNarrationSentence(t *testing.T) {
+func TestBuildShotRequirementsCombinesNarrationAcrossVisualBeat(t *testing.T) {
 	requirements, err := BuildShotRequirements([]VisualBeat{
-		{ID: "visual-1", NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1000, SellingPoint: "痛点", VisualGoal: "展示裤脚靠近链条", SourceType: "talking_head"},
-		{ID: "visual-2", NarrationSegmentID: "n-1", StartMs: 1000, EndMs: 2000, SellingPoint: "解决方案", VisualGoal: "展示束裤带固定动作", SourceType: "visual_only"},
-		{ID: "visual-3", NarrationSegmentID: "n-2", StartMs: 2000, EndMs: 3000, SellingPoint: "结果", VisualGoal: "展示固定后的骑行状态", SourceType: "visual_only"},
+		{ID: "visual-1", NarrationSegmentID: "n-1", StartMs: 0, EndMs: 3000, DurationClass: VisualBeatDurationAction, SellingPoint: "快拆收纳", VisualGoal: "完整展示快拆和收纳", SourceType: "visual_only"},
+		{ID: "visual-2", NarrationSegmentID: "n-2", StartMs: 3000, EndMs: 5000, DurationClass: VisualBeatDurationStandard, SellingPoint: "结果", VisualGoal: "展示收纳结果", SourceType: "visual_only"},
 	}, []NarrationSegment{
 		{ID: "n-1", StartMs: 0, EndMs: 2000, Text: "第一句"},
-		{ID: "n-2", StartMs: 2000, EndMs: 3000, Text: "第二句"},
+		{ID: "n-2", StartMs: 2000, EndMs: 5000, Text: "第二句"},
 	})
 	if err != nil {
 		t.Fatalf("build requirements: %v", err)
 	}
-	if len(requirements) != 3 || requirements[0].NarrationSegmentID != "n-1" || requirements[1].NarrationSegmentID != "n-1" || requirements[2].VisualBeatID != "visual-3" {
+	if len(requirements) != 2 || requirements[0].NarrationSegmentID != "n-1" || requirements[1].NarrationSegmentID != "n-2" {
 		t.Fatalf("unexpected requirements %#v", requirements)
+	}
+	if len(requirements[0].NarrationSegmentIDs) != 2 || requirements[0].NarrationText != "第一句第二句" || requirements[0].DurationClass != VisualBeatDurationAction {
+		t.Fatalf("expected cross-subtitle narration context, got %#v", requirements[0])
 	}
 }
 

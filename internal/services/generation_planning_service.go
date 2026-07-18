@@ -309,6 +309,7 @@ func materializeVisualBeats(result modelgateway.VisualPlanResult, input modelgat
 			NarrationSegmentID: beat.NarrationSegmentID,
 			StartMs:            beat.StartMs,
 			EndMs:              beat.EndMs,
+			DurationClass:      beat.DurationClass,
 			Label:              beat.Label,
 			SellingPoint:       beat.SellingPoint,
 			VisualGoal:         beat.VisualGoal,
@@ -352,15 +353,17 @@ func buildPlannerInput(productName string, scriptText string, sets []CandidateSe
 			})
 		}
 		requirements = append(requirements, modelgateway.EditPlanRequirement{
-			VisualBeatID:       set.Requirement.VisualBeatID,
-			NarrationSegmentID: set.Requirement.NarrationSegmentID,
-			StartMs:            set.Requirement.StartMs,
-			EndMs:              set.Requirement.EndMs,
-			NarrationText:      set.Requirement.NarrationText,
-			SellingPoint:       set.Requirement.SellingPoint,
-			VisualGoal:         set.Requirement.VisualGoal,
-			SourceType:         set.Requirement.SourceType,
-			Candidates:         candidates,
+			VisualBeatID:        set.Requirement.VisualBeatID,
+			NarrationSegmentID:  set.Requirement.NarrationSegmentID,
+			NarrationSegmentIDs: append([]string(nil), set.Requirement.NarrationSegmentIDs...),
+			StartMs:             set.Requirement.StartMs,
+			EndMs:               set.Requirement.EndMs,
+			DurationClass:       set.Requirement.DurationClass,
+			NarrationText:       set.Requirement.NarrationText,
+			SellingPoint:        set.Requirement.SellingPoint,
+			VisualGoal:          set.Requirement.VisualGoal,
+			SourceType:          set.Requirement.SourceType,
+			Candidates:          candidates,
 		})
 	}
 	return modelgateway.EditPlanInput{

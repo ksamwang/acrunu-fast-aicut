@@ -20,6 +20,7 @@ export type VisualBeat = {
   narration_segment_id: string;
   start_ms: number;
   end_ms: number;
+  duration_class?: "legacy" | "brief" | "standard" | "action";
   label: string;
   selling_point?: string;
   visual_goal: string;

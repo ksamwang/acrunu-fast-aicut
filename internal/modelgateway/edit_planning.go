@@ -22,15 +22,17 @@ type EditPlanCandidate struct {
 }
 
 type EditPlanRequirement struct {
-	VisualBeatID       string              `json:"visual_beat_id"`
-	NarrationSegmentID string              `json:"narration_segment_id"`
-	StartMs            int                 `json:"start_ms"`
-	EndMs              int                 `json:"end_ms"`
-	NarrationText      string              `json:"narration_text"`
-	SellingPoint       string              `json:"selling_point,omitempty"`
-	VisualGoal         string              `json:"visual_goal,omitempty"`
-	SourceType         string              `json:"source_type"`
-	Candidates         []EditPlanCandidate `json:"candidates"`
+	VisualBeatID        string              `json:"visual_beat_id"`
+	NarrationSegmentID  string              `json:"narration_segment_id"`
+	NarrationSegmentIDs []string            `json:"narration_segment_ids"`
+	StartMs             int                 `json:"start_ms"`
+	EndMs               int                 `json:"end_ms"`
+	DurationClass       string              `json:"duration_class"`
+	NarrationText       string              `json:"narration_text"`
+	SellingPoint        string              `json:"selling_point,omitempty"`
+	VisualGoal          string              `json:"visual_goal,omitempty"`
+	SourceType          string              `json:"source_type"`
+	Candidates          []EditPlanCandidate `json:"candidates"`
 }
 
 type EditPlanInput struct {

@@ -23,14 +23,16 @@ const (
 var ErrCandidateSearchUnavailable = errors.New("candidate search is not configured")
 
 type ShotRequirement struct {
-	VisualBeatID       string `json:"visual_beat_id"`
-	NarrationSegmentID string `json:"narration_segment_id"`
-	StartMs            int    `json:"start_ms"`
-	EndMs              int    `json:"end_ms"`
-	NarrationText      string `json:"narration_text"`
-	SellingPoint       string `json:"selling_point"`
-	VisualGoal         string `json:"visual_goal"`
-	SourceType         string `json:"source_type"`
+	VisualBeatID        string   `json:"visual_beat_id"`
+	NarrationSegmentID  string   `json:"narration_segment_id"`
+	NarrationSegmentIDs []string `json:"narration_segment_ids"`
+	StartMs             int      `json:"start_ms"`
+	EndMs               int      `json:"end_ms"`
+	DurationClass       string   `json:"duration_class"`
+	NarrationText       string   `json:"narration_text"`
+	SellingPoint        string   `json:"selling_point"`
+	VisualGoal          string   `json:"visual_goal"`
+	SourceType          string   `json:"source_type"`
 }
 
 type AssetCandidate struct {
@@ -149,6 +151,7 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 	assetUseCounts := map[string]int{}
 	sets := make([]CandidateSet, 0, len(requirements))
 	for _, requirement := range requirements {
+		requirement.DurationClass = normalizeVisualBeatDurationClass(requirement.DurationClass)
 		if err := validateShotRequirement(requirement); err != nil {
 			return nil, err
 		}
@@ -201,32 +204,63 @@ func BuildShotRequirements(visualBeats []VisualBeat, narrationSegments []Narrati
 	if err := validateNarrationTimeline(narrationSegments, 0); err != nil {
 		return nil, err
 	}
-	narrationByID := make(map[string]NarrationSegment, len(narrationSegments))
-	for _, segment := range narrationSegments {
-		narrationByID[segment.ID] = segment
-	}
 	requirements := make([]ShotRequirement, 0, len(visualBeats))
+	expectedStartMs := narrationSegments[0].StartMs
+	timelineEndMs := narrationSegments[len(narrationSegments)-1].EndMs
 	for index, beat := range visualBeats {
-		segment, ok := narrationByID[beat.NarrationSegmentID]
-		if !ok || beat.StartMs < segment.StartMs || beat.EndMs > segment.EndMs || beat.EndMs <= beat.StartMs {
-			return nil, fmt.Errorf("visual beat %d is outside its narration segment", index+1)
+		if beat.StartMs != expectedStartMs || beat.EndMs <= beat.StartMs || beat.EndMs > timelineEndMs {
+			return nil, fmt.Errorf("visual beat %d timeline range is invalid", index+1)
+		}
+		anchor, overlaps := narrationSegmentsForVisualBeat(beat, narrationSegments)
+		if anchor == nil || anchor.ID != beat.NarrationSegmentID {
+			return nil, fmt.Errorf("visual beat %d narration anchor does not contain its start", index+1)
+		}
+		if len(overlaps) == 0 {
+			return nil, fmt.Errorf("visual beat %d does not overlap narration", index+1)
 		}
 		sourceType := strings.TrimSpace(beat.SourceType)
 		if sourceType != "visual_only" && sourceType != "talking_head" && sourceType != "mixed" {
 			return nil, fmt.Errorf("visual beat %d source type is invalid", index+1)
 		}
+		narrationIDs := make([]string, 0, len(overlaps))
+		narrationTexts := make([]string, 0, len(overlaps))
+		for _, segment := range overlaps {
+			narrationIDs = append(narrationIDs, segment.ID)
+			narrationTexts = append(narrationTexts, strings.TrimSpace(segment.Text))
+		}
 		requirements = append(requirements, ShotRequirement{
-			VisualBeatID:       strings.TrimSpace(beat.ID),
-			NarrationSegmentID: segment.ID,
-			StartMs:            beat.StartMs,
-			EndMs:              beat.EndMs,
-			NarrationText:      strings.TrimSpace(segment.Text),
-			SellingPoint:       strings.TrimSpace(beat.SellingPoint),
-			VisualGoal:         strings.TrimSpace(beat.VisualGoal),
-			SourceType:         sourceType,
+			VisualBeatID:        strings.TrimSpace(beat.ID),
+			NarrationSegmentID:  anchor.ID,
+			NarrationSegmentIDs: narrationIDs,
+			StartMs:             beat.StartMs,
+			EndMs:               beat.EndMs,
+			DurationClass:       normalizeVisualBeatDurationClass(beat.DurationClass),
+			NarrationText:       strings.Join(narrationTexts, ""),
+			SellingPoint:        strings.TrimSpace(beat.SellingPoint),
+			VisualGoal:          strings.TrimSpace(beat.VisualGoal),
+			SourceType:          sourceType,
 		})
+		expectedStartMs = beat.EndMs
+	}
+	if expectedStartMs != timelineEndMs {
+		return nil, fmt.Errorf("visual beats do not cover the narration timeline")
 	}
 	return requirements, nil
+}
+
+func narrationSegmentsForVisualBeat(beat VisualBeat, segments []NarrationSegment) (*NarrationSegment, []NarrationSegment) {
+	var anchor *NarrationSegment
+	overlaps := make([]NarrationSegment, 0, 2)
+	for index := range segments {
+		segment := &segments[index]
+		if beat.StartMs >= segment.StartMs && beat.StartMs < segment.EndMs {
+			anchor = segment
+		}
+		if segment.StartMs < beat.EndMs && segment.EndMs > beat.StartMs {
+			overlaps = append(overlaps, *segment)
+		}
+	}
+	return anchor, overlaps
 }
 
 func validateNarrationTimeline(segments []NarrationSegment, expectedDurationMs int) error {
@@ -301,6 +335,9 @@ func validateShotRequirement(requirement ShotRequirement) error {
 	}
 	if requirement.StartMs < 0 || requirement.EndMs <= requirement.StartMs {
 		return fmt.Errorf("narration segment range is invalid")
+	}
+	if !isVisualBeatDurationValid(normalizeVisualBeatDurationClass(requirement.DurationClass), requirement.EndMs-requirement.StartMs) {
+		return fmt.Errorf("visual beat duration does not match its duration class")
 	}
 	if strings.TrimSpace(requirement.NarrationText) == "" || strings.TrimSpace(requirement.VisualGoal) == "" {
 		return fmt.Errorf("narration text is required")

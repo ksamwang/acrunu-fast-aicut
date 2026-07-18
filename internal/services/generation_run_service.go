@@ -751,6 +751,9 @@ func generationRunCanRetry(status string, mode GenerationRunRetryMode) bool {
 }
 
 func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) (EditPlan, error) {
+	for index := range plan.VisualBeats {
+		plan.VisualBeats[index].DurationClass = normalizeVisualBeatDurationClass(plan.VisualBeats[index].DurationClass)
+	}
 	if err := validateEditPlanForStorage(plan); err != nil {
 		return EditPlan{}, err
 	}
@@ -855,10 +858,10 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO visual_beats (
 				id, edit_plan_id, beat_index, narration_segment_id,
-				start_ms, end_ms, label, selling_point, visual_goal, source_type
+				start_ms, end_ms, duration_class, label, selling_point, visual_goal, source_type
 			) VALUES (
 				$1::uuid, $2::uuid, $3, $4::uuid,
-				$5, $6, $7, $8, $9, $10
+				$5, $6, $7, $8, $9, $10, $11
 			)`,
 			beat.ID,
 			stored.ID,
@@ -866,6 +869,7 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 			beat.NarrationSegmentID,
 			beat.StartMs,
 			beat.EndMs,
+			beat.DurationClass,
 			beat.Label,
 			beat.SellingPoint,
 			beat.VisualGoal,
@@ -944,7 +948,7 @@ func (s *GenerationRunService) GetEditPlan(ctx context.Context, runID string) (E
 		return EditPlan{}, err
 	}
 	visualBeatRows, err := s.pool.Query(ctx, `
-		SELECT id::text, narration_segment_id::text, start_ms, end_ms,
+		SELECT id::text, narration_segment_id::text, start_ms, end_ms, duration_class,
 			label, selling_point, visual_goal, source_type
 		FROM visual_beats
 		WHERE edit_plan_id = $1::uuid
@@ -960,6 +964,7 @@ func (s *GenerationRunService) GetEditPlan(ctx context.Context, runID string) (E
 			&beat.NarrationSegmentID,
 			&beat.StartMs,
 			&beat.EndMs,
+			&beat.DurationClass,
 			&beat.Label,
 			&beat.SellingPoint,
 			&beat.VisualGoal,
@@ -1256,6 +1261,12 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		}
 		if beat.SourceType != "visual_only" && beat.SourceType != "talking_head" && beat.SourceType != "mixed" {
 			return fmt.Errorf("visual beat %d source type is invalid", index+1)
+		}
+		if !isVisualBeatDurationClass(normalizeVisualBeatDurationClass(beat.DurationClass)) {
+			return fmt.Errorf("visual beat %d duration class is invalid", index+1)
+		}
+		if !isVisualBeatDurationValid(normalizeVisualBeatDurationClass(beat.DurationClass), beat.EndMs-beat.StartMs) {
+			return fmt.Errorf("visual beat %d duration does not match its duration class", index+1)
 		}
 		if _, exists := visualBeats[beat.ID]; exists {
 			return fmt.Errorf("visual beat %q is repeated", beat.ID)

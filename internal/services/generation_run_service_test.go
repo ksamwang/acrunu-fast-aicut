@@ -78,6 +78,9 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 	if work.ID != run.ID || len(work.VisualBeats) != 1 || len(work.EditPlan) != 1 || work.EditPlan[0].VisualBeatID != "visual-1" || work.EditPlan[0].AssetID != "asset-1" {
 		t.Fatalf("unexpected work projection %#v", work)
 	}
+	if work.VisualBeats[0].DurationClass != VisualBeatDurationLegacy {
+		t.Fatalf("expected historical visual beat to default to legacy duration class, got %#v", work.VisualBeats[0])
+	}
 	if work.CreatedByUserID != "user-1" || work.CreatedByName != "王璐" {
 		t.Fatalf("unexpected creator projection %#v", work)
 	}

@@ -71,10 +71,15 @@ func (p deterministicVisualPlanner) PlanVisuals(_ context.Context, input modelga
 	}
 	beats := make([]modelgateway.VisualPlanBeat, 0, len(input.NarrationSegments))
 	for _, segment := range input.NarrationSegments {
+		durationClass := modelgateway.VisualDurationClassStandard
+		if segment.EndMs-segment.StartMs < 1800 {
+			durationClass = modelgateway.VisualDurationClassBrief
+		}
 		beats = append(beats, modelgateway.VisualPlanBeat{
 			NarrationSegmentID: segment.ID,
 			StartMs:            segment.StartMs,
 			EndMs:              segment.EndMs,
+			DurationClass:      durationClass,
 			Label:              "画面展示",
 			VisualGoal:         "展示产品使用动作。",
 			SourceType:         "visual_only",
@@ -144,9 +149,8 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 		NewModelProviderService(),
 		config.Config{},
 	).WithVisualPlanner(deterministicVisualPlanner{beats: []modelgateway.VisualPlanBeat{
-		{NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, Label: "痛点", VisualGoal: "裤脚靠近链条", SourceType: "visual_only"},
-		{NarrationSegmentID: "narration-1", StartMs: 1000, EndMs: 2000, Label: "固定", VisualGoal: "展示束裤带固定裤脚", SourceType: "visual_only"},
-		{NarrationSegmentID: "narration-2", StartMs: 2000, EndMs: 3500, Label: "结果", VisualGoal: "展示固定后骑行", SourceType: "visual_only"},
+		{NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, DurationClass: modelgateway.VisualDurationClassBrief, Label: "痛点", VisualGoal: "裤脚靠近链条", SourceType: "visual_only"},
+		{NarrationSegmentID: "narration-1", StartMs: 1000, EndMs: 3500, DurationClass: modelgateway.VisualDurationClassStandard, Label: "固定结果", VisualGoal: "完整展示束裤带固定裤脚并开始骑行", SourceType: "visual_only"},
 	}}).WithPlanner(deterministicEditPlanner{})
 
 	plan, err := planning.Generate(context.Background(), GenerateEditPlanInput{
@@ -157,16 +161,19 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate plan: %v", err)
 	}
-	if plan.Status != "ready" || len(plan.VisualBeats) != 3 || len(plan.Clips) != 3 {
+	if plan.Status != "ready" || len(plan.VisualBeats) != 2 || len(plan.Clips) != 2 {
 		t.Fatalf("unexpected plan %#v", plan)
 	}
+	if plan.VisualBeats[1].DurationClass != VisualBeatDurationStandard {
+		t.Fatalf("expected visual duration class to be persisted, got %#v", plan.VisualBeats)
+	}
 	if plan.Clips[0].NarrationSegmentID != plan.Clips[1].NarrationSegmentID || plan.Clips[0].VisualBeatID == plan.Clips[1].VisualBeatID {
-		t.Fatalf("expected two clips for the first narration segment, got %#v", plan.Clips)
+		t.Fatalf("expected the second visual beat to cross narration segments from its first anchor, got %#v", plan.Clips)
 	}
 	if plan.Clips[0].AssetID != "asset-1" || plan.Clips[1].AssetID != "asset-2" || !plan.Clips[1].UseOriginalAudio {
 		t.Fatalf("candidate mapping or audio policy was not retained %#v", plan.Clips)
 	}
-	if len(store.inputs) != 3 {
+	if len(store.inputs) != 2 {
 		t.Fatalf("expected one candidate query per visual beat, got %d", len(store.inputs))
 	}
 	for _, candidateInput := range store.inputs {
@@ -182,7 +189,7 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	if err := json.Unmarshal(plan.PlanJSON, &artifacts); err != nil {
 		t.Fatalf("decode plan artifacts: %v", err)
 	}
-	if len(artifacts.VisualBeats) != 3 || len(artifacts.CandidateSets) != 3 || len(artifacts.Clips) != 3 {
+	if len(artifacts.VisualBeats) != 2 || len(artifacts.CandidateSets) != 2 || len(artifacts.Clips) != 2 {
 		t.Fatalf("plan artifact snapshot is incomplete %#v", artifacts)
 	}
 	updatedRun, err := runs.Get(context.Background(), run.ID)
