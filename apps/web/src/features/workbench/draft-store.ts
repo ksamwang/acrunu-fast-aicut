@@ -37,6 +37,9 @@ export function loadWorkbenchDraft(): WorkbenchDraft {
   const sourceKey = hasCurrentDraft ? draftStorageKey : legacyDraftStorageKey;
   const draft = { ...emptyDraft, ...readJSON<Partial<WorkbenchDraft>>(sourceKey, emptyDraft) };
   draft.variants = (draft.variants ?? []).map(normalizeVariant);
+  if (!draft.script_generation?.job_id || !draft.script_generation.base_revision) {
+    delete draft.script_generation;
+  }
   if (!hasCurrentDraft && window.localStorage.getItem(legacyDraftStorageKey) !== null) {
     writeJSON(draftStorageKey, draft);
   }

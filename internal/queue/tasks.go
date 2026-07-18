@@ -9,6 +9,7 @@ const TypeVoiceAudition = "voice:audition"
 const TypeVoiceoverGenerate = "voice:generate"
 const TypeEditPlanGenerate = "edit_plan:generate"
 const TypeGenerationRender = "generation:render"
+const TypeWorkbenchScriptGenerate = "workbench:script_generate"
 
 const (
 	FrameExtractionModeFixedInterval = "fixed_interval"
@@ -72,4 +73,8 @@ type EditPlanGeneratePayload struct {
 type GenerationRenderPayload struct {
 	TaskID          string `json:"task_id"`
 	GenerationRunID string `json:"generation_run_id"`
+}
+
+type WorkbenchScriptGeneratePayload struct {
+	JobID string `json:"job_id"`
 }

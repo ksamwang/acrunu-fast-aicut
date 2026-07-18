@@ -197,3 +197,21 @@ func (c *Client) EnqueueGenerationRender(payload GenerationRenderPayload) error 
 	_, err = c.client.Enqueue(asynq.NewTask(TypeGenerationRender, encodedPayload), asynq.MaxRetry(0))
 	return err
 }
+
+func (c *Client) EnqueueWorkbenchScriptGenerate(payload WorkbenchScriptGeneratePayload) error {
+	if payload.JobID == "" {
+		return fmt.Errorf("script generation job id is required")
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if c.backend == "file" {
+		return c.file.Enqueue(context.Background(), TypeWorkbenchScriptGenerate, encodedPayload, 0)
+	}
+	if c.client == nil {
+		return fmt.Errorf("queue client is not initialized")
+	}
+	_, err = c.client.Enqueue(asynq.NewTask(TypeWorkbenchScriptGenerate, encodedPayload), asynq.MaxRetry(0))
+	return err
+}

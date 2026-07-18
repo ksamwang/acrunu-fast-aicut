@@ -23,6 +23,14 @@ func main() {
 	defer modelProviderService.Close()
 	productAssetService := services.NewConfiguredProductAssetService(context.Background(), cfg, logger)
 	defer productAssetService.Close()
+	scriptGenerationService := services.NewScriptGenerationService(
+		productAssetService.Service,
+		systemConfigService.Service,
+		modelProviderService.Service,
+		cfg,
+	)
+	scriptGenerationJobs := services.NewConfiguredScriptGenerationJobService(context.Background(), cfg, scriptGenerationService, logger)
+	defer scriptGenerationJobs.Close()
 	assetEmbeddingService := services.NewConfiguredAssetEmbeddingService(context.Background(), cfg, productAssetService.Service, systemConfigService.Service, modelProviderService.Service, logger)
 	defer assetEmbeddingService.Close()
 	voiceoverService := services.NewConfiguredVoiceoverService(context.Background(), cfg, logger)
@@ -64,7 +72,7 @@ func main() {
 	workerHandler := services.NewWorkerHandler(
 		taskService.Service,
 		assetProcessingService,
-	).WithVoiceoverService(voiceoverService.Service).WithGenerationPipeline(
+	).WithVoiceoverService(voiceoverService.Service).WithScriptGenerationJobs(scriptGenerationJobs.Service).WithGenerationPipeline(
 		generationRunService.Service,
 		services.NewGenerationPlanningService(
 			generationRunService.Service,
@@ -77,6 +85,15 @@ func main() {
 		).WithLogger(logger),
 		queueClient,
 	).WithGenerationRenderer(renderService)
+	if pendingJobIDs, err := scriptGenerationJobs.Service.PendingJobIDs(context.Background()); err != nil {
+		logger.Error("failed to list pending script generation jobs", "error", err)
+	} else {
+		for _, jobID := range pendingJobIDs {
+			if err := queueClient.EnqueueWorkbenchScriptGenerate(queue.WorkbenchScriptGeneratePayload{JobID: jobID}); err != nil {
+				logger.Error("failed to requeue script generation job", "job_id", jobID, "error", err)
+			}
+		}
+	}
 	if err := workerHandler.EnqueuePendingRenders(context.Background()); err != nil {
 		logger.Error("failed to enqueue pending generation renders", "error", err)
 	}

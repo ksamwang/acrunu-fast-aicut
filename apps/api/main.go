@@ -39,6 +39,8 @@ func main() {
 		modelProviderService.Service,
 		cfg,
 	)
+	scriptGenerationJobs := services.NewConfiguredScriptGenerationJobService(context.Background(), cfg, scriptGenerationService, logger)
+	defer scriptGenerationJobs.Close()
 
 	server := httpserver.New(httpserver.Options{
 		Config:                     cfg,
@@ -51,6 +53,7 @@ func main() {
 		AssetEmbeddingService:      assetEmbeddingService.Service,
 		VoiceoverService:           voiceoverService.Service,
 		ScriptGenerationService:    scriptGenerationService,
+		ScriptGenerationJobService: scriptGenerationJobs.Service,
 		GenerationRunService:       generationRunService.Service,
 		SubtitleStylePresetService: subtitleStylePresetService.Service,
 		BGMTrackService:            bgmTrackService.Service,

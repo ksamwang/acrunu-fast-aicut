@@ -3,7 +3,7 @@ import { Button, Empty, Input, InputNumber, Modal, Popover, Segmented, Select, S
 import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, FileUp, ListChecks, Music2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
-import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
+import type { ScriptGenerationJob, ScriptGenerationJobInput, ScriptGenerationJobMode, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { BGMSelection, BGMTrack } from "../../shared/types/bgm";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import type { VoiceAudition } from "../../shared/types/voice";
@@ -19,7 +19,16 @@ import {
   loadWorkbenchDraft,
   saveWorkbenchDraft
 } from "./draft-store";
-import { createVoiceAudition, createVoiceoverTasks, generateWorkbenchScripts, getVoiceAudition } from "./api";
+import {
+  cancelScriptGenerationJob,
+  createScriptGenerationJob,
+  createVoiceAudition,
+  createVoiceoverTasks,
+  getLatestScriptGenerationJob,
+  getScriptGenerationJob,
+  getVoiceAudition,
+  resolveScriptGenerationJob
+} from "./api";
 import { ScriptImportModal } from "./ScriptImportModal";
 import { deriveScriptHook, maxWorkbenchScripts, type ImportedScript } from "./script-import";
 import "./styles.css";
@@ -38,19 +47,116 @@ function activeSellingPoints(points: SellingPoint[]) {
   return points.filter((point) => point.status !== "archived");
 }
 
+function workbenchDraftRevision(draft: WorkbenchDraft) {
+  const serialized = JSON.stringify({
+    product_id: draft.product_id,
+    selling_point_ids: draft.selling_point_ids,
+    custom_selling_points: draft.custom_selling_points,
+    variant_count: draft.variant_count,
+    variants: draft.variants.map((variant) => ({
+      id: variant.id,
+      order: variant.order,
+      hook: variant.hook,
+      script_text: variant.script_text,
+      editing_intent: variant.editing_intent,
+      beats: variant.beats,
+      status: variant.status,
+      bgm: variant.bgm,
+      updated_at: variant.updated_at
+    }))
+  });
+  let hash = 2166136261;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `v1-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function withoutScriptGeneration(draft: WorkbenchDraft): WorkbenchDraft {
+  const next = { ...draft };
+  delete next.script_generation;
+  return next;
+}
+
+function applyScriptGenerationResult(
+  draft: WorkbenchDraft,
+  job: ScriptGenerationJob,
+  strategy: "replace" | "append",
+  defaultBGM: BGMSelection
+): WorkbenchDraft {
+  const generated = (job.result_variants ?? []).map<ScriptVariant>((variant) => ({
+    ...variant,
+    origin: "generated",
+    bgm: { ...defaultBGM }
+  }));
+  if (generated.length === 0) {
+    throw new Error("文案生成结果为空");
+  }
+
+  let variants: ScriptVariant[];
+  let activeVariantID = draft.active_variant_id;
+  if (strategy === "append") {
+    variants = [...draft.variants, ...generated]
+      .slice(0, maxWorkbenchScripts)
+      .map((variant, index) => ({ ...variant, order: index + 1 }));
+    activeVariantID = generated.find((variant) => variants.some((item) => item.id === variant.id))?.id ?? activeVariantID;
+  } else if (job.mode === "replace_variant") {
+    const replacement = generated[0];
+    const targetIndex = draft.variants.findIndex((variant) => variant.id === job.target_variant_id);
+    if (targetIndex >= 0) {
+      const target = draft.variants[targetIndex];
+      variants = draft.variants.map((variant, index) => index === targetIndex ? {
+        ...replacement,
+        id: target.id,
+        order: target.order,
+        bgm: target.bgm,
+        status: "draft"
+      } : variant);
+      activeVariantID = target.id;
+    } else {
+      variants = [...draft.variants, replacement]
+        .slice(0, maxWorkbenchScripts)
+        .map((variant, index) => ({ ...variant, order: index + 1 }));
+      activeVariantID = replacement.id;
+    }
+  } else {
+    variants = generated.map((variant, index) => ({ ...variant, order: index + 1 }));
+    activeVariantID = variants[0]?.id ?? "";
+  }
+
+  return {
+    ...draft,
+    product_id: strategy === "replace" ? job.product_id : draft.product_id,
+    selling_point_ids: strategy === "replace" ? [...job.input.selling_point_ids] : draft.selling_point_ids,
+    custom_selling_points: strategy === "replace" ? [...job.input.custom_selling_points] : draft.custom_selling_points,
+    variant_count: strategy === "replace" && job.mode === "replace_all" ? job.input.variant_count : draft.variant_count,
+    variants,
+    active_variant_id: activeVariantID,
+    script_generation: {
+      job_id: job.id,
+      base_revision: job.base_revision,
+      applied_locally: true
+    }
+  };
+}
+
 export function WorkbenchPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token, [], listProducts);
   const subtitlePresetsResource = useResource<SubtitleStylePreset[]>("/api/subtitle-presets", token, [], listSubtitleStylePresets);
   const [draft, setDraft] = useState<WorkbenchDraft>(() => loadWorkbenchDraft());
   const [customSellingPointInput, setCustomSellingPointInput] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [regeneratingVariantID, setRegeneratingVariantID] = useState<string | null>(null);
+  const [scriptGenerationJob, setScriptGenerationJob] = useState<ScriptGenerationJob | null>(null);
+  const [creatingScriptGeneration, setCreatingScriptGeneration] = useState<{ mode: ScriptGenerationJobMode; target_variant_id: string } | null>(null);
+  const [scriptGenerationAction, setScriptGenerationAction] = useState<"cancel" | "resolve" | "retry" | null>(null);
   const [startingTasks, setStartingTasks] = useState(false);
   const [audition, setAudition] = useState<VoiceAudition | null>(null);
   const [creatingAudition, setCreatingAudition] = useState(false);
   const [playingBGM, setPlayingBGM] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const draftRef = useRef(draft);
+  const handlingScriptGenerationJobsRef = useRef(new Set<string>());
   const defaultedProductIDRef = useRef("");
   const voiceProfilesResource = useVoiceProfiles(token);
   const bgmTracksResource = useResource<BGMTrack[]>("/api/bgm-tracks", token, [], listBGMTracks);
@@ -85,10 +191,162 @@ export function WorkbenchPage({ token }: { token: string }) {
     && audition.text === activeVariant.script_text
     ? audition
     : null;
+  const scriptGenerationActive = scriptGenerationJob?.status === "queued" || scriptGenerationJob?.status === "generating";
+  const scriptGenerationBusy = Boolean(creatingScriptGeneration) || scriptGenerationActive;
+  const generating = creatingScriptGeneration?.mode === "replace_all" || (scriptGenerationActive && scriptGenerationJob.mode === "replace_all");
+  const regeneratingVariantID = creatingScriptGeneration?.mode === "replace_variant"
+    ? creatingScriptGeneration.target_variant_id
+    : scriptGenerationActive && scriptGenerationJob.mode === "replace_variant"
+      ? scriptGenerationJob.target_variant_id ?? null
+      : null;
+  const scriptGenerationAppliedLocally = scriptGenerationJob
+    && draft.script_generation?.job_id === scriptGenerationJob.id
+    && draft.script_generation.applied_locally;
+  const scriptGenerationConflict = Boolean(
+    scriptGenerationJob?.status === "completed"
+    && !scriptGenerationAppliedLocally
+    && workbenchDraftRevision(draft) !== scriptGenerationJob.base_revision
+  );
+
+  const persistDraft = (next: WorkbenchDraft) => {
+    draftRef.current = next;
+    saveWorkbenchDraft(next);
+    setDraft(next);
+  };
+
+  const clearScriptGenerationReference = (jobID: string) => {
+    const current = draftRef.current;
+    if (current.script_generation?.job_id !== jobID) {
+      return;
+    }
+    persistDraft(withoutScriptGeneration(current));
+  };
+
+  const resolveAppliedScriptGeneration = async (job: ScriptGenerationJob) => {
+    try {
+      const resolved = await resolveScriptGenerationJob(job.id, "applied", token);
+      setScriptGenerationJob(resolved);
+      clearScriptGenerationReference(job.id);
+    } catch {
+      message.warning("文案已保存，服务端状态将在下次进入工作台时继续同步");
+    }
+  };
+
+  const applyCompletedScriptGeneration = async (job: ScriptGenerationJob, strategy: "replace" | "append", automatic = false) => {
+    if (handlingScriptGenerationJobsRef.current.has(job.id)) {
+      return;
+    }
+    const current = draftRef.current;
+    if (automatic && workbenchDraftRevision(current) !== job.base_revision) {
+      return;
+    }
+    handlingScriptGenerationJobsRef.current.add(job.id);
+    setScriptGenerationAction("resolve");
+    try {
+      const defaultBGM: BGMSelection = { mode: "random", track_id: "", gain_db: -12 };
+      const next = applyScriptGenerationResult(current, job, strategy, defaultBGM);
+      persistDraft(next);
+      await resolveAppliedScriptGeneration(job);
+      message.success(job.mode === "replace_variant" && strategy === "replace" ? "当前文案已重新生成" : `已生成 ${job.result_variants?.length ?? 0} 条文案`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "应用文案生成结果失败");
+    } finally {
+      handlingScriptGenerationJobsRef.current.delete(job.id);
+      setScriptGenerationAction(null);
+    }
+  };
 
   useEffect(() => {
+    draftRef.current = draft;
     saveWorkbenchDraft(draft);
   }, [draft]);
+
+  useEffect(() => {
+    let disposed = false;
+    const recover = async () => {
+      let recovered: ScriptGenerationJob | null = null;
+      const referencedJobID = draftRef.current.script_generation?.job_id;
+      if (referencedJobID) {
+        try {
+          recovered = await getScriptGenerationJob(referencedJobID, token);
+        } catch {
+          recovered = null;
+        }
+      }
+      if (!recovered) {
+        try {
+          recovered = await getLatestScriptGenerationJob(token);
+        } catch {
+          return;
+        }
+      }
+      if (disposed) {
+        return;
+      }
+      setScriptGenerationJob(recovered);
+      if (!recovered) {
+        if (referencedJobID) {
+          clearScriptGenerationReference(referencedJobID);
+        }
+        return;
+      }
+      if (recovered.status === "applied" || recovered.status === "discarded" || recovered.status === "cancelled") {
+        clearScriptGenerationReference(recovered.id);
+        return;
+      }
+      const current = draftRef.current;
+      if (current.script_generation?.job_id !== recovered.id) {
+        persistDraft({
+          ...current,
+          script_generation: { job_id: recovered.id, base_revision: recovered.base_revision }
+        });
+      }
+    };
+    void recover();
+    return () => {
+      disposed = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!scriptGenerationJob || (scriptGenerationJob.status !== "queued" && scriptGenerationJob.status !== "generating")) {
+      return;
+    }
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const next = await getScriptGenerationJob(scriptGenerationJob.id, token);
+        if (!disposed) {
+          setScriptGenerationJob(next);
+        }
+      } catch {
+        // A temporary API interruption must not cancel the persistent generation job.
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), 1_500);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [scriptGenerationJob?.id, scriptGenerationJob?.status, token]);
+
+  useEffect(() => {
+    if (!scriptGenerationJob || scriptGenerationJob.status !== "completed") {
+      return;
+    }
+    if (scriptGenerationAppliedLocally) {
+      if (!handlingScriptGenerationJobsRef.current.has(scriptGenerationJob.id)) {
+        handlingScriptGenerationJobsRef.current.add(scriptGenerationJob.id);
+        void resolveAppliedScriptGeneration(scriptGenerationJob).finally(() => {
+          handlingScriptGenerationJobsRef.current.delete(scriptGenerationJob.id);
+        });
+      }
+      return;
+    }
+    if (!scriptGenerationConflict) {
+      void applyCompletedScriptGeneration(scriptGenerationJob, "replace", true);
+    }
+  }, [scriptGenerationAppliedLocally, scriptGenerationConflict, scriptGenerationJob]);
 
   useEffect(() => () => bgmAudioRef.current?.pause(), []);
 
@@ -223,6 +481,54 @@ export function WorkbenchPage({ token }: { token: string }) {
     }));
   };
 
+  const startScriptGeneration = async (
+    mode: ScriptGenerationJobMode,
+    targetVariantID = "",
+    inputOverride?: ScriptGenerationJobInput
+  ) => {
+    const current = draftRef.current;
+    const input = inputOverride ?? {
+      product_id: current.product_id,
+      selling_point_ids: current.selling_point_ids,
+      custom_selling_points: current.custom_selling_points,
+      variant_count: mode === "replace_variant" ? 1 : current.variant_count
+    };
+    const baseRevision = workbenchDraftRevision(current);
+    setCreatingScriptGeneration({ mode, target_variant_id: targetVariantID });
+    try {
+      const job = await createScriptGenerationJob({
+        ...input,
+        variant_count: mode === "replace_variant" ? 1 : input.variant_count,
+        mode,
+        target_variant_id: targetVariantID || undefined,
+        base_revision: baseRevision
+      }, token);
+      setScriptGenerationJob(job);
+      const latest = draftRef.current;
+      persistDraft({
+        ...latest,
+        script_generation: { job_id: job.id, base_revision: job.base_revision }
+      });
+      message.success(mode === "replace_variant" ? "当前文案已加入后台生成" : "文案已加入后台生成");
+    } catch (error) {
+      try {
+        const existing = await getLatestScriptGenerationJob(token);
+        if (existing) {
+          setScriptGenerationJob(existing);
+          persistDraft({
+            ...draftRef.current,
+            script_generation: { job_id: existing.id, base_revision: existing.base_revision }
+          });
+        }
+      } catch {
+        // Preserve the original create error.
+      }
+      message.error(error instanceof Error ? error.message : "创建文案生成任务失败");
+    } finally {
+      setCreatingScriptGeneration(null);
+    }
+  };
+
   const generateScripts = async () => {
     if (!selectedProduct) {
       message.warning("请选择产品");
@@ -232,22 +538,65 @@ export function WorkbenchPage({ token }: { token: string }) {
       message.warning("请至少选择或补充一个卖点");
       return;
     }
-    setGenerating(true);
+    await startScriptGeneration("replace_all");
+  };
+
+  const cancelScriptGeneration = async () => {
+    if (!scriptGenerationJob || !scriptGenerationActive) {
+      return;
+    }
+    setScriptGenerationAction("cancel");
     try {
-      const variants = await generateWorkbenchScripts({
-        product_id: selectedProduct.id,
-        selling_point_ids: draft.selling_point_ids,
-        custom_selling_points: draft.custom_selling_points,
-        variant_count: draft.variant_count
-      }, token);
-      const defaultBGM: BGMSelection = { mode: enabledBGMTracks.length > 0 ? "random" : "none", track_id: "", gain_db: -12 };
-      const normalizedVariants = variants.map((variant) => ({ ...variant, origin: "generated" as const, bgm: variant.bgm ?? defaultBGM }));
-      setDraft((current) => ({ ...current, variants: normalizedVariants, active_variant_id: normalizedVariants[0]?.id ?? "" }));
-      message.success(`已生成 ${variants.length} 条文案`);
+      await cancelScriptGenerationJob(scriptGenerationJob.id, token);
+      clearScriptGenerationReference(scriptGenerationJob.id);
+      setScriptGenerationJob(null);
+      message.success("已取消文案生成");
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "文案生成失败");
+      message.error(error instanceof Error ? error.message : "取消文案生成失败");
     } finally {
-      setGenerating(false);
+      setScriptGenerationAction(null);
+    }
+  };
+
+  const discardScriptGeneration = async () => {
+    if (!scriptGenerationJob) {
+      return;
+    }
+    setScriptGenerationAction("resolve");
+    try {
+      await resolveScriptGenerationJob(scriptGenerationJob.id, "discarded", token);
+      clearScriptGenerationReference(scriptGenerationJob.id);
+      setScriptGenerationJob(null);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "丢弃文案生成结果失败");
+    } finally {
+      setScriptGenerationAction(null);
+    }
+  };
+
+  const retryScriptGeneration = async () => {
+    if (!scriptGenerationJob || scriptGenerationJob.status !== "failed") {
+      return;
+    }
+    if (draftRef.current.product_id !== scriptGenerationJob.product_id) {
+      message.warning("当前产品已变更，请先丢弃失败任务后重新生成");
+      return;
+    }
+    if (scriptGenerationJob.mode === "replace_variant" && !draftRef.current.variants.some((variant) => variant.id === scriptGenerationJob.target_variant_id)) {
+      message.warning("原文案已不存在，请先丢弃失败任务");
+      return;
+    }
+    setScriptGenerationAction("retry");
+    const failedJob = scriptGenerationJob;
+    try {
+      await resolveScriptGenerationJob(failedJob.id, "discarded", token);
+      clearScriptGenerationReference(failedJob.id);
+      setScriptGenerationJob(null);
+      await startScriptGeneration(failedJob.mode, failedJob.target_variant_id, failedJob.input);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "重试文案生成失败");
+    } finally {
+      setScriptGenerationAction(null);
     }
   };
 
@@ -309,30 +658,7 @@ export function WorkbenchPage({ token }: { token: string }) {
     if (!selectedProduct || !activeVariant) {
       return;
     }
-    setRegeneratingVariantID(activeVariant.id);
-    try {
-      const [replacement] = await generateWorkbenchScripts({
-        product_id: selectedProduct.id,
-        selling_point_ids: draft.selling_point_ids,
-        custom_selling_points: draft.custom_selling_points,
-        variant_count: 1
-      }, token);
-      if (!replacement) {
-        return;
-      }
-      updateVariant(activeVariant.id, () => ({
-        ...replacement,
-        id: activeVariant.id,
-        order: activeVariant.order,
-        status: "draft",
-        bgm: activeVariant.bgm
-      }));
-      message.success("当前文案已重新生成");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "文案重新生成失败");
-    } finally {
-      setRegeneratingVariantID(null);
-    }
+    await startScriptGeneration("replace_variant", activeVariant.id);
   };
 
   const requestAudition = async () => {
@@ -557,12 +883,65 @@ export function WorkbenchPage({ token }: { token: string }) {
             data-testid="workbench-generate"
             icon={<Sparkles size={17} />}
             loading={generating}
-            disabled={!canGenerate}
+            disabled={!canGenerate || scriptGenerationBusy || scriptGenerationJob?.status === "completed" || scriptGenerationJob?.status === "failed"}
             onClick={() => void generateScripts()}
           >
             生成文案
           </Button>
         </div>
+        {scriptGenerationActive ? (
+          <div className="workbench-generation-notice is-running" data-testid="workbench-generation-job">
+            <span>
+              <strong>{scriptGenerationJob?.mode === "replace_variant" ? "正在重新生成当前文案" : "正在后台生成文案"}</strong>
+              <small>可以离开工作台，任务和结果会自动保留。</small>
+            </span>
+            <Button
+              type="text"
+              danger
+              size="small"
+              loading={scriptGenerationAction === "cancel"}
+              onClick={() => void cancelScriptGeneration()}
+            >
+              取消生成
+            </Button>
+          </div>
+        ) : scriptGenerationJob?.status === "failed" ? (
+          <div className="workbench-generation-notice is-error" data-testid="workbench-generation-job">
+            <span>
+              <strong>文案生成失败</strong>
+              <small>{scriptGenerationJob.error_message || "服务端未返回错误信息"}</small>
+            </span>
+            <div className="workbench-generation-notice-actions">
+              <Button type="text" size="small" loading={scriptGenerationAction === "retry"} onClick={() => void retryScriptGeneration()}>重试</Button>
+              <Button type="text" size="small" loading={scriptGenerationAction === "resolve"} onClick={() => void discardScriptGeneration()}>忽略</Button>
+            </div>
+          </div>
+        ) : scriptGenerationJob?.status === "completed" && scriptGenerationConflict ? (
+          <div className="workbench-generation-notice is-conflict" data-testid="workbench-generation-job">
+            <span>
+              <strong>后台文案已生成，但当前草稿已修改</strong>
+              <small>请选择如何处理，系统不会自动覆盖现有文案。</small>
+            </span>
+            <div className="workbench-generation-notice-actions">
+              <Button type="primary" size="small" loading={scriptGenerationAction === "resolve"} onClick={() => void applyCompletedScriptGeneration(scriptGenerationJob, "replace")}>替换</Button>
+              <Button
+                size="small"
+                disabled={draft.product_id !== scriptGenerationJob.product_id || draft.variants.length >= maxWorkbenchScripts}
+                onClick={() => void applyCompletedScriptGeneration(scriptGenerationJob, "append")}
+              >
+                追加
+              </Button>
+              <Button type="text" size="small" onClick={() => void discardScriptGeneration()}>丢弃</Button>
+            </div>
+          </div>
+        ) : scriptGenerationJob?.status === "completed" ? (
+          <div className="workbench-generation-notice is-running" data-testid="workbench-generation-job">
+            <span>
+              <strong>{scriptGenerationAppliedLocally ? "文案结果已保存" : "文案生成完成"}</strong>
+              <small>{scriptGenerationAppliedLocally ? "正在同步服务端状态。" : "正在写入当前草稿。"}</small>
+            </span>
+          </div>
+        ) : null}
       </section>
 
       <main className="workbench-main">
@@ -640,6 +1019,7 @@ export function WorkbenchPage({ token }: { token: string }) {
                           aria-label="重新生成当前文案"
                           icon={<RefreshCw size={17} />}
                           loading={regeneratingVariantID === activeVariant.id}
+                          disabled={scriptGenerationBusy || scriptGenerationJob?.status === "completed" || scriptGenerationJob?.status === "failed"}
                           onClick={() => void regenerateActiveVariant()}
                         />
                       </Tooltip>

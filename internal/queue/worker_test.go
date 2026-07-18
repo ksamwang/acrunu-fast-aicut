@@ -9,12 +9,13 @@ import (
 )
 
 type stubHandler struct {
-	testTaskID       string
-	extractedAssetID string
-	analyzedAssetID  string
-	embeddedAssetID  string
-	extractFailures  int
-	extractCalls     int
+	testTaskID            string
+	extractedAssetID      string
+	analyzedAssetID       string
+	embeddedAssetID       string
+	scriptGenerationJobID string
+	extractFailures       int
+	extractCalls          int
 }
 
 func (h *stubHandler) HandleTestTask(_ context.Context, payload TestTaskPayload) error {
@@ -60,6 +61,30 @@ func (h *stubHandler) HandleEditPlanGenerate(_ context.Context, _ EditPlanGenera
 
 func (h *stubHandler) HandleGenerationRender(_ context.Context, _ GenerationRenderPayload) error {
 	return nil
+}
+
+func (h *stubHandler) HandleWorkbenchScriptGenerate(_ context.Context, payload WorkbenchScriptGeneratePayload) error {
+	h.scriptGenerationJobID = payload.JobID
+	return nil
+}
+
+func TestHandleFileTaskDispatchesWorkbenchScriptGenerate(t *testing.T) {
+	payload, err := json.Marshal(WorkbenchScriptGeneratePayload{JobID: "job-1"})
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+
+	handler := &stubHandler{}
+	if err := handleFileTask(context.Background(), FileTask{
+		Type:    TypeWorkbenchScriptGenerate,
+		Payload: payload,
+	}, handler); err != nil {
+		t.Fatalf("handleFileTask failed: %v", err)
+	}
+
+	if handler.scriptGenerationJobID != "job-1" {
+		t.Fatalf("expected script generation job id job-1, got %s", handler.scriptGenerationJobID)
+	}
 }
 
 func TestHandleFileTaskDispatchesAssetEmbedding(t *testing.T) {

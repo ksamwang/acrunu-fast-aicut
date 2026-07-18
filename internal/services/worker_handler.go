@@ -15,11 +15,17 @@ type WorkerHandler struct {
 	generationRunService   *GenerationRunService
 	generationPlanning     *GenerationPlanningService
 	generationRenderer     *GenerationRenderService
+	scriptGenerationJobs   *ScriptGenerationJobService
 	queueClient            *queue.Client
 }
 
 func (h *WorkerHandler) WithGenerationRenderer(renderer *GenerationRenderService) *WorkerHandler {
 	h.generationRenderer = renderer
+	return h
+}
+
+func (h *WorkerHandler) WithScriptGenerationJobs(jobs *ScriptGenerationJobService) *WorkerHandler {
+	h.scriptGenerationJobs = jobs
 	return h
 }
 
@@ -144,6 +150,13 @@ func (h *WorkerHandler) HandleGenerationRender(ctx context.Context, payload queu
 		h.markGenerationRunFailed(payload.GenerationRunID, err)
 	}
 	return err
+}
+
+func (h *WorkerHandler) HandleWorkbenchScriptGenerate(ctx context.Context, payload queue.WorkbenchScriptGeneratePayload) error {
+	if h.scriptGenerationJobs == nil {
+		return fmt.Errorf("script generation job service is not configured")
+	}
+	return h.scriptGenerationJobs.Process(ctx, payload.JobID)
 }
 
 func (h *WorkerHandler) enqueueEditPlan(ctx context.Context, payload queue.VoiceoverGeneratePayload) error {

@@ -127,6 +127,9 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   }];
   let savedSubtitlePresetPayload: Record<string, any> | null = null;
   let voiceoverTaskPayload: Record<string, any> | null = null;
+  let scriptGenerationSequence = 0;
+  let scriptGenerationJob: Record<string, any> | null = null;
+  let scriptGenerationCompletesAt = 0;
   let bgmTracks = [
     {
       id: "bgm-light-1", name: "轻快骑行", file_name: "light-ride.mp3", audio_url: "/storage/bgm/bgm-light-1/source.mp3",
@@ -399,6 +402,88 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         body: JSON.stringify({ data: subtitlePresets })
       });
       return;
+    }
+
+    if (url.includes("/api/workbench/script-generation-jobs")) {
+      const request = route.request();
+      const method = request.method();
+      const path = new URL(url).pathname;
+      if (method === "POST" && path === "/api/workbench/script-generation-jobs") {
+        const body = request.postDataJSON() as Record<string, any>;
+        scriptGenerationSequence += 1;
+        const now = new Date().toISOString();
+        scriptGenerationJob = {
+          id: `script-job-${scriptGenerationSequence}`,
+          created_by_user_id: "dev-admin",
+          product_id: body.product_id,
+          mode: body.mode,
+          target_variant_id: body.target_variant_id,
+          base_revision: body.base_revision,
+          status: "queued",
+          input: {
+            product_id: body.product_id,
+            selling_point_ids: body.selling_point_ids,
+            custom_selling_points: body.custom_selling_points,
+            variant_count: body.variant_count
+          },
+          result_variants: [{
+            id: `script-generated-${scriptGenerationSequence}`,
+            order: 1,
+            hook: "回到家，灯光自动亮起。",
+            script_text: "回到家，灯光自动亮起。无需摸黑找开关，自动唤醒让每一次归家都更安心。",
+            estimated_duration_ms: 9500,
+            editing_intent: "从昏暗归家场景切入，展示自动亮灯和安心使用的结果。",
+            beats: [
+              { id: `script-generated-${scriptGenerationSequence}-beat-1`, label: "痛点", selling_point: "Auto Wake", visual_goal: "以昏暗归家场景建立需求。", source_type: "visual_only" },
+              { id: `script-generated-${scriptGenerationSequence}-beat-2`, label: "触发", selling_point: "Auto Wake", visual_goal: "展示设备自动亮起的瞬间。", source_type: "visual_only" },
+              { id: `script-generated-${scriptGenerationSequence}-beat-3`, label: "结果", selling_point: "Auto Wake", visual_goal: "展示夜间使用时的安心感。", source_type: "visual_only" }
+            ],
+            status: "draft",
+            updated_at: now
+          }],
+          created_at: now,
+          updated_at: now
+        };
+        scriptGenerationCompletesAt = Date.now() + 650;
+        await route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify({ data: scriptGenerationJob })
+        });
+        return;
+      }
+
+      if (scriptGenerationJob && (scriptGenerationJob.status === "queued" || scriptGenerationJob.status === "generating") && Date.now() >= scriptGenerationCompletesAt) {
+        scriptGenerationJob = {
+          ...scriptGenerationJob,
+          status: "completed",
+          updated_at: new Date().toISOString(),
+          completed_at: new Date().toISOString()
+        };
+      }
+
+      if (method === "GET" && path.endsWith("/latest")) {
+        const unresolved = scriptGenerationJob && ["queued", "generating", "completed", "failed"].includes(scriptGenerationJob.status)
+          ? scriptGenerationJob
+          : null;
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: unresolved }) });
+        return;
+      }
+      if (method === "GET") {
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: scriptGenerationJob }) });
+        return;
+      }
+      if (method === "POST" && path.endsWith("/cancel")) {
+        scriptGenerationJob = scriptGenerationJob ? { ...scriptGenerationJob, status: "cancelled", updated_at: new Date().toISOString() } : null;
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: scriptGenerationJob }) });
+        return;
+      }
+      if (method === "POST" && path.endsWith("/resolve")) {
+        const body = request.postDataJSON() as { resolution: "applied" | "discarded" };
+        scriptGenerationJob = scriptGenerationJob ? { ...scriptGenerationJob, status: body.resolution, updated_at: new Date().toISOString() } : null;
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: scriptGenerationJob }) });
+        return;
+      }
     }
 
     if (url.includes("/api/workbench/scripts/generate")) {
@@ -1163,7 +1248,18 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
 
   await expect(page.getByTestId("workbench-generate")).toBeEnabled();
   await page.getByTestId("workbench-generate").click();
+  await expect(page.getByTestId("workbench-generation-job")).toContainText("正在后台生成文案");
+  await page.getByRole("menuitem", { name: "成品库" }).click();
+  await page.reload();
+  await page.getByRole("menuitem", { name: "工作台" }).click();
   await expect(page.getByText("文案 01")).toBeVisible();
+  await page.getByRole("button", { name: "重新生成当前文案" }).click();
+  await expect(page.getByTestId("workbench-generation-job")).toContainText("正在重新生成当前文案");
+  await page.getByTestId("workbench-script-editor").fill("这是用户在后台生成期间手动修改并保留的文案。");
+  await expect(page.getByTestId("workbench-generation-job")).toContainText("当前草稿已修改");
+  await expect(page.getByTestId("workbench-script-editor")).toHaveValue("这是用户在后台生成期间手动修改并保留的文案。");
+  await page.getByTestId("workbench-generation-job").getByRole("button", { name: "丢弃" }).click();
+  await expect(page.getByTestId("workbench-generation-job")).toHaveCount(0);
   const bgmControls = page.locator(".workbench-bgm");
   await expect(bgmControls.getByText("2 首可用")).toBeVisible();
   await bgmControls.getByText("指定", { exact: true }).click();

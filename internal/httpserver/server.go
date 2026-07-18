@@ -21,6 +21,7 @@ type Options struct {
 	AssetEmbeddingService      *services.AssetEmbeddingService
 	VoiceoverService           *services.VoiceoverService
 	ScriptGenerationService    *services.ScriptGenerationService
+	ScriptGenerationJobService *services.ScriptGenerationJobService
 	GenerationRunService       *services.GenerationRunService
 	SubtitleStylePresetService *services.SubtitleStylePresetService
 	BGMTrackService            *services.BGMTrackService
@@ -37,6 +38,7 @@ type Server struct {
 	assetEmbeddingService      *services.AssetEmbeddingService
 	voiceoverService           *services.VoiceoverService
 	scriptGenerationService    *services.ScriptGenerationService
+	scriptGenerationJobService *services.ScriptGenerationJobService
 	generationRunService       *services.GenerationRunService
 	subtitleStylePresetService *services.SubtitleStylePresetService
 	bgmTrackService            *services.BGMTrackService
@@ -83,6 +85,10 @@ func New(opts Options) *Server {
 	if scriptGenerationService == nil {
 		scriptGenerationService = services.NewScriptGenerationService(productAssetService, systemConfigService, modelProviderService, opts.Config)
 	}
+	scriptGenerationJobService := opts.ScriptGenerationJobService
+	if scriptGenerationJobService == nil {
+		scriptGenerationJobService = services.NewScriptGenerationJobService(nil, scriptGenerationService)
+	}
 	generationRunService := opts.GenerationRunService
 	if generationRunService == nil {
 		generationRunService = services.NewGenerationRunService(voiceoverService)
@@ -113,6 +119,7 @@ func New(opts Options) *Server {
 		assetEmbeddingService:      assetEmbeddingService,
 		voiceoverService:           voiceoverService,
 		scriptGenerationService:    scriptGenerationService,
+		scriptGenerationJobService: scriptGenerationJobService,
 		generationRunService:       generationRunService,
 		subtitleStylePresetService: subtitleStylePresetService,
 		bgmTrackService:            bgmTrackService,
@@ -225,6 +232,11 @@ func (s *Server) routes() {
 	protected.POST("/preprocess/asr-transcribe", s.handlePreprocessASRTranscribe)
 	protected.POST("/preprocess/vlm-label", s.handlePreprocessVLMLabel)
 	protected.POST("/workbench/scripts/generate", s.handleGenerateWorkbenchScripts)
+	protected.POST("/workbench/script-generation-jobs", s.handleCreateScriptGenerationJob)
+	protected.GET("/workbench/script-generation-jobs/latest", s.handleGetLatestScriptGenerationJob)
+	protected.GET("/workbench/script-generation-jobs/:jobID", s.handleGetScriptGenerationJob)
+	protected.POST("/workbench/script-generation-jobs/:jobID/cancel", s.handleCancelScriptGenerationJob)
+	protected.POST("/workbench/script-generation-jobs/:jobID/resolve", s.handleResolveScriptGenerationJob)
 	protected.GET("/voice-profiles", s.handleListVoiceProfiles)
 	protected.GET("/subtitle-presets", s.handleListSubtitleStylePresets)
 	protected.GET("/bgm-tracks", s.handleListBGMTracks)

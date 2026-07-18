@@ -62,6 +62,40 @@ export type ScriptVariant = {
   updated_at: string;
 };
 
+export type ScriptGenerationJobMode = "replace_all" | "replace_variant";
+export type ScriptGenerationJobStatus = "queued" | "generating" | "completed" | "failed" | "cancelled" | "applied" | "discarded";
+
+export type ScriptGenerationJobInput = {
+  product_id: string;
+  selling_point_ids: string[];
+  custom_selling_points: string[];
+  variant_count: number;
+};
+
+export type ScriptGenerationJob = {
+  id: string;
+  created_by_user_id: string;
+  product_id: string;
+  mode: ScriptGenerationJobMode;
+  target_variant_id?: string;
+  base_revision: string;
+  status: ScriptGenerationJobStatus;
+  input: ScriptGenerationJobInput;
+  result_variants?: Array<Omit<ScriptVariant, "bgm" | "origin">>;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  completed_at?: string;
+  resolved_at?: string;
+};
+
+export type ScriptGenerationJobReference = {
+  job_id: string;
+  base_revision: string;
+  applied_locally?: boolean;
+};
+
 export type WorkbenchDraft = {
   product_id: string;
   selling_point_ids: string[];
@@ -72,6 +106,7 @@ export type WorkbenchDraft = {
   variant_count: number;
   variants: ScriptVariant[];
   active_variant_id: string;
+  script_generation?: ScriptGenerationJobReference;
 };
 
 export type PrototypeRunStatus = "preparing" | "voicing" | "planning" | "rendering" | "completed";

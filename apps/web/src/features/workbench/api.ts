@@ -1,5 +1,11 @@
 import { apiRequest } from "../../shared/api/server-api";
-import type { FinishedWork, ScriptVariant } from "../../shared/types/generation";
+import type {
+  FinishedWork,
+  ScriptGenerationJob,
+  ScriptGenerationJobInput,
+  ScriptGenerationJobMode,
+  ScriptVariant
+} from "../../shared/types/generation";
 import type { VoiceAudition } from "../../shared/types/voice";
 
 type VoiceoverTaskVariant = Pick<ScriptVariant, "hook" | "script_text" | "editing_intent" | "beats" | "bgm">;
@@ -15,6 +21,41 @@ export function generateWorkbenchScripts(input: GenerateWorkbenchScriptsInput, t
   return apiRequest<ScriptVariant[]>("/api/workbench/scripts/generate", {
     method: "POST",
     body: JSON.stringify(input)
+  }, token);
+}
+
+export function createScriptGenerationJob(
+  input: ScriptGenerationJobInput & {
+    mode: ScriptGenerationJobMode;
+    target_variant_id?: string;
+    base_revision: string;
+  },
+  token: string
+) {
+  return apiRequest<ScriptGenerationJob>("/api/workbench/script-generation-jobs", {
+    method: "POST",
+    body: JSON.stringify(input)
+  }, token);
+}
+
+export function getScriptGenerationJob(jobID: string, token: string) {
+  return apiRequest<ScriptGenerationJob>(`/api/workbench/script-generation-jobs/${encodeURIComponent(jobID)}`, {}, token);
+}
+
+export async function getLatestScriptGenerationJob(token: string) {
+  return (await apiRequest<ScriptGenerationJob | null>("/api/workbench/script-generation-jobs/latest", {}, token)) ?? null;
+}
+
+export function cancelScriptGenerationJob(jobID: string, token: string) {
+  return apiRequest<ScriptGenerationJob>(`/api/workbench/script-generation-jobs/${encodeURIComponent(jobID)}/cancel`, {
+    method: "POST"
+  }, token);
+}
+
+export function resolveScriptGenerationJob(jobID: string, resolution: "applied" | "discarded", token: string) {
+  return apiRequest<ScriptGenerationJob>(`/api/workbench/script-generation-jobs/${encodeURIComponent(jobID)}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ resolution })
   }, token);
 }
 
