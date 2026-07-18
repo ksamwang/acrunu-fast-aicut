@@ -132,6 +132,48 @@
   background: #0b625b !important;
 }
 
+.workbench-primary-actions {
+  display: flex;
+  align-self: end;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.workbench-primary-actions .ant-btn {
+  min-height: 32px;
+  border-radius: 5px;
+}
+
+.workbench-import-modal .ant-modal-content { border-radius: 6px; }
+.workbench-import-toolbar,
+.workbench-import-summary,
+.workbench-import-file-row {
+  display: flex;
+  align-items: center;
+}
+.workbench-import-toolbar { justify-content: space-between; gap: 12px; }
+.workbench-import-file-panel { min-height: 82px; }
+.workbench-import-file-row { min-height: 42px; gap: 12px; }
+.workbench-import-file-row > span { display: inline-flex; align-items: center; gap: 6px; color: #475467; }
+.workbench-import-template { margin-left: auto; padding-inline: 4px; }
+.workbench-import-mapping {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) minmax(180px, 1fr);
+  align-items: end;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid #e1e7ea;
+  border-radius: 5px;
+  background: #f8fafb;
+}
+.workbench-import-mapping > .ant-checkbox-wrapper { align-self: center; white-space: nowrap; }
+.workbench-import-mapping label { display: grid; gap: 4px; min-width: 0; color: #667085; font-size: 12px; }
+.workbench-import-mapping .ant-select { width: 100%; }
+.workbench-import-preview { min-height: 190px; border: 1px solid #e1e7ea; border-radius: 5px; overflow: hidden; }
+.workbench-import-preview .ant-empty { margin-block: 54px; }
+.workbench-import-script-cell { display: block; max-width: 390px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-import-summary { justify-content: flex-end; gap: 16px; min-height: 34px; color: #667085; font-size: 12px; }
+
 .workbench-main {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -182,6 +224,8 @@
 .workbench-rail-header .ant-btn {
   color: #667085;
 }
+
+.workbench-rail-actions { display: inline-flex; align-items: center; gap: 1px; }
 
 .workbench-variant-list {
   min-height: 0;
@@ -525,6 +569,8 @@
 }
 
 @media (max-width: 560px) {
+  .workbench-import-mapping { grid-template-columns: 1fr; align-items: stretch; }
+
   .workbench-script-toolbar {
     align-items: flex-start;
     flex-direction: column;

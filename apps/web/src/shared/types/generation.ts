@@ -45,6 +45,7 @@ export type EditPlanBeat = {
 };
 
 export type ScriptVariantStatus = "draft" | "confirmed";
+export type ScriptVariantOrigin = "generated" | "imported";
 
 export type ScriptVariant = {
   id: string;
@@ -55,6 +56,7 @@ export type ScriptVariant = {
   editing_intent: string;
   beats: EditingIntentBeat[];
   status: ScriptVariantStatus;
+  origin?: ScriptVariantOrigin;
   intent_stale?: boolean;
   bgm: BGMSelection;
   updated_at: string;

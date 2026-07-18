@@ -1110,6 +1110,46 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await page.getByTestId("workbench-product-select").click();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
+
+  await page.getByTestId("workbench-import").click();
+  const importModal = page.locator(".workbench-import-modal");
+  await expect(importModal).toBeVisible();
+  await importModal.getByTestId("workbench-import-paste").fill("第一条文案第一行\n第一条文案第二行\n\n第二条文案独立成段。");
+  await expect(importModal.locator(".ant-table-row")).toHaveCount(2);
+  await expect(importModal.getByText("可导入 2 条", { exact: true })).toBeVisible();
+  await importModal.getByRole("button", { name: "导入 2 条" }).click();
+  await expect(page.getByText("文案 2", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重新生成当前文案" })).toHaveCount(0);
+  await expect(page.getByTestId("workbench-start-tasks")).toHaveText("开始 0 条任务");
+  await page.getByRole("button", { name: "确认全部文案" }).click();
+  await expect(page.getByTestId("workbench-start-tasks")).toHaveText("开始 2 条任务");
+  await page.getByRole("button", { name: "清空当前文案" }).click();
+  await expect(page.getByText("尚未生成文案")).toBeVisible();
+
+  await page.getByTestId("workbench-import").click();
+  const fileImportModal = page.locator(".workbench-import-modal");
+  await fileImportModal.getByRole("tab", { name: "文件导入" }).click();
+  const scriptTemplateDownloadPromise = page.waitForEvent("download");
+  await fileImportModal.getByRole("button", { name: "下载模板" }).click();
+  const templateDownload = await scriptTemplateDownloadPromise;
+  expect(templateDownload.suggestedFilename()).toBe("文案批量导入模板.csv");
+  await fileImportModal.locator('input[type="file"]').setInputFiles({
+    name: "scripts.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("备注,自定义标题,口播内容\n忽略,CSV标题,CSV导入文案。", "utf8")
+  });
+  await fileImportModal.getByTestId("workbench-import-header-row").click();
+  await fileImportModal.getByTestId("workbench-import-script-column").click();
+  await page.locator(".ant-select-dropdown").last().locator(".ant-select-item-option").filter({ hasText: "口播内容" }).click();
+  await fileImportModal.getByTestId("workbench-import-title-column").click();
+  await page.locator(".ant-select-dropdown").last().locator(".ant-select-item-option").filter({ hasText: "自定义标题" }).click();
+  await expect(fileImportModal.locator(".ant-table-row")).toHaveCount(1);
+  await expect(fileImportModal.getByText("CSV标题", { exact: true })).toBeVisible();
+  await fileImportModal.getByRole("button", { name: "导入 1 条" }).click();
+  await expect(page.getByText("文案 1", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "清空当前文案" }).click();
+  await expect(page.getByText("尚未生成文案")).toBeVisible();
+
   await expect(page.getByTestId("workbench-generate")).toBeEnabled();
   await page.getByTestId("workbench-generate").click();
   await expect(page.getByText("文案 01")).toBeVisible();

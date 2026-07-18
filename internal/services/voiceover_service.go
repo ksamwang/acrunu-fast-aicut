@@ -109,6 +109,11 @@ type VoiceoverVariantInput struct {
 	BGM           BGMSelectionInput `json:"bgm"`
 }
 
+func ValidateVoiceoverVariantInput(input VoiceoverVariantInput) error {
+	_, err := normalizeVoiceText(input.ScriptText)
+	return err
+}
+
 type CreateVoiceoverWorkInput struct {
 	TaskID         string
 	ProductID      string

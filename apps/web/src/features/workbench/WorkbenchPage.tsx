@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, Input, InputNumber, Modal, Popover, Segmented, Select, Slider, Tag, Tooltip, Typography, message } from "antd";
-import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, Music2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
+import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, FileUp, ListChecks, Music2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
@@ -20,6 +20,8 @@ import {
   saveWorkbenchDraft
 } from "./draft-store";
 import { createVoiceAudition, createVoiceoverTasks, generateWorkbenchScripts, getVoiceAudition } from "./api";
+import { ScriptImportModal } from "./ScriptImportModal";
+import { deriveScriptHook, maxWorkbenchScripts, type ImportedScript } from "./script-import";
 import "./styles.css";
 
 const sourceTypeLabels = {
@@ -47,6 +49,7 @@ export function WorkbenchPage({ token }: { token: string }) {
   const [audition, setAudition] = useState<VoiceAudition | null>(null);
   const [creatingAudition, setCreatingAudition] = useState(false);
   const [playingBGM, setPlayingBGM] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const defaultedProductIDRef = useRef("");
   const voiceProfilesResource = useVoiceProfiles(token);
@@ -65,6 +68,7 @@ export function WorkbenchPage({ token }: { token: string }) {
   const selectedSellingPoints = availableSellingPoints.filter((point) => draft.selling_point_ids.includes(point.id));
   const activeVariant = draft.variants.find((variant) => variant.id === draft.active_variant_id) ?? draft.variants[0] ?? null;
   const confirmedVariants = draft.variants.filter((variant) => variant.status === "confirmed");
+  const allVariantsConfirmed = draft.variants.length > 0 && confirmedVariants.length === draft.variants.length;
   const canGenerate = Boolean(selectedProduct) && (selectedSellingPoints.length > 0 || draft.custom_selling_points.length > 0);
   const availableVoiceProfiles = useMemo(
     () => voiceProfilesResource.profiles.filter((profile) => profile.status === "enabled" && profile.preview_status === "ready"),
@@ -237,7 +241,7 @@ export function WorkbenchPage({ token }: { token: string }) {
         variant_count: draft.variant_count
       }, token);
       const defaultBGM: BGMSelection = { mode: enabledBGMTracks.length > 0 ? "random" : "none", track_id: "", gain_db: -12 };
-      const normalizedVariants = variants.map((variant) => ({ ...variant, bgm: variant.bgm ?? defaultBGM }));
+      const normalizedVariants = variants.map((variant) => ({ ...variant, origin: "generated" as const, bgm: variant.bgm ?? defaultBGM }));
       setDraft((current) => ({ ...current, variants: normalizedVariants, active_variant_id: normalizedVariants[0]?.id ?? "" }));
       message.success(`已生成 ${variants.length} 条文案`);
     } catch (error) {
@@ -260,6 +264,45 @@ export function WorkbenchPage({ token }: { token: string }) {
       status: variant.status === "confirmed" ? "draft" : "confirmed",
       updated_at: new Date().toISOString()
     }));
+  };
+
+  const toggleAllVariantsConfirmed = () => {
+    const status = allVariantsConfirmed ? "draft" : "confirmed";
+    const updatedAt = new Date().toISOString();
+    setDraft((current) => ({
+      ...current,
+      variants: current.variants.map((variant) => ({ ...variant, status, updated_at: updatedAt }))
+    }));
+  };
+
+  const importScripts = (scripts: ImportedScript[], mode: "append" | "replace") => {
+    const defaultBGM: BGMSelection = { mode: enabledBGMTracks.length > 0 ? "random" : "none", track_id: "", gain_db: -12 };
+    const now = new Date().toISOString();
+    setDraft((current) => {
+      const retained = mode === "replace" ? [] : current.variants;
+      const available = Math.max(0, maxWorkbenchScripts - retained.length);
+      const imported = scripts.slice(0, available).map<ScriptVariant>((script, index) => ({
+        id: crypto.randomUUID(),
+        order: retained.length + index + 1,
+        hook: deriveScriptHook(script.script_text, script.title),
+        script_text: script.script_text,
+        estimated_duration_ms: estimateDuration(script.script_text),
+        editing_intent: "",
+        beats: [],
+        status: "draft",
+        origin: "imported",
+        bgm: { ...defaultBGM },
+        updated_at: now
+      }));
+      const variants = [...retained, ...imported].map((variant, index) => ({ ...variant, order: index + 1 }));
+      return {
+        ...current,
+        variants,
+        active_variant_id: imported[0]?.id ?? variants[0]?.id ?? ""
+      };
+    });
+    setImportOpen(false);
+    message.success(`已导入 ${scripts.length} 条文案`);
   };
 
   const regenerateActiveVariant = async () => {
@@ -359,7 +402,15 @@ export function WorkbenchPage({ token }: { token: string }) {
         confirmedVariants,
         token
       );
-      const nextDraft = clearWorkbenchVariants(draft);
+      const submittedIDs = new Set(confirmedVariants.map((variant) => variant.id));
+      const remainingVariants = draft.variants
+        .filter((variant) => !submittedIDs.has(variant.id))
+        .map((variant, index) => ({ ...variant, order: index + 1 }));
+      const nextDraft = {
+        ...draft,
+        variants: remainingVariants,
+        active_variant_id: remainingVariants[0]?.id ?? ""
+      };
       saveWorkbenchDraft(nextDraft);
       setDraft(nextDraft);
       message.success(`已开始 ${works.length} 条任务`);
@@ -491,17 +542,27 @@ export function WorkbenchPage({ token }: { token: string }) {
             onChange={(voiceProfileID) => setDraft((current) => ({ ...current, voice_profile_id: voiceProfileID }))}
           />
         </div>
-        <Button
-          type="primary"
-          className="workbench-generate-button"
-          data-testid="workbench-generate"
-          icon={<Sparkles size={17} />}
-          loading={generating}
-          disabled={!canGenerate}
-          onClick={() => void generateScripts()}
-        >
-          生成文案
-        </Button>
+        <div className="workbench-primary-actions">
+          <Button
+            data-testid="workbench-import"
+            icon={<FileUp size={17} />}
+            disabled={!selectedProduct}
+            onClick={() => setImportOpen(true)}
+          >
+            导入文案
+          </Button>
+          <Button
+            type="primary"
+            className="workbench-generate-button"
+            data-testid="workbench-generate"
+            icon={<Sparkles size={17} />}
+            loading={generating}
+            disabled={!canGenerate}
+            onClick={() => void generateScripts()}
+          >
+            生成文案
+          </Button>
+        </div>
       </section>
 
       <main className="workbench-main">
@@ -513,16 +574,27 @@ export function WorkbenchPage({ token }: { token: string }) {
           <div className="workbench-editor">
             <aside className="workbench-variant-rail" aria-label="文案版本">
               <div className="workbench-rail-header">
-                <Typography.Text>文案</Typography.Text>
-                <Tooltip title="清空当前文案">
-                  <Button
-                    type="text"
-                    size="small"
-                    aria-label="清空当前文案"
-                    icon={<RotateCcw size={16} />}
-                    onClick={() => setDraft((current) => clearWorkbenchVariants(current))}
-                  />
-                </Tooltip>
+                <Typography.Text>文案 {draft.variants.length}</Typography.Text>
+                <span className="workbench-rail-actions">
+                  <Tooltip title={allVariantsConfirmed ? "取消全部确认" : "确认全部文案"}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={allVariantsConfirmed ? "取消全部确认" : "确认全部文案"}
+                      icon={<ListChecks size={16} />}
+                      onClick={toggleAllVariantsConfirmed}
+                    />
+                  </Tooltip>
+                  <Tooltip title="清空当前文案">
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="清空当前文案"
+                      icon={<RotateCcw size={16} />}
+                      onClick={() => setDraft((current) => clearWorkbenchVariants(current))}
+                    />
+                  </Tooltip>
+                </span>
               </div>
               <div className="workbench-variant-list">
                 {draft.variants.map((variant) => (
@@ -561,15 +633,17 @@ export function WorkbenchPage({ token }: { token: string }) {
                     >
                       {activeAudition?.status === "queued" || activeAudition?.status === "synthesizing" ? "生成试听" : "试听当前文案"}
                     </Button>
-                    <Tooltip title="重新生成当前文案">
-                      <Button
-                        type="text"
-                        aria-label="重新生成当前文案"
-                        icon={<RefreshCw size={17} />}
-                        loading={regeneratingVariantID === activeVariant.id}
-                        onClick={() => void regenerateActiveVariant()}
-                      />
-                    </Tooltip>
+                    {activeVariant.origin !== "imported" ? (
+                      <Tooltip title="重新生成当前文案">
+                        <Button
+                          type="text"
+                          aria-label="重新生成当前文案"
+                          icon={<RefreshCw size={17} />}
+                          loading={regeneratingVariantID === activeVariant.id}
+                          onClick={() => void regenerateActiveVariant()}
+                        />
+                      </Tooltip>
+                    ) : null}
                     <Button
                       type={activeVariant.status === "confirmed" ? "default" : "primary"}
                       icon={<Check size={16} />}
@@ -599,7 +673,7 @@ export function WorkbenchPage({ token }: { token: string }) {
                       script_text: scriptText,
                       estimated_duration_ms: estimateDuration(scriptText),
                       status: "draft",
-                      intent_stale: true,
+                      intent_stale: variant.origin !== "imported",
                       updated_at: new Date().toISOString()
                     }));
                   }}
@@ -637,7 +711,7 @@ export function WorkbenchPage({ token }: { token: string }) {
                   </div>
                 </section>
 
-                <section className="workbench-intent" aria-label="镜头意图">
+                {activeVariant.editing_intent || activeVariant.beats.length > 0 ? <section className="workbench-intent" aria-label="镜头意图">
                   <div className="workbench-intent-heading">
                     <Typography.Text>镜头意图</Typography.Text>
                     {activeVariant.intent_stale ? <Tag color="gold">待刷新</Tag> : null}
@@ -655,7 +729,7 @@ export function WorkbenchPage({ token }: { token: string }) {
                       </li>
                     ))}
                   </ol>
-                </section>
+                </section> : null}
               </section>
             ) : null}
           </div>
@@ -679,6 +753,12 @@ export function WorkbenchPage({ token }: { token: string }) {
           开始 {confirmedVariants.length} 条任务
         </Button>
       </footer>
+      <ScriptImportModal
+        open={importOpen}
+        existingScripts={draft.variants.map((variant) => variant.script_text)}
+        onCancel={() => setImportOpen(false)}
+        onImport={importScripts}
+      />
     </div>
   );
 }

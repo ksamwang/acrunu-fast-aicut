@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,26 @@ func (voiceoverHandlerTranscriber) Transcribe(_ context.Context, _ modelgateway.
 			Text:    "固定裤脚",
 		}},
 	}, nil
+}
+
+func TestVoiceoverTaskHandlerRejectsMoreThanTwoHundredVariants(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := New(Options{})
+	variants := make([]map[string]any, maxVoiceoverTaskVariants+1)
+	for index := range variants {
+		variants[index] = map[string]any{"script_text": "测试文案"}
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"product_id": "product-1", "voice_profile_id": "voice-1", "variants": variants,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/workbench/voiceover-tasks", bytes.NewReader(payload))
+	request.Header.Set("Authorization", voiceoverUserAuthHeader())
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Engine().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "1 至 200") {
+		t.Fatalf("expected 200-item limit, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestVoiceProfileHandlersCreateListAndQueueAudition(t *testing.T) {

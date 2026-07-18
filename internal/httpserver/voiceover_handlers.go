@@ -18,6 +18,7 @@ import (
 const (
 	maxVoiceProfileRequestBytes = (20 << 20) + (1 << 20)
 	voiceProfileMemoryBytes     = 8 << 20
+	maxVoiceoverTaskVariants    = 200
 )
 
 type voiceProfileForm struct {
@@ -181,8 +182,8 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "invalid_voiceover_tasks", "配音任务格式不正确")
 		return
 	}
-	if request.ProductID == "" || request.VoiceProfileID == "" || len(request.Variants) == 0 || len(request.Variants) > 8 {
-		Fail(c, http.StatusBadRequest, "invalid_voiceover_tasks", "产品、音色和 1 至 8 条文案均为必填")
+	if request.ProductID == "" || request.VoiceProfileID == "" || len(request.Variants) == 0 || len(request.Variants) > maxVoiceoverTaskVariants {
+		Fail(c, http.StatusBadRequest, "invalid_voiceover_tasks", "产品、音色和 1 至 200 条文案均为必填")
 		return
 	}
 	product, err := s.productAssetService.GetProduct(request.ProductID)
@@ -204,9 +205,9 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 		handleSubtitleStyleError(c, err)
 		return
 	}
-	for _, variant := range request.Variants {
-		if strings.TrimSpace(variant.ScriptText) == "" {
-			Fail(c, http.StatusBadRequest, "invalid_voiceover_tasks", "文案不能为空")
+	for index, variant := range request.Variants {
+		if err := services.ValidateVoiceoverVariantInput(variant); err != nil {
+			Fail(c, http.StatusBadRequest, "invalid_voiceover_tasks", fmt.Sprintf("第 %d 条文案为空或超过 4000 字", index+1))
 			return
 		}
 	}

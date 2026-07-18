@@ -48,6 +48,7 @@ function normalizeVariant(variant: ScriptVariant): ScriptVariant {
   const mode = variant.bgm?.mode;
   return {
     ...variant,
+    origin: variant.origin === "imported" ? "imported" : "generated",
     bgm: {
       mode: mode === "track" || mode === "none" ? mode : "random",
       track_id: variant.bgm?.track_id ?? "",
