@@ -26,6 +26,7 @@ type ShotRequirement struct {
 	VisualBeatID        string   `json:"visual_beat_id"`
 	NarrationSegmentID  string   `json:"narration_segment_id"`
 	NarrationSegmentIDs []string `json:"narration_segment_ids"`
+	NarrativeBeatID     string   `json:"narrative_beat_id,omitempty"`
 	StartMs             int      `json:"start_ms"`
 	EndMs               int      `json:"end_ms"`
 	DurationClass       string   `json:"duration_class"`
@@ -232,6 +233,7 @@ func BuildShotRequirements(visualBeats []VisualBeat, narrationSegments []Narrati
 			VisualBeatID:        strings.TrimSpace(beat.ID),
 			NarrationSegmentID:  anchor.ID,
 			NarrationSegmentIDs: narrationIDs,
+			NarrativeBeatID:     strings.TrimSpace(beat.NarrativeBeatID),
 			StartMs:             beat.StartMs,
 			EndMs:               beat.EndMs,
 			DurationClass:       normalizeVisualBeatDurationClass(beat.DurationClass),

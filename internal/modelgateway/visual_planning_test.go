@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,6 +107,47 @@ func TestValidateVisualPlanResultLimitsBriefCuts(t *testing.T) {
 	}
 }
 
+func TestValidateVisualPlanResultRejectsMissingNarrativeBeat(t *testing.T) {
+	input := VisualPlanInput{
+		ProductName: "束裤带",
+		ScriptText:  "魔术贴绑带，收纳方便，不占空间。",
+		NarrationSegments: []VisualPlanNarrationSegment{
+			{ID: "n-1", StartMs: 0, EndMs: 1200, Text: "魔术贴绑带，"},
+			{ID: "n-2", StartMs: 1200, EndMs: 3000, Text: "收纳方便，不占空间。"},
+		},
+		NarrativeBeats: []VisualPlanNarrativeBeat{
+			{ID: "business-velcro", Label: "魔术贴", VisualGoal: "展示魔术贴开合", SourceType: "visual_only"},
+			{ID: "business-storage", Label: "收纳", VisualGoal: "展示折叠收纳", SourceType: "visual_only"},
+		},
+	}
+	err := ValidateVisualPlanResult(VisualPlanResult{VisualBeats: []VisualPlanBeat{{
+		NarrationSegmentID: "n-1", NarrativeBeatID: "business-velcro",
+		StartMs: 0, EndMs: 3000, DurationClass: VisualDurationClassAction,
+		Label: "魔术贴收纳", VisualGoal: "展示魔术贴开合及折叠收纳", SourceType: "visual_only",
+	}}}, input)
+	if err == nil || !strings.Contains(err.Error(), "business-storage") {
+		t.Fatalf("expected omitted storage business intention to be rejected, got %v", err)
+	}
+}
+
+func TestValidateVisualPlanResultAllowsMultipleAtomicVisualsForNarrativeBeat(t *testing.T) {
+	input := VisualPlanInput{
+		ProductName:       "束裤带",
+		ScriptText:        "一物多用，能绑水壶和修车工具。",
+		NarrationSegments: []VisualPlanNarrationSegment{{ID: "n-1", StartMs: 0, EndMs: 5000, Text: "一物多用，能绑水壶和修车工具。"}},
+		NarrativeBeats: []VisualPlanNarrativeBeat{{
+			ID: "business-multiuse", Label: "一物多用", VisualGoal: "展示绑水壶和修车工具", SourceType: "visual_only",
+		}},
+	}
+	result := VisualPlanResult{VisualBeats: []VisualPlanBeat{
+		{NarrationSegmentID: "n-1", NarrativeBeatID: "business-multiuse", StartMs: 0, EndMs: 3000, DurationClass: VisualDurationClassAction, Label: "绑水壶", VisualGoal: "展示束裤带固定水壶", SourceType: "visual_only"},
+		{NarrationSegmentID: "n-1", NarrativeBeatID: "business-multiuse", StartMs: 3000, EndMs: 5000, DurationClass: VisualDurationClassStandard, Label: "绑工具", VisualGoal: "展示束裤带固定修车工具的结果", SourceType: "visual_only"},
+	}}
+	if err := ValidateVisualPlanResult(result, input); err != nil {
+		t.Fatalf("expected one business intention to allow multiple atomic visuals: %v", err)
+	}
+}
+
 func TestValidateVisualPlanResultRejectsNonVisualOnlyMaterial(t *testing.T) {
 	input := VisualPlanInput{
 		ProductName: "束裤带",
@@ -128,7 +170,7 @@ func TestOpenAICompatibleEditPlannerPlansVisualBeats(t *testing.T) {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"visual_beats\":[{\"narration_segment_id\":\"n-1\",\"start_ms\":0,\"end_ms\":1000,\"duration_class\":\"brief\",\"label\":\"展示\",\"selling_point\":\"\",\"visual_goal\":\"展示产品外观\",\"source_type\":\"visual_only\"}]}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"visual_beats\":[{\"narration_segment_id\":\"n-1\",\"narrative_beat_id\":\"\",\"start_ms\":0,\"end_ms\":1000,\"duration_class\":\"brief\",\"label\":\"展示\",\"selling_point\":\"\",\"visual_goal\":\"展示产品外观\",\"source_type\":\"visual_only\"}]}"}}]}`))
 	}))
 	defer server.Close()
 	planner := NewOpenAICompatibleEditPlanner(Config{Provider: "openai_compatible", BaseURL: server.URL, Model: "planner-model", Timeout: time.Second})

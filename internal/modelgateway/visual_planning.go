@@ -28,6 +28,7 @@ type VisualPlanNarrationSegment struct {
 }
 
 type VisualPlanNarrativeBeat struct {
+	ID           string `json:"id"`
 	Label        string `json:"label"`
 	SellingPoint string `json:"selling_point"`
 	VisualGoal   string `json:"visual_goal"`
@@ -44,6 +45,7 @@ type VisualPlanInput struct {
 
 type VisualPlanBeat struct {
 	NarrationSegmentID string `json:"narration_segment_id"`
+	NarrativeBeatID    string `json:"narrative_beat_id"`
 	StartMs            int    `json:"start_ms"`
 	EndMs              int    `json:"end_ms"`
 	DurationClass      string `json:"duration_class"`
@@ -119,12 +121,18 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 	for _, segment := range input.NarrationSegments {
 		segments[segment.ID] = segment
 	}
+	narrativeBeats := make(map[string]struct{}, len(input.NarrativeBeats))
+	for _, beat := range input.NarrativeBeats {
+		narrativeBeats[beat.ID] = struct{}{}
+	}
+	coveredNarrativeBeats := make(map[string]struct{}, len(input.NarrativeBeats))
 	expectedStart := input.NarrationSegments[0].StartMs
 	timelineEnd := input.NarrationSegments[len(input.NarrationSegments)-1].EndMs
 	briefBeatCount := 0
 	for index := range result.VisualBeats {
 		beat := &result.VisualBeats[index]
 		beat.NarrationSegmentID = strings.TrimSpace(beat.NarrationSegmentID)
+		beat.NarrativeBeatID = strings.TrimSpace(beat.NarrativeBeatID)
 		beat.Label = strings.TrimSpace(beat.Label)
 		beat.DurationClass = strings.TrimSpace(beat.DurationClass)
 		beat.SellingPoint = strings.TrimSpace(beat.SellingPoint)
@@ -136,6 +144,12 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		}
 		if beat.Label == "" || beat.VisualGoal == "" || !isVisualPlanSourceType(beat.SourceType) {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d is incomplete", index+1), false, nil)
+		}
+		if beat.NarrativeBeatID != "" {
+			if _, ok := narrativeBeats[beat.NarrativeBeatID]; !ok {
+				return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d references an unknown narrative beat", index+1), false, nil)
+			}
+			coveredNarrativeBeats[beat.NarrativeBeatID] = struct{}{}
 		}
 		if beat.StartMs != expectedStart || beat.EndMs <= beat.StartMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d does not continue the timeline", index+1), false, nil)
@@ -162,6 +176,11 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 	maximumBriefBeats := (timelineEnd + briefVisualBeatIntervalMs - 1) / briefVisualBeatIntervalMs
 	if briefBeatCount > maximumBriefBeats {
 		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual plan has %d brief beats, maximum is %d", briefBeatCount, maximumBriefBeats), false, nil)
+	}
+	for _, beat := range input.NarrativeBeats {
+		if _, ok := coveredNarrativeBeats[beat.ID]; !ok {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual plan does not cover narrative beat %q", beat.ID), false, nil)
+		}
 	}
 	return nil
 }
@@ -192,6 +211,20 @@ func validateVisualPlanInput(input VisualPlanInput) error {
 			return NewError(ErrorCodeConfiguration, fmt.Sprintf("narration segment %d is invalid", index+1), false, nil)
 		}
 		previousEnd = segment.EndMs
+	}
+	seenNarrativeBeats := make(map[string]struct{}, len(input.NarrativeBeats))
+	for index := range input.NarrativeBeats {
+		beat := &input.NarrativeBeats[index]
+		beat.ID = strings.TrimSpace(beat.ID)
+		beat.Label = strings.TrimSpace(beat.Label)
+		beat.VisualGoal = strings.TrimSpace(beat.VisualGoal)
+		if beat.ID == "" || beat.Label == "" || beat.VisualGoal == "" {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("narrative beat %d is invalid", index+1), false, nil)
+		}
+		if _, exists := seenNarrativeBeats[beat.ID]; exists {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("narrative beat %q is repeated", beat.ID), false, nil)
+		}
+		seenNarrativeBeats[beat.ID] = struct{}{}
 	}
 	return nil
 }

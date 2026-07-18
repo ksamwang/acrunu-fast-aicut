@@ -185,9 +185,10 @@ func VisualPlanOutputSchema() map[string]any {
 				"type": "array",
 				"items": map[string]any{
 					"type":     "object",
-					"required": []string{"narration_segment_id", "start_ms", "end_ms", "duration_class", "label", "selling_point", "visual_goal", "source_type"},
+					"required": []string{"narration_segment_id", "narrative_beat_id", "start_ms", "end_ms", "duration_class", "label", "selling_point", "visual_goal", "source_type"},
 					"properties": map[string]any{
 						"narration_segment_id": map[string]any{"type": "string", "minLength": 1},
+						"narrative_beat_id":    map[string]any{"type": "string"},
 						"start_ms":             map[string]any{"type": "integer", "minimum": 0},
 						"end_ms":               map[string]any{"type": "integer", "minimum": 1},
 						"duration_class": map[string]any{

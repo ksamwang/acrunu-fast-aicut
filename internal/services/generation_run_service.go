@@ -857,16 +857,17 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO visual_beats (
-				id, edit_plan_id, beat_index, narration_segment_id,
+				id, edit_plan_id, beat_index, narration_segment_id, narrative_beat_id,
 				start_ms, end_ms, duration_class, label, selling_point, visual_goal, source_type
 			) VALUES (
-				$1::uuid, $2::uuid, $3, $4::uuid,
-				$5, $6, $7, $8, $9, $10, $11
+				$1::uuid, $2::uuid, $3, $4::uuid, $5,
+				$6, $7, $8, $9, $10, $11, $12
 			)`,
 			beat.ID,
 			stored.ID,
 			index,
 			beat.NarrationSegmentID,
+			beat.NarrativeBeatID,
 			beat.StartMs,
 			beat.EndMs,
 			beat.DurationClass,
@@ -948,7 +949,7 @@ func (s *GenerationRunService) GetEditPlan(ctx context.Context, runID string) (E
 		return EditPlan{}, err
 	}
 	visualBeatRows, err := s.pool.Query(ctx, `
-		SELECT id::text, narration_segment_id::text, start_ms, end_ms, duration_class,
+		SELECT id::text, narration_segment_id::text, narrative_beat_id, start_ms, end_ms, duration_class,
 			label, selling_point, visual_goal, source_type
 		FROM visual_beats
 		WHERE edit_plan_id = $1::uuid
@@ -962,6 +963,7 @@ func (s *GenerationRunService) GetEditPlan(ctx context.Context, runID string) (E
 		if err := visualBeatRows.Scan(
 			&beat.ID,
 			&beat.NarrationSegmentID,
+			&beat.NarrativeBeatID,
 			&beat.StartMs,
 			&beat.EndMs,
 			&beat.DurationClass,

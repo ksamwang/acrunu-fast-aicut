@@ -281,8 +281,13 @@ func buildVisualPlannerInput(productName string, work VoiceoverWork) modelgatewa
 		})
 	}
 	narrativeBeats := make([]modelgateway.VisualPlanNarrativeBeat, 0, len(work.Beats))
-	for _, beat := range work.Beats {
+	for index, beat := range work.Beats {
+		beatID := strings.TrimSpace(beat.ID)
+		if beatID == "" {
+			beatID = fmt.Sprintf("narrative-beat-%d", index+1)
+		}
 		narrativeBeats = append(narrativeBeats, modelgateway.VisualPlanNarrativeBeat{
+			ID:           beatID,
 			Label:        beat.Label,
 			SellingPoint: beat.SellingPoint,
 			VisualGoal:   beat.VisualGoal,
@@ -307,6 +312,7 @@ func materializeVisualBeats(result modelgateway.VisualPlanResult, input modelgat
 		beats = append(beats, VisualBeat{
 			ID:                 uuid.NewString(),
 			NarrationSegmentID: beat.NarrationSegmentID,
+			NarrativeBeatID:    beat.NarrativeBeatID,
 			StartMs:            beat.StartMs,
 			EndMs:              beat.EndMs,
 			DurationClass:      beat.DurationClass,
@@ -356,6 +362,7 @@ func buildPlannerInput(productName string, scriptText string, sets []CandidateSe
 			VisualBeatID:        set.Requirement.VisualBeatID,
 			NarrationSegmentID:  set.Requirement.NarrationSegmentID,
 			NarrationSegmentIDs: append([]string(nil), set.Requirement.NarrationSegmentIDs...),
+			NarrativeBeatID:     set.Requirement.NarrativeBeatID,
 			StartMs:             set.Requirement.StartMs,
 			EndMs:               set.Requirement.EndMs,
 			DurationClass:       set.Requirement.DurationClass,

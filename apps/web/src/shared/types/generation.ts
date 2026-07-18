@@ -18,6 +18,7 @@ export type NarrationSegment = {
 export type VisualBeat = {
   id: string;
   narration_segment_id: string;
+  narrative_beat_id?: string;
   start_ms: number;
   end_ms: number;
   duration_class?: "legacy" | "brief" | "standard" | "action";

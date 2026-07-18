@@ -95,7 +95,7 @@ func TestBuildVisualPlannerInputForcesVisualOnlyTTSMaterial(t *testing.T) {
 			ID: "n-1", StartMs: 0, EndMs: 1000, Text: "固定裤脚。",
 		}},
 		Beats: []VoiceoverBeat{
-			{Label: "口播", SellingPoint: "卖点一", VisualGoal: "人物口播", SourceType: "talking_head"},
+			{ID: "business-one", Label: "口播", SellingPoint: "卖点一", VisualGoal: "人物口播", SourceType: "talking_head"},
 			{Label: "混剪", SellingPoint: "卖点二", VisualGoal: "人物与产品", SourceType: "mixed"},
 		},
 	})
@@ -103,6 +103,9 @@ func TestBuildVisualPlannerInputForcesVisualOnlyTTSMaterial(t *testing.T) {
 		if beat.SourceType != modelgateway.TTSVisualSourceType {
 			t.Fatalf("expected TTS visual planner input to be visual-only, got %#v", input.NarrativeBeats)
 		}
+	}
+	if input.NarrativeBeats[0].ID != "business-one" || input.NarrativeBeats[1].ID != "narrative-beat-2" {
+		t.Fatalf("expected stable and fallback narrative beat ids, got %#v", input.NarrativeBeats)
 	}
 }
 
@@ -117,8 +120,8 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 		DurationMs:    3500,
 		EditingIntent: "先展示痛点，再展示固定后的结果。",
 		Beats: []VoiceoverBeat{
-			{SellingPoint: "避免蹭链条", VisualGoal: "展示裤脚靠近链条。", SourceType: "visual_only"},
-			{SellingPoint: "固定更稳", VisualGoal: "展示固定后的骑行状态。", SourceType: "visual_only"},
+			{ID: "business-pain", Label: "痛点", SellingPoint: "避免蹭链条", VisualGoal: "展示裤脚靠近链条。", SourceType: "visual_only"},
+			{ID: "business-result", Label: "结果", SellingPoint: "固定更稳", VisualGoal: "展示固定后的骑行状态。", SourceType: "visual_only"},
 		},
 		NarrationSegments: []NarrationSegment{
 			{ID: "narration-1", StartMs: 0, EndMs: 2000, Text: "骑行时裤脚不再蹭链条。"},
@@ -149,8 +152,8 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 		NewModelProviderService(),
 		config.Config{},
 	).WithVisualPlanner(deterministicVisualPlanner{beats: []modelgateway.VisualPlanBeat{
-		{NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, DurationClass: modelgateway.VisualDurationClassBrief, Label: "痛点", VisualGoal: "裤脚靠近链条", SourceType: "visual_only"},
-		{NarrationSegmentID: "narration-1", StartMs: 1000, EndMs: 3500, DurationClass: modelgateway.VisualDurationClassStandard, Label: "固定结果", VisualGoal: "完整展示束裤带固定裤脚并开始骑行", SourceType: "visual_only"},
+		{NarrationSegmentID: "narration-1", NarrativeBeatID: "business-pain", StartMs: 0, EndMs: 1000, DurationClass: modelgateway.VisualDurationClassBrief, Label: "痛点", VisualGoal: "裤脚靠近链条", SourceType: "visual_only"},
+		{NarrationSegmentID: "narration-1", NarrativeBeatID: "business-result", StartMs: 1000, EndMs: 3500, DurationClass: modelgateway.VisualDurationClassStandard, Label: "固定结果", VisualGoal: "完整展示束裤带固定裤脚并开始骑行", SourceType: "visual_only"},
 	}}).WithPlanner(deterministicEditPlanner{})
 
 	plan, err := planning.Generate(context.Background(), GenerateEditPlanInput{
@@ -166,6 +169,9 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	}
 	if plan.VisualBeats[1].DurationClass != VisualBeatDurationStandard {
 		t.Fatalf("expected visual duration class to be persisted, got %#v", plan.VisualBeats)
+	}
+	if plan.VisualBeats[0].NarrativeBeatID != "business-pain" || plan.VisualBeats[1].NarrativeBeatID != "business-result" {
+		t.Fatalf("expected business intention references to be persisted, got %#v", plan.VisualBeats)
 	}
 	if plan.Clips[0].NarrationSegmentID != plan.Clips[1].NarrationSegmentID || plan.Clips[0].VisualBeatID == plan.Clips[1].VisualBeatID {
 		t.Fatalf("expected the second visual beat to cross narration segments from its first anchor, got %#v", plan.Clips)

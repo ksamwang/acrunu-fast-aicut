@@ -25,6 +25,7 @@ type EditPlanRequirement struct {
 	VisualBeatID        string              `json:"visual_beat_id"`
 	NarrationSegmentID  string              `json:"narration_segment_id"`
 	NarrationSegmentIDs []string            `json:"narration_segment_ids"`
+	NarrativeBeatID     string              `json:"narrative_beat_id,omitempty"`
 	StartMs             int                 `json:"start_ms"`
 	EndMs               int                 `json:"end_ms"`
 	DurationClass       string              `json:"duration_class"`

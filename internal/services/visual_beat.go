@@ -10,6 +10,7 @@ const (
 type VisualBeat struct {
 	ID                 string `json:"id"`
 	NarrationSegmentID string `json:"narration_segment_id"`
+	NarrativeBeatID    string `json:"narrative_beat_id,omitempty"`
 	StartMs            int    `json:"start_ms"`
 	EndMs              int    `json:"end_ms"`
 	DurationClass      string `json:"duration_class"`

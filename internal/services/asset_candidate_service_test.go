@@ -78,7 +78,7 @@ func TestAssetCandidateServiceUsesVisualGoalWithoutSellingPointRelation(t *testi
 
 func TestBuildShotRequirementsCombinesNarrationAcrossVisualBeat(t *testing.T) {
 	requirements, err := BuildShotRequirements([]VisualBeat{
-		{ID: "visual-1", NarrationSegmentID: "n-1", StartMs: 0, EndMs: 3000, DurationClass: VisualBeatDurationAction, SellingPoint: "快拆收纳", VisualGoal: "完整展示快拆和收纳", SourceType: "visual_only"},
+		{ID: "visual-1", NarrationSegmentID: "n-1", NarrativeBeatID: "business-action", StartMs: 0, EndMs: 3000, DurationClass: VisualBeatDurationAction, SellingPoint: "快拆收纳", VisualGoal: "完整展示快拆和收纳", SourceType: "visual_only"},
 		{ID: "visual-2", NarrationSegmentID: "n-2", StartMs: 3000, EndMs: 5000, DurationClass: VisualBeatDurationStandard, SellingPoint: "结果", VisualGoal: "展示收纳结果", SourceType: "visual_only"},
 	}, []NarrationSegment{
 		{ID: "n-1", StartMs: 0, EndMs: 2000, Text: "第一句"},
@@ -92,6 +92,9 @@ func TestBuildShotRequirementsCombinesNarrationAcrossVisualBeat(t *testing.T) {
 	}
 	if len(requirements[0].NarrationSegmentIDs) != 2 || requirements[0].NarrationText != "第一句第二句" || requirements[0].DurationClass != VisualBeatDurationAction {
 		t.Fatalf("expected cross-subtitle narration context, got %#v", requirements[0])
+	}
+	if requirements[0].NarrativeBeatID != "business-action" {
+		t.Fatalf("expected business intention reference in shot requirement, got %#v", requirements[0])
 	}
 }
 
