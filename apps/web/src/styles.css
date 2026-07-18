@@ -22,6 +22,14 @@ body {
   padding: 0 24px;
   font-weight: 700;
   font-size: 18px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.brand small {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .topbar {
@@ -84,11 +92,15 @@ body {
   }
 
   .brand {
-    width: 72px;
+    width: 108px;
     height: 52px;
     flex: 0 0 auto;
     padding: 0 14px;
     font-size: 16px;
+  }
+
+  .brand small {
+    display: none;
   }
 
   .app-menu.ant-menu {

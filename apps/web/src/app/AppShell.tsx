@@ -32,7 +32,7 @@ export function AppShell({ user, view, roleLabel, onNavigate, onLogout, children
   return (
     <Layout className="app-shell" data-testid="console-app">
       <Layout.Sider className="app-sider" width={220} theme="light">
-        <div className="brand">AICut</div>
+        <div className="brand"><span>ACRUNU</span><small>Fast Cut</small></div>
         <Menu className="app-menu" selectedKeys={[view]} items={menuItems} onClick={(item) => onNavigate(item.key as ViewKey)} />
       </Layout.Sider>
       <Layout>

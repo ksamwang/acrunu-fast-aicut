@@ -1055,6 +1055,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
   await expect(page.getByTestId("login-page")).toBeVisible();
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码").fill("admin123");
   await page.getByTestId("login-submit").click();
   await expect(page.getByTestId("console-app")).toBeVisible();
 
