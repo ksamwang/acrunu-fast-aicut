@@ -32,7 +32,8 @@ CloseApplicationsFilter=local-agent.exe
 RestartApplications=no
 ChangesAssociations=yes
 SetupLogging=yes
-UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile={#SourceDir}\tray.ico
+UninstallDisplayIcon={app}\tray.ico
 UninstallDisplayName={#MyAppName}
 VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany=ACRUNU
@@ -42,18 +43,19 @@ VersionInfoProductVersion={#MyAppVersion}
 
 [Files]
 Source: "{#SourceDir}\local-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\tray.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\ffmpeg\bin\ffmpeg.exe"; DestDir: "{app}\ffmpeg\bin"; Flags: ignoreversion
 Source: "{#SourceDir}\ffmpeg\bin\ffprobe.exe"; DestDir: "{app}\ffmpeg\bin"; Flags: ignoreversion
 Source: "{#SourceDir}\ffmpeg\LICENSE"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion
 Source: "{#SourceDir}\ffmpeg\README.txt"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion
 
 [Icons]
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--autostart"; WorkingDir: "{app}"
+Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--autostart"; WorkingDir: "{app}"; IconFilename: "{app}\tray.ico"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\{#MyProtocol}"; ValueType: string; ValueName: ""; ValueData: "URL:ACRUNU Fast Cut Local Agent"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\{#MyProtocol}"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\{#MyProtocol}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCU; Subkey: "Software\Classes\{#MyProtocol}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\tray.ico"
 Root: HKCU; Subkey: "Software\Classes\{#MyProtocol}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" --protocol ""%1"""
 
 [Run]

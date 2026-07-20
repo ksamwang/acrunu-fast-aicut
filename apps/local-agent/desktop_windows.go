@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"log/slog"
 	"sync"
@@ -14,6 +15,9 @@ import (
 )
 
 const localAgentMutexName = `Local\ACRUNUFastCutLocalAgent`
+
+//go:embed tray.ico
+var trayIcon []byte
 
 func runLocalAgent(server *localagent.Server, logger *slog.Logger) error {
 	mutex, alreadyRunning, err := acquireSingleInstanceMutex()
@@ -32,9 +36,10 @@ func runLocalAgent(server *localagent.Server, logger *slog.Logger) error {
 	var startOnce sync.Once
 
 	systray.Run(func() {
-		systray.SetTitle("ACRUNU Fast Cut Local Agent")
-		systray.SetTooltip("ACRUNU Fast Cut Local Agent")
-		quitItem := systray.AddMenuItem("退出", "退出 Local Agent")
+		systray.SetIcon(trayIcon)
+		systray.SetTitle("ACRUNU预处理程序")
+		systray.SetTooltip("ACRUNU预处理程序")
+		quitItem := systray.AddMenuItem("退出", "退出 ACRUNU预处理程序")
 
 		startOnce.Do(func() {
 			go func() {
