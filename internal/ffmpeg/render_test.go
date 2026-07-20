@@ -35,11 +35,18 @@ func TestRenderTimelineArgsBuildsContinuousVideoAndNarration(t *testing.T) {
 		"[2:a:0]aresample=48000",
 		"-map [video_with_subtitles]",
 		"-map [narration]",
+		"-preset medium",
+		"-b:v 16M",
+		"-maxrate 24M",
+		"-bufsize 48M",
 		"-t 2.500",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("render args missing %q:\n%s", expected, joined)
 		}
+	}
+	if strings.Contains(joined, "-crf") {
+		t.Fatalf("render args must use one-pass VBR instead of CRF:\n%s", joined)
 	}
 }
 

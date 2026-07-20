@@ -19,7 +19,7 @@ const (
 	defaultRenderWidth  = 1080
 	defaultRenderHeight = 1920
 	defaultRenderFPS    = 30
-	ffmpegRenderVersion = "ffmpeg-v3-bgm"
+	ffmpegRenderVersion = "ffmpeg-v4-vbr"
 )
 
 type generationTimelineRenderer interface {

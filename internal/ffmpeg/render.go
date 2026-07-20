@@ -11,7 +11,13 @@ import (
 	"strings"
 )
 
-const subtitleFileName = "subtitles.ass"
+const (
+	subtitleFileName      = "subtitles.ass"
+	renderVideoPreset     = "medium"
+	renderVideoBitrate    = "16M"
+	renderVideoMaxBitrate = "24M"
+	renderVideoBufferSize = "48M"
+)
 
 type RenderClip struct {
 	InputPath        string
@@ -204,8 +210,10 @@ func renderTimelineArgs(input RenderInput) ([]string, error) {
 		"-map", videoOutput,
 		"-map", audioOutput,
 		"-c:v", "libx264",
-		"-preset", "veryfast",
-		"-crf", "20",
+		"-preset", renderVideoPreset,
+		"-b:v", renderVideoBitrate,
+		"-maxrate", renderVideoMaxBitrate,
+		"-bufsize", renderVideoBufferSize,
 		"-c:a", "aac",
 		"-b:a", "192k",
 		"-ar", "48000",
