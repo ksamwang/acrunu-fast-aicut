@@ -114,6 +114,10 @@
 补充约束：
 
 - 客户端必须存在独立的“预处理工作区”，用于承接原始视频选择、裁切和人工标注
+- 浏览器进入预处理页时必须先通过 `http://127.0.0.1:58721/healthz` 校验 Local Agent 的应用标识、协议版本以及 FFmpeg/FFprobe 完整性，校验通过前不得读取工作区
+- Windows 客户端以 Inno Setup 完整安装包发布，安装包内置 Local Agent、FFmpeg 和 FFprobe；安装后注册 `acrunu-fastcut://launch`、当前用户登录自启动，并以单实例系统托盘程序运行，默认托盘菜单只有“退出”
+- Local Agent 版本和安装包下载地址由服务端 `/api/client-releases/local-agent/latest` 发布；未启动时前端允许通过自定义协议唤起，未安装、组件缺失或协议不兼容时提供服务端安装包
+- 安装版工作区和日志分别位于 `%LOCALAPPDATA%\ACRUNU\FastCut\workspace` 与 `%LOCALAPPDATA%\ACRUNU\FastCut\logs`，卸载客户端不得删除用户工作区
 - 原始视频、处理中间态、仅保存未提交的 clean shot 都不进入服务端素材库
 - 服务端只识别正式素材库对象，不识别客户端待处理工作区对象
 - 未入库对象对服务端不可见，服务端不得直接读取、分析、调度或创建素材处理任务

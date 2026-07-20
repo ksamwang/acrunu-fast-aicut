@@ -1,5 +1,13 @@
 import { requestJSON } from "./http";
 
+export type LocalAgentRelease = {
+  version: string;
+  platform: "windows-x64";
+  protocol_version: number;
+  sha256: string;
+  download_url: string;
+};
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const { response, payload } = await requestJSON(path, {

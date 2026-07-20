@@ -150,6 +150,8 @@ func (s *Server) routes() {
 
 	api := s.engine.Group("/api")
 	api.GET("/healthz", s.handleHealth)
+	api.GET("/client-releases/local-agent/latest", s.handleGetLatestLocalAgentRelease)
+	api.GET("/client-releases/local-agent/download", s.handleDownloadLatestLocalAgentRelease)
 	api.GET("/workbench/download-batches/:token", s.handleDownloadFinishedWorks)
 	s.engine.GET("/metrics", s.handleMetrics)
 

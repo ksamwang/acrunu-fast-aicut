@@ -63,6 +63,66 @@
   user-select: none;
 }
 
+.preprocess-agent-gate {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  overflow: hidden;
+}
+
+.preprocess-agent-gate-content {
+  display: grid;
+  justify-items: center;
+  width: min(100%, 560px);
+  gap: 18px;
+  text-align: center;
+}
+
+.preprocess-agent-gate-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.12);
+}
+
+.preprocess-agent-gate-icon.is-checking {
+  background: #f8fafc;
+  border-color: #dbe3ec;
+  box-shadow: none;
+}
+
+.preprocess-agent-gate-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.preprocess-agent-gate-copy .ant-typography {
+  margin: 0;
+}
+
+.preprocess-agent-gate-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preprocess-agent-release-error {
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.preprocess-agent-release-version {
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .preprocess-asset-grid {
   display: flex;
   flex-wrap: wrap;

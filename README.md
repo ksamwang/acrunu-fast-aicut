@@ -128,6 +128,28 @@ go run .\apps\local-agent\main.go
 127.0.0.1:58721
 ```
 
+### 构建和发布 Windows Local Agent
+
+安装 Inno Setup 6 后执行：
+
+```powershell
+.\scripts\build-local-agent-installer.ps1 -Version 0.1.0
+```
+
+脚本会构建无控制台窗口的托盘程序，完整打包 `ffmpeg.exe`、`ffprobe.exe`，并生成安装包和 `release.json`：
+
+```text
+storage/client-releases/local-agent/windows-x64/
+```
+
+发布到服务器持久化存储：
+
+```powershell
+.\scripts\publish-local-agent.ps1
+```
+
+服务端通过 `/api/client-releases/local-agent/latest` 返回当前版本，通过同源下载接口提供安装包。安装后注册 `acrunu-fastcut://launch`，Local Agent 登录自启动并仅显示托盘图标。
+
 ### 本机临时启动 API / worker
 
 只有在调试纯 API、数据库读写或不依赖服务端素材文件的逻辑时，才建议本机临时运行：

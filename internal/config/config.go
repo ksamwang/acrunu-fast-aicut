@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type Config struct {
 	RedisAddr           string
 	WorkerConcurrency   int
 	StorageRoot         string
+	ClientReleaseRoot   string
 	ASRBaseURL          string
 	ASRRequestTimeout   time.Duration
 	TTSBaseURL          string
@@ -29,6 +31,7 @@ type Config struct {
 }
 
 func Load() Config {
+	storageRoot := env("STORAGE_LOCAL_ROOT", "./storage")
 	return Config{
 		AppEnv:              env("APP_ENV", "development"),
 		APIAddr:             env("API_ADDR", ":8080"),
@@ -37,7 +40,8 @@ func Load() Config {
 		QueueBackend:        env("QUEUE_BACKEND", "redis"),
 		RedisAddr:           env("REDIS_ADDR", "localhost:6379"),
 		WorkerConcurrency:   envInt("WORKER_CONCURRENCY", 4),
-		StorageRoot:         env("STORAGE_LOCAL_ROOT", "./storage"),
+		StorageRoot:         storageRoot,
+		ClientReleaseRoot:   env("CLIENT_RELEASE_ROOT", filepath.Join(storageRoot, "client-releases")),
 		ASRBaseURL:          env("ASR_BASE_URL", "http://127.0.0.1:10096"),
 		ASRRequestTimeout:   time.Duration(envInt("ASR_REQUEST_TIMEOUT_SECONDS", 300)) * time.Second,
 		TTSBaseURL:          env("TTS_BASE_URL", "http://127.0.0.1:50000"),

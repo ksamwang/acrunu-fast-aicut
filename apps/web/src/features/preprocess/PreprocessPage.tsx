@@ -15,15 +15,21 @@ import {
   Pagination,
   Select,
   Space,
+  Spin,
   Switch,
   Tag,
   Typography,
   message
 } from "antd";
-import { Check, ScanSearch, Send, Trash2 } from "lucide-react";
+import { Check, Download, MonitorCog, Power, RefreshCw, ScanSearch, Send, Trash2 } from "lucide-react";
 import { VideoTrimEditor } from "./VideoTrimEditor";
-import { localAgentRequest } from "../../shared/api/local-agent-api";
-import { authenticatedApiRequest } from "../../shared/api/server-api";
+import {
+  launchLocalAgent,
+  localAgentRequest,
+  probeLocalAgent,
+  type LocalAgentProbeResult
+} from "../../shared/api/local-agent-api";
+import { apiRequest, authenticatedApiRequest, type LocalAgentRelease } from "../../shared/api/server-api";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import type {
@@ -400,6 +406,10 @@ function clampCurrentSourceRange(sourceInMs: number, sourceOutMs: number, item: 
 }
 
 export function PreprocessPage({ token }: { token: string }) {
+  const [localAgent, setLocalAgent] = useState<LocalAgentProbeResult | { state: "checking" }>({ state: "checking" });
+  const [localAgentRelease, setLocalAgentRelease] = useState<LocalAgentRelease | null>(null);
+  const [localAgentReleaseError, setLocalAgentReleaseError] = useState("");
+  const [launchingLocalAgent, setLaunchingLocalAgent] = useState(false);
   const [items, setItems] = useState<WorkspaceItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [sellingPoints, setSellingPoints] = useState<SellingPoint[]>([]);
@@ -458,6 +468,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const preprocessBoardRef = useRef<HTMLElement | null>(null);
   const assetCardRefs = useRef(new Map<string, HTMLButtonElement>());
   const preprocessWorkbenchRef = useRef<HTMLDivElement | null>(null);
+  const localAgentProbeGenerationRef = useRef(0);
   const [form] = Form.useForm();
   const watchedSourceType = Form.useWatch("source_type", form);
   const watchedSourceInMs = Form.useWatch("source_in_ms", form) ?? 0;
@@ -609,16 +620,100 @@ export function PreprocessPage({ token }: { token: string }) {
       setHasRunningVLMLabel(Boolean(response.has_running_vlm ?? (response.items ?? []).some(
         (item) => item.vlm_status === "queued" || item.vlm_status === "running"
       )));
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "加载预处理工作区失败");
+    } catch {
+      const probe = await probeLocalAgent();
+      setLocalAgent(probe);
+      if (probe.state === "ready") {
+        message.error("加载预处理工作区失败");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void loadItems(workspacePage);
-  }, [workspacePage]);
+    if (localAgent.state === "ready") {
+      void loadItems(workspacePage);
+    }
+  }, [localAgent.state, workspacePage]);
+
+  const loadLocalAgentRelease = async () => {
+    try {
+      const release = await apiRequest<LocalAgentRelease>("/api/client-releases/local-agent/latest");
+      setLocalAgentRelease(release);
+      setLocalAgentReleaseError("");
+    } catch (error) {
+      setLocalAgentRelease(null);
+      setLocalAgentReleaseError(error instanceof Error ? error.message : "安装包暂不可用");
+    }
+  };
+
+  const checkLocalAgent = async (showChecking = true) => {
+    const generation = ++localAgentProbeGenerationRef.current;
+    setLaunchingLocalAgent(false);
+    if (showChecking) {
+      setLocalAgent({ state: "checking" });
+    }
+    const probe = await probeLocalAgent();
+    if (generation !== localAgentProbeGenerationRef.current) {
+      return false;
+    }
+    setLocalAgent(probe);
+    if (probe.state !== "ready" && !localAgentRelease) {
+      void loadLocalAgentRelease();
+    }
+    return probe.state === "ready";
+  };
+
+  const pollForLocalAgent = async (durationMs: number) => {
+    const generation = ++localAgentProbeGenerationRef.current;
+    setLaunchingLocalAgent(true);
+    const deadline = Date.now() + durationMs;
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        if (generation !== localAgentProbeGenerationRef.current) {
+          return;
+        }
+        const probe = await probeLocalAgent();
+        if (generation !== localAgentProbeGenerationRef.current) {
+          return;
+        }
+        if (probe.state === "ready") {
+          setLocalAgent(probe);
+          return;
+        }
+        if (probe.state === "incompatible" || probe.state === "incomplete") {
+          setLocalAgent(probe);
+          return;
+        }
+      }
+      const probe = await probeLocalAgent();
+      if (generation === localAgentProbeGenerationRef.current) {
+        setLocalAgent(probe);
+      }
+    } finally {
+      if (generation === localAgentProbeGenerationRef.current) {
+        setLaunchingLocalAgent(false);
+      }
+    }
+  };
+
+  const startLocalAgent = () => {
+    launchLocalAgent();
+    void pollForLocalAgent(60_000);
+  };
+
+  const downloadLocalAgent = () => {
+    void pollForLocalAgent(5 * 60_000);
+  };
+
+  useEffect(() => {
+    void checkLocalAgent();
+    return () => {
+      localAgentProbeGenerationRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -1902,6 +1997,68 @@ export function PreprocessPage({ token }: { token: string }) {
       setApplyingInterpretFPS(false);
     }
   };
+
+  if (localAgent.state !== "ready") {
+    const isChecking = localAgent.state === "checking";
+    const needsUpdate = localAgent.state === "incompatible" || localAgent.state === "incomplete";
+    const installedVersion = "health" in localAgent ? localAgent.health?.version : undefined;
+    return (
+      <Space direction="vertical" size="middle" className="page-stack preprocess-page-stack">
+        <section className="preprocess-workspace-board preprocess-agent-gate">
+          <div className="preprocess-agent-gate-content">
+            <div className={`preprocess-agent-gate-icon${isChecking ? " is-checking" : ""}`}>
+              {isChecking ? <Spin size="small" /> : <MonitorCog size={27} />}
+            </div>
+            <div className="preprocess-agent-gate-copy">
+              <Typography.Title level={4}>
+                {isChecking ? "正在连接 Local Agent" : needsUpdate ? "需要更新 Local Agent" : "Local Agent 未启动"}
+              </Typography.Title>
+              <Typography.Text type="secondary">
+                {isChecking
+                  ? "正在检查本机预处理服务"
+                  : localAgent.state === "incomplete"
+                    ? "本地媒体组件不完整，请重新安装完整版本"
+                    : needsUpdate
+                      ? `当前版本${installedVersion ? ` ${installedVersion}` : ""}与系统不兼容`
+                      : launchingLocalAgent
+                        ? "等待 Local Agent 启动"
+                        : "启动已安装的程序，或下载完整安装包"}
+              </Typography.Text>
+            </div>
+            {!isChecking ? (
+              <div className="preprocess-agent-gate-actions">
+                {!needsUpdate ? (
+                  <Button type="primary" icon={<Power size={16} />} loading={launchingLocalAgent} onClick={startLocalAgent}>
+                    启动 Local Agent
+                  </Button>
+                ) : null}
+                <Button
+                  type={needsUpdate ? "primary" : "default"}
+                  icon={<Download size={16} />}
+                  href={localAgentRelease?.download_url}
+                  disabled={!localAgentRelease}
+                  onClick={downloadLocalAgent}
+                >
+                  {needsUpdate ? "下载更新" : "下载安装"}
+                </Button>
+                <Button icon={<RefreshCw size={16} />} onClick={() => void checkLocalAgent()}>
+                  重新检测
+                </Button>
+              </div>
+            ) : null}
+            {localAgentReleaseError ? (
+              <Typography.Text className="preprocess-agent-release-error">{localAgentReleaseError}</Typography.Text>
+            ) : null}
+            {localAgentRelease ? (
+              <Typography.Text className="preprocess-agent-release-version">
+                Windows x64 · {localAgentRelease.version}
+              </Typography.Text>
+            ) : null}
+          </div>
+        </section>
+      </Space>
+    );
+  }
 
   return (
     <Space direction="vertical" size="middle" className="page-stack preprocess-page-stack">

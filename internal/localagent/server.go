@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ksamwang/acrunu-fast-aicut/internal/ffmpeg"
 )
 
 type Options struct {
@@ -20,12 +23,14 @@ type Options struct {
 	Logger        *slog.Logger
 	WorkspaceRoot string
 	Processor     Processor
+	AppVersion    string
 }
 
 type Server struct {
 	addr      string
 	logger    *slog.Logger
 	workspace *Workspace
+	version   string
 }
 
 func New(opts Options) *Server {
@@ -49,6 +54,7 @@ func New(opts Options) *Server {
 		addr:      opts.Addr,
 		logger:    opts.Logger,
 		workspace: workspace,
+		version:   firstNonEmpty(opts.AppVersion, "dev"),
 	}
 }
 
@@ -57,6 +63,10 @@ func NewDefaultProcessor() Processor {
 }
 
 func (s *Server) Run() error {
+	return s.RunContext(context.Background())
+}
+
+func (s *Server) RunContext(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/workspace/import", s.handleWorkspaceImport)
@@ -69,13 +79,48 @@ func (s *Server) Run() error {
 		Handler:           s.withMiddleware(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return err
+	}
 
-	s.logger.Info("local agent listening", "addr", s.addr)
-	return server.ListenAndServe()
+	errCh := make(chan error, 1)
+	go func() {
+		s.logger.Info("local agent listening", "addr", listener.Addr().String())
+		errCh <- server.Serve(listener)
+	}()
+
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown local agent: %w", err)
+		}
+		err := <-errCh
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	ffmpegReady, ffprobeReady := ffmpeg.BinariesReady()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":           "ok",
+		"app":              AppIdentifier,
+		"version":          s.version,
+		"protocol_version": ProtocolVersion,
+		"platform":         platformIdentifier(),
+		"ffmpeg_ready":     ffmpegReady,
+		"ffprobe_ready":    ffprobeReady,
+	})
 }
 
 func (s *Server) handleWorkspaceImport(w http.ResponseWriter, r *http.Request) {
@@ -559,6 +604,9 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+			w.Header().Set("Access-Control-Allow-Private-Network", "true")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
