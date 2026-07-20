@@ -36,6 +36,7 @@ export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) 
           <Form
             className="login-form"
             layout="vertical"
+            autoComplete="off"
             onFinish={async (values) => {
               setLoading(true);
               setErrorMessage("");
@@ -53,10 +54,10 @@ export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) 
             }}
           >
             <Form.Item name="username" label="用户名" rules={[{ required: true, message: "请输入用户名" }]}>
-              <Input prefix={<UserRound size={17} />} autoComplete="username" placeholder="请输入用户名" />
+              <Input prefix={<UserRound size={17} />} autoComplete="one-time-code" placeholder="请输入用户名" />
             </Form.Item>
             <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
-              <Input.Password prefix={<LockKeyhole size={17} />} autoComplete="current-password" placeholder="请输入密码" />
+              <Input.Password prefix={<LockKeyhole size={17} />} autoComplete="new-password" placeholder="请输入密码" />
             </Form.Item>
             {errorMessage ? <div className="login-error" role="alert">{errorMessage}</div> : null}
             <Button type="primary" htmlType="submit" loading={loading} block data-testid="login-submit" icon={<ArrowRight size={17} />} iconPosition="end">
