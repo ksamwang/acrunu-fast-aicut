@@ -2,7 +2,7 @@ param(
     [string]$HostName = "10.168.10.23",
     [string]$UserName = "acrunu",
     [string]$RemoteDir = "/home/acrunu/acrunu-fast-aicut",
-    [string[]]$Services = @("api", "worker"),
+    [string[]]$Services = @("api", "worker", "web"),
     [switch]$AllowDirty,
     [switch]$RunMigrations,
     [string]$DatabaseUrl = "postgres://aicut:aicut@localhost:5432/aicut?sslmode=disable",
@@ -79,6 +79,7 @@ try {
     }
 
     $remoteCommands += @(
+        "docker compose config --quiet",
         "docker compose up -d --build $serviceArgs",
         "docker compose ps $serviceArgs",
         "rm -f '$remoteArchivePath'"

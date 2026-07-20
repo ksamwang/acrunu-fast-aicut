@@ -54,7 +54,7 @@ services:
       TTS_BASE_URL: ${TTS_BASE_URL:-http://tts:50000}
       TTS_REQUEST_TIMEOUT_SECONDS: ${TTS_REQUEST_TIMEOUT_SECONDS:-300}
     ports:
-      - "${API_PORT:-8080}:8080"
+      - "${API_BIND_ADDR:-127.0.0.1}:${API_PORT:-10101}:8080"
     volumes:
       - ./storage:/app/storage
     depends_on:
@@ -62,6 +62,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web/Dockerfile
+    container_name: aicut-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND_ADDR:-0.0.0.0}:${WEB_PORT:-10100}:80"
+    depends_on:
+      - api
 
   worker:
     build:

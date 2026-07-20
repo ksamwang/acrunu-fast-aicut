@@ -58,10 +58,13 @@ Copy-Item .env.example .env
 APP_ENV=development
 
 API_ADDR=:8080
-API_PORT=8080
+API_BIND_ADDR=127.0.0.1
+API_PORT=10101
+WEB_BIND_ADDR=0.0.0.0
+WEB_PORT=10100
 WORKER_CONCURRENCY=4
 LOCAL_AGENT_ADDR=127.0.0.1:58721
-VITE_API_PROXY_TARGET=http://api.example.internal:8080
+VITE_API_PROXY_TARGET=http://video.example.com:10100
 
 DATABASE_URL=postgres://<db-user>:<db-password>@192.168.1.10:5432/aicut?sslmode=disable
 REDIS_ADDR=192.168.1.10:6379
@@ -85,7 +88,8 @@ FFPROBE_PATH=ffprobe
 - 服务器运行 Redis
 - 服务器运行 `api`
 - 服务器运行 `worker`
-- 本机运行 `web`
+- 服务器运行容器化 `web`
+- 本机修改前端时可按需运行 Vite 开发服务器
 - 本机按需运行 `local-agent`
 
 这种模式更适合素材分析、抽帧和后续渲染链路，因为服务端 `api`、`worker` 和 `storage` 在同一台机器上，文件路径和任务消费不会跨机器错位。
@@ -103,7 +107,7 @@ npm run dev
 连接服务器 API 时，根目录 `.env` 使用：
 
 ```env
-VITE_API_PROXY_TARGET=http://api.example.internal:8080
+VITE_API_PROXY_TARGET=http://video.example.com:10100
 ```
 
 临时切回本机 API 时，可以在当前 PowerShell 设置：
@@ -212,7 +216,38 @@ git commit -m "更新说明"
 - 服务器：`192.168.1.10`
 - 用户：`deploy`
 - 远程目录：`/opt/acrunu-fast-aicut`
-- 重建服务：`api`、`worker`
+- 重建服务：`api`、`worker`、`web`
+
+正式 Web 入口：
+
+```text
+http://video.example.com:10100
+```
+
+域名必须显式携带 `10100`。`http://video.example.com` 会访问不可用的 `80` 端口，DNS 无法代替客户端指定端口。
+
+前端使用独立 Docker 镜像构建，并由 `web` 容器内的 Nginx 提供静态页面，同时将同源 `/api` 和 `/storage` 请求转发到 Docker 网络中的 `api:8080`。服务器宿主机不需要安装或配置 Nginx。API 的宿主机端口默认仅绑定回环地址：
+
+```text
+127.0.0.1:10101 -> api:8080
+```
+
+服务器防火墙只需向业务用户开放 TCP `10100`；PostgreSQL、Redis、API、ASR、TTS 和 renderer 不需要对公网开放。部署脚本不会同步服务器 `.env`，首次切换容器化前端时必须在服务器远程目录的 `.env` 中设置：
+
+```env
+API_BIND_ADDR=127.0.0.1
+API_PORT=10101
+WEB_BIND_ADDR=0.0.0.0
+WEB_PORT=10100
+```
+
+部署后验证：
+
+```bash
+curl http://127.0.0.1:10101/api/healthz
+curl http://127.0.0.1:10100/healthz
+curl http://127.0.0.1:10100/api/healthz
+```
 
 首次部署 CosyVoice3 和 Remotion 时，指定媒体服务：
 
