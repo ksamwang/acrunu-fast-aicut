@@ -55,6 +55,7 @@ $timestamp = Get-Date -Format "yyyyMMddHHmmss"
 $archiveName = "aicut-$commit-$timestamp.tar"
 $archivePath = Join-Path $env:TEMP $archiveName
 $remoteArchivePath = "/tmp/$archiveName"
+$remoteStagingPath = "/tmp/aicut-release-$commit-$timestamp"
 $target = "$UserName@$HostName"
 $serviceArgs = ($Services -join " ")
 
@@ -68,8 +69,16 @@ try {
 
     $remoteCommands = @(
         "set -e",
+        "case '$remoteStagingPath' in /tmp/aicut-release-*) ;; *) exit 2 ;; esac",
+        "trap 'rm -rf -- `"$remoteStagingPath`"; rm -f -- `"$remoteArchivePath`"' EXIT",
+        "command -v rsync >/dev/null 2>&1 || { echo 'Required remote command not found: rsync' >&2; exit 127; }",
+        "echo '[deploy] extracting release archive'",
+        "rm -rf -- '$remoteStagingPath'",
+        "mkdir -p '$remoteStagingPath'",
+        "tar -xf '$remoteArchivePath' -C '$remoteStagingPath'",
         "mkdir -p '$RemoteDir'",
-        "tar -xf '$remoteArchivePath' -C '$RemoteDir'",
+        "echo '[deploy] synchronizing repository files'",
+        "rsync -a --delete --exclude='.env*' --exclude='storage/' --exclude='.git/' --exclude='.tools/' '$remoteStagingPath/' '$RemoteDir/'",
         "cd '$RemoteDir'"
     )
 
@@ -79,10 +88,11 @@ try {
     }
 
     $remoteCommands += @(
+        "echo '[deploy] validating compose configuration'",
         "docker compose config --quiet",
+        "echo '[deploy] building and starting $serviceArgs'",
         "docker compose up -d --build $serviceArgs",
-        "docker compose ps $serviceArgs",
-        "rm -f '$remoteArchivePath'"
+        "docker compose ps $serviceArgs"
     )
 
     Write-Host "Rebuilding services on server..."
