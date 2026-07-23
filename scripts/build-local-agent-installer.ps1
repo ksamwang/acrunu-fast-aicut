@@ -100,7 +100,10 @@ $manifest = [ordered]@{
     sha256 = $sha256
     filename = $installerName
 }
-$manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory "release.json") -Encoding utf8
+$manifestPath = Join-Path $OutputDirectory "release.json"
+$manifestJSON = $manifest | ConvertTo-Json
+$utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText($manifestPath, $manifestJSON, $utf8WithoutBom)
 
 Write-Host "Local Agent installer built:" -ForegroundColor Green
 Write-Host $installerPath
