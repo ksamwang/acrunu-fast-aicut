@@ -381,6 +381,32 @@
   margin: 0 0 2px !important;
 }
 
+.asset-detail-navigation {
+  display: grid;
+  grid-template-columns: 30px 68px 30px;
+  align-items: center;
+  gap: 4px;
+}
+
+.asset-detail-navigation .ant-btn {
+  width: 30px;
+  min-width: 30px;
+  padding-inline: 0;
+}
+
+.asset-detail-navigation-count {
+  color: #475569;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.asset-detail-section-divider.ant-divider-vertical {
+  height: 24px;
+  margin-inline: 2px;
+}
+
 .asset-detail-analysis-summary,
 .asset-detail-review-form {
   min-height: 0;

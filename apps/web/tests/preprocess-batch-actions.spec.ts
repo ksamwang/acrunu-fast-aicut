@@ -34,6 +34,16 @@ const product = {
   metadata: { reference_image: transparentPixel }
 };
 
+const localAgentHealth = {
+  status: "ok",
+  app: "acrunu-fastcut-local-agent",
+  version: "0.1.1",
+  protocol_version: 1,
+  platform: "windows-x64",
+  ffmpeg_ready: true,
+  ffprobe_ready: true
+};
+
 function workspaceItem(index: number, status: MockWorkspaceItem["status"] = "pending"): MockWorkspaceItem {
   const id = `workspace-${index}`;
   return {
@@ -137,6 +147,10 @@ test("marquee selects cards and starts batch VLM with the product reference imag
       await route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
       return;
     }
+    if (request.method() === "GET" && url.pathname === "/healthz") {
+      await fulfillJSON(route, localAgentHealth);
+      return;
+    }
     if (request.method() === "GET" && url.pathname === "/workspace/items") {
       await fulfillJSON(route, listResponse(items));
       return;
@@ -211,6 +225,10 @@ test("batch formal submit stays disabled until every VLM result is ready", async
       await route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
       return;
     }
+    if (request.method() === "GET" && url.pathname === "/healthz") {
+      await fulfillJSON(route, localAgentHealth);
+      return;
+    }
     if (request.method() === "GET" && url.pathname === "/workspace/items") {
       await fulfillJSON(route, listResponse(items));
       return;
@@ -260,6 +278,10 @@ test("formal submit auto-prepares mixed statuses and batch delete removes only l
     const url = new URL(request.url());
     if (request.method() === "OPTIONS") {
       await route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+      return;
+    }
+    if (request.method() === "GET" && url.pathname === "/healthz") {
+      await fulfillJSON(route, localAgentHealth);
       return;
     }
     if (request.method() === "GET" && url.pathname === "/workspace/items") {

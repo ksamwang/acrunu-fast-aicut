@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Descriptions, Divider, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, Descriptions, Divider, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { assetDisplayTitle, assetFileDisplayName, assetVideoURL } from "../../shared/lib/asset-display";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
@@ -24,20 +25,29 @@ function renderTagList(items?: string[], emptyText = "-") {
   );
 }
 
+type AssetPosition = {
+  page: number;
+  index: number;
+};
+
+function assetPathForPage(path: string, page: number, pageSize: number) {
+  const [pathname, query = ""] = path.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+  return `${pathname}?${params.toString()}`;
+}
+
 export function AssetsPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token, [], listProducts);
   const [productForSellingPoints, setProductForSellingPoints] = useState<string>("");
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [selectedAssetPosition, setSelectedAssetPosition] = useState<AssetPosition | null>(null);
+  const [navigatingAsset, setNavigatingAsset] = useState(false);
   const sellingPoints = useResource<SellingPoint[]>(
     productForSellingPoints ? `/api/products/${productForSellingPoints}/selling-points` : null,
     token,
     [productForSellingPoints],
-    listSellingPoints
-  );
-  const assetDetailSellingPoints = useResource<SellingPoint[]>(
-    selectedAsset ? `/api/products/${selectedAsset.product_id}/selling-points` : null,
-    token,
-    [selectedAsset?.product_id],
     listSellingPoints
   );
   const [filters, setFilters] = useState({
@@ -65,6 +75,7 @@ export function AssetsPage({ token }: { token: string }) {
   const [semanticPreview, setSemanticPreview] = useState<AssetSemanticPreview | null>(null);
   const [assetEmbeddings, setAssetEmbeddings] = useState<AssetEmbeddingObject[]>([]);
   const [assetSellingPoints, setAssetSellingPoints] = useState<SellingPoint[]>([]);
+  const [assetDetailSellingPoints, setAssetDetailSellingPoints] = useState<SellingPoint[]>([]);
   const [framesLoading, setFramesLoading] = useState(false);
   const [speechSegmentsLoading, setSpeechSegmentsLoading] = useState(false);
   const [semanticPreviewLoading, setSemanticPreviewLoading] = useState(false);
@@ -74,6 +85,8 @@ export function AssetsPage({ token }: { token: string }) {
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
   const [savingSellingPoints, setSavingSellingPoints] = useState(false);
+  const [reviewDirty, setReviewDirty] = useState(false);
+  const [sellingPointsDirty, setSellingPointsDirty] = useState(false);
   const [reviewForm] = Form.useForm<AssetReviewPayload>();
   const [sellingPointForm] = Form.useForm<AssetSellingPointPayload>();
 
@@ -143,19 +156,34 @@ export function AssetsPage({ token }: { token: string }) {
       setSemanticPreview(null);
       setAssetEmbeddings([]);
       setAssetSellingPoints([]);
+      setAssetDetailSellingPoints([]);
       return;
     }
+
+    let active = true;
+    setFrames([]);
+    setSpeechSegments([]);
+    setSemanticPreview(null);
+    setAssetEmbeddings([]);
+    setAssetSellingPoints([]);
+    setAssetDetailSellingPoints([]);
 
     const loadFrames = async () => {
       setFramesLoading(true);
       try {
         const response = await getAssetFrames(selectedAsset.id, token);
-        setFrames(response.frames);
+        if (active) {
+          setFrames(response.frames);
+        }
       } catch (error) {
-        setFrames([]);
-        message.error(error instanceof Error ? error.message : "加载抽帧预览失败");
+        if (active) {
+          setFrames([]);
+          message.error(error instanceof Error ? error.message : "加载抽帧预览失败");
+        }
       } finally {
-        setFramesLoading(false);
+        if (active) {
+          setFramesLoading(false);
+        }
       }
     };
 
@@ -165,12 +193,18 @@ export function AssetsPage({ token }: { token: string }) {
       setSemanticPreviewLoading(true);
       try {
         const response = await getSemanticPreview(selectedAsset.id, token);
-        setSemanticPreview(response);
+        if (active) {
+          setSemanticPreview(response);
+        }
       } catch (error) {
-        setSemanticPreview(null);
-        message.error(error instanceof Error ? error.message : "加载开放语义描述失败");
+        if (active) {
+          setSemanticPreview(null);
+          message.error(error instanceof Error ? error.message : "加载开放语义描述失败");
+        }
       } finally {
-        setSemanticPreviewLoading(false);
+        if (active) {
+          setSemanticPreviewLoading(false);
+        }
       }
     };
 
@@ -180,11 +214,17 @@ export function AssetsPage({ token }: { token: string }) {
       setAssetEmbeddingsLoading(true);
       try {
         const response = await getAssetEmbeddings(selectedAsset.id, token);
-        setAssetEmbeddings(response.items);
+        if (active) {
+          setAssetEmbeddings(response.items);
+        }
       } catch {
-        setAssetEmbeddings([]);
+        if (active) {
+          setAssetEmbeddings([]);
+        }
       } finally {
-        setAssetEmbeddingsLoading(false);
+        if (active) {
+          setAssetEmbeddingsLoading(false);
+        }
       }
     };
 
@@ -200,12 +240,18 @@ export function AssetsPage({ token }: { token: string }) {
       setSpeechSegmentsLoading(true);
       try {
         const response = await getSpeechSegments(selectedAsset.id, token);
-        setSpeechSegments(response);
+        if (active) {
+          setSpeechSegments(response);
+        }
       } catch (error) {
-        setSpeechSegments([]);
-        message.error(error instanceof Error ? error.message : "加载口播句段失败");
+        if (active) {
+          setSpeechSegments([]);
+          message.error(error instanceof Error ? error.message : "加载口播句段失败");
+        }
       } finally {
-        setSpeechSegmentsLoading(false);
+        if (active) {
+          setSpeechSegmentsLoading(false);
+        }
       }
     };
 
@@ -214,17 +260,41 @@ export function AssetsPage({ token }: { token: string }) {
     const loadAssetSellingPoints = async () => {
       try {
         const response = await getAssetSellingPoints(selectedAsset.id, token);
-        setAssetSellingPoints(response);
-        sellingPointForm.setFieldsValue({
-          selling_point_ids: response.map((item) => item.id)
-        });
+        if (active) {
+          setAssetSellingPoints(response);
+          sellingPointForm.setFieldsValue({
+            selling_point_ids: response.map((item) => item.id)
+          });
+          setSellingPointsDirty(false);
+        }
       } catch (error) {
-        setAssetSellingPoints([]);
-        message.error(error instanceof Error ? error.message : "加载素材卖点失败");
+        if (active) {
+          setAssetSellingPoints([]);
+          message.error(error instanceof Error ? error.message : "加载素材卖点失败");
+        }
       }
     };
 
     void loadAssetSellingPoints();
+
+    const loadAssetDetailSellingPoints = async () => {
+      try {
+        const response = await listSellingPoints(`/api/products/${selectedAsset.product_id}/selling-points`, token);
+        if (active) {
+          setAssetDetailSellingPoints(response);
+        }
+      } catch (error) {
+        if (active) {
+          setAssetDetailSellingPoints([]);
+          message.error(error instanceof Error ? error.message : "加载产品卖点失败");
+        }
+      }
+    };
+
+    void loadAssetDetailSellingPoints();
+    return () => {
+      active = false;
+    };
   }, [selectedAsset, token]);
 
   useEffect(() => {
@@ -232,6 +302,8 @@ export function AssetsPage({ token }: { token: string }) {
       reviewForm.resetFields();
       sellingPointForm.resetFields();
       setEditingAnalysis(false);
+      setReviewDirty(false);
+      setSellingPointsDirty(false);
       return;
     }
 
@@ -245,6 +317,9 @@ export function AssetsPage({ token }: { token: string }) {
       usability_status: selectedAsset.usability_status || "usable",
       reviewer_notes: selectedAsset.reviewer_notes || ""
     });
+    setEditingAnalysis(false);
+    setReviewDirty(false);
+    setSellingPointsDirty(false);
   }, [reviewForm, selectedAsset, sellingPointForm]);
 
   useEffect(() => {
@@ -264,6 +339,7 @@ export function AssetsPage({ token }: { token: string }) {
       const updated = await saveAssetReview(selectedAsset.id, values, token);
       setSelectedAsset(updated);
       setEditingAnalysis(false);
+      setReviewDirty(false);
       await assets.reload();
       message.success("素材复核已更新");
     } catch (error) {
@@ -297,6 +373,7 @@ export function AssetsPage({ token }: { token: string }) {
     try {
       const updated = await persistAssetSellingPoints(selectedAsset.id, values, token);
       setAssetSellingPoints(updated);
+      setSellingPointsDirty(false);
       message.success("素材卖点关联已更新");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "更新素材卖点失败");
@@ -324,6 +401,78 @@ export function AssetsPage({ token }: { token: string }) {
   const assetItems = assets.data?.items ?? [];
   const assetTotal = assets.data?.total ?? 0;
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const selectedAssetNumber = selectedAssetPosition
+    ? (selectedAssetPosition.page - 1) * (assets.data?.page_size ?? assetPageSize) + selectedAssetPosition.index + 1
+    : 0;
+  const assetNavigationBusy = navigatingAsset || savingAnalysis || updatingArchive || savingSellingPoints || vectorizingAsset;
+
+  const openAssetDetail = (asset: Asset) => {
+    const index = assetItems.findIndex((item) => item.id === asset.id);
+    setSelectedAssetPosition({
+      page: assets.data?.page ?? assetPage,
+      index: index >= 0 ? index : 0
+    });
+    setSelectedAsset(asset);
+  };
+
+  const navigateAsset = async (direction: -1 | 1) => {
+    if (!selectedAsset || !selectedAssetPosition || assetNavigationBusy) {
+      return;
+    }
+    const pageSize = assets.data?.page_size ?? assetPageSize;
+    const pageStart = (selectedAssetPosition.page - 1) * pageSize;
+    const selectedIndexOnLoadedPage = (assets.data?.page ?? assetPage) === selectedAssetPosition.page
+      ? assetItems.findIndex((item) => item.id === selectedAsset.id)
+      : -1;
+    const currentNumber = pageStart + (selectedIndexOnLoadedPage >= 0 ? selectedIndexOnLoadedPage : selectedAssetPosition.index);
+    const targetNumber = selectedIndexOnLoadedPage < 0 && direction === 1 ? currentNumber : currentNumber + direction;
+    if (targetNumber < 0 || targetNumber >= assetTotal) {
+      return;
+    }
+    const targetPage = Math.floor(targetNumber / pageSize) + 1;
+    const targetIndex = targetNumber % pageSize;
+
+    setNavigatingAsset(true);
+    try {
+      let targetItems = assetItems;
+      if (targetPage !== (assets.data?.page ?? assetPage)) {
+        const response = await listAssets(assetPathForPage(assetPath, targetPage, pageSize), token);
+        targetItems = response.items ?? [];
+      }
+      const targetAsset = targetItems[targetIndex];
+      if (!targetAsset) {
+        throw new Error("目标素材不存在，列表可能已更新");
+      }
+      if (targetPage !== assetPage) {
+        setAssetPage(targetPage);
+      }
+      setSelectedAssetPosition({ page: targetPage, index: targetIndex });
+      setSelectedAsset(targetAsset);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "切换素材失败");
+      await assets.reload();
+    } finally {
+      setNavigatingAsset(false);
+    }
+  };
+
+  const requestAssetNavigation = (direction: -1 | 1) => {
+    if (!reviewDirty && !sellingPointsDirty) {
+      void navigateAsset(direction);
+      return;
+    }
+    Modal.confirm({
+      title: "放弃未保存的修改？",
+      content: "当前素材的修改尚未保存，切换后将丢失这些内容。",
+      okText: "放弃并切换",
+      cancelText: "继续编辑",
+      onOk: () => {
+        setReviewDirty(false);
+        setSellingPointsDirty(false);
+        void navigateAsset(direction);
+      }
+    });
+  };
 
   return (
     <div data-testid="assets-page" className="asset-library-page">
@@ -576,7 +725,7 @@ export function AssetsPage({ token }: { token: string }) {
           pageSize={assetPageSize}
           semanticQuery={semanticQuery}
           productNameByID={productNameByID}
-          onSelect={setSelectedAsset}
+          onSelect={openAssetDetail}
           onPageChange={(page, pageSize) => {
             setAssetPage(page);
             setAssetPageSize(pageSize);
@@ -590,13 +739,16 @@ export function AssetsPage({ token }: { token: string }) {
         footer={null}
         width="86vw"
         className="asset-detail-modal"
-        onCancel={() => setSelectedAsset(null)}
+        onCancel={() => {
+          setSelectedAsset(null);
+          setSelectedAssetPosition(null);
+        }}
       >
         {selectedAsset ? (
           <div className="asset-detail-shell" data-testid="asset-detail-modal">
             <div className="asset-detail-workspace">
               <section className="asset-detail-preview">
-                <video src={assetVideoURL(selectedAsset)} controls preload="metadata" />
+                <video key={selectedAsset.id} src={assetVideoURL(selectedAsset)} controls preload="metadata" />
                 <div className="asset-detail-title-block">
                   <div>
                     <Typography.Title level={4}>{assetDisplayTitle(selectedAsset)}</Typography.Title>
@@ -623,10 +775,40 @@ export function AssetsPage({ token }: { token: string }) {
                     <Typography.Text type="secondary">画面标签、可用性和人工复核</Typography.Text>
                   </div>
                   <Space wrap>
+                    <div className="asset-detail-navigation" aria-label="素材切换">
+                      <Tooltip title="上一条">
+                        <Button
+                          size="small"
+                          icon={<ChevronLeft size={16} />}
+                          aria-label="上一条素材"
+                          disabled={assetNavigationBusy || selectedAssetNumber <= 1}
+                          onClick={() => requestAssetNavigation(-1)}
+                        />
+                      </Tooltip>
+                      <span className="asset-detail-navigation-count">
+                        {Math.min(selectedAssetNumber, assetTotal)} / {assetTotal}
+                      </span>
+                      <Tooltip title="下一条">
+                        <Button
+                          size="small"
+                          icon={<ChevronRight size={16} />}
+                          aria-label="下一条素材"
+                          disabled={assetNavigationBusy || selectedAssetNumber >= assetTotal}
+                          onClick={() => requestAssetNavigation(1)}
+                        />
+                      </Tooltip>
+                    </div>
+                    <Divider type="vertical" className="asset-detail-section-divider" />
                     <Button
                       size="small"
                       onClick={() => {
-                        setEditingAnalysis((current) => !current);
+                        if (editingAnalysis) {
+                          setEditingAnalysis(false);
+                          setReviewDirty(false);
+                          return;
+                        }
+                        setEditingAnalysis(true);
+                        setReviewDirty(false);
                         reviewForm.setFieldsValue({
                           scene_description: selectedAsset.scene_description || "",
                           shot_size: selectedAsset.shot_size || "",
@@ -670,7 +852,13 @@ export function AssetsPage({ token }: { token: string }) {
                 </div>
 
                 {editingAnalysis ? (
-                  <Form form={reviewForm} layout="vertical" data-testid="asset-review-form" className="asset-detail-review-form">
+                  <Form
+                    form={reviewForm}
+                    layout="vertical"
+                    data-testid="asset-review-form"
+                    className="asset-detail-review-form"
+                    onValuesChange={() => setReviewDirty(true)}
+                  >
                     <Form.Item name="scene_description" label="画面描述">
                       <Input.TextArea rows={3} />
                     </Form.Item>
@@ -833,13 +1021,13 @@ export function AssetsPage({ token }: { token: string }) {
                         }
                       >
                         <Space direction="vertical" className="wide-space">
-                          <Form form={sellingPointForm} layout="vertical">
+                          <Form form={sellingPointForm} layout="vertical" onValuesChange={() => setSellingPointsDirty(true)}>
                             <Form.Item name="selling_point_ids" label="关联卖点">
                               <Select
                                 mode="multiple"
                                 allowClear
                                 placeholder="请选择卖点"
-                                options={(assetDetailSellingPoints.data ?? []).map((item) => ({
+                                options={assetDetailSellingPoints.map((item) => ({
                                   value: item.id,
                                   label: item.title
                                 }))}

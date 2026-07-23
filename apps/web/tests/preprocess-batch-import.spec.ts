@@ -30,6 +30,15 @@ type MockWorkspaceItem = {
 };
 
 const transparentPixel = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const localAgentHealth = {
+  status: "ok",
+  app: "acrunu-fastcut-local-agent",
+  version: "0.1.1",
+  protocol_version: 1,
+  platform: "windows-x64",
+  ffmpeg_ready: true,
+  ffprobe_ready: true
+};
 
 function workspaceItem(index: number, fileName: string): MockWorkspaceItem {
   const id = `workspace-${index}`;
@@ -111,6 +120,14 @@ test("imports a large preprocess batch without blocking or mounting videos", asy
       await route.fulfill({ status: 204, headers: corsHeaders });
       return;
     }
+    if (request.method() === "GET" && url.pathname === "/healthz") {
+      await route.fulfill({
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify(localAgentHealth)
+      });
+      return;
+    }
     if (request.method() === "GET" && url.pathname === "/workspace/items") {
       const pageNumber = Number(url.searchParams.get("page") ?? "1");
       const pageSize = Number(url.searchParams.get("page_size") ?? "50");
@@ -169,7 +186,7 @@ test("imports a large preprocess batch without blocking or mounting videos", asy
   await importModal.getByRole("button", { name: /开始导入/ }).click();
   await expect.poll(() => maxActiveImports).toBe(16);
   await expect(importModal.locator(".preprocess-import-actions button").first()).toBeEnabled();
-  await importModal.locator(".preprocess-import-preview-card").nth(30).getByRole("button", { name: "移除" }).click();
+  await importModal.locator(".preprocess-import-preview-card").nth(49).getByRole("button", { name: "移除" }).click();
   await importModal.locator(".preprocess-import-actions button").nth(1).click();
   await expect(importModal).not.toBeVisible();
   await expect(page.getByRole("button", { name: "刷新" })).toBeEnabled();
