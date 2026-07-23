@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 )
 
 func ExtractAudio(ctx context.Context, inputPath string, outputPath string, startMs int, endMs int) error {
@@ -12,7 +11,7 @@ func ExtractAudio(ctx context.Context, inputPath string, outputPath string, star
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, ffmpegPath(), args...)
+	cmd := newCommandContext(ctx, ffmpegPath(), args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg extract audio failed: %w: %s", err, string(output))

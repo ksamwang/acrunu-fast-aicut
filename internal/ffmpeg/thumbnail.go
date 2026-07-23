@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 )
 
 func ExtractThumbnail(ctx context.Context, inputPath string, outputPath string, width int, height int) error {
@@ -25,7 +24,7 @@ func ExtractThumbnail(ctx context.Context, inputPath string, outputPath string, 
 			"-map", "0:v:0", "-frames:v", "1", "-an", "-sn", "-dn",
 			"-vf", filter, "-q:v", "4", outputPath,
 		}
-		lastOutput, lastErr = exec.CommandContext(ctx, ffmpegPath(), args...).CombinedOutput()
+		lastOutput, lastErr = newCommandContext(ctx, ffmpegPath(), args...).CombinedOutput()
 		if lastErr == nil && fileExistsAndNotEmpty(outputPath) {
 			return nil
 		}

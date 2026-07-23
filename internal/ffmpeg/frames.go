@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 )
 
@@ -54,7 +53,7 @@ func extractSingleFrame(ctx context.Context, inputPath string, outputPath string
 		}
 		for _, args := range attempts {
 			_ = os.Remove(outputPath)
-			cmd := exec.CommandContext(ctx, ffmpegPath(), args...)
+			cmd := newCommandContext(ctx, ffmpegPath(), args...)
 			output, err := cmd.CombinedOutput()
 			if err == nil {
 				if fileExistsAndNotEmpty(outputPath) {

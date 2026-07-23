@@ -40,6 +40,19 @@ type blockingImportProcessor struct {
 	release chan struct{}
 }
 
+type frameRecordingProcessor struct {
+	stubProcessor
+	mu    sync.Mutex
+	calls [][]int
+}
+
+func (p *frameRecordingProcessor) ExtractFrames(ctx context.Context, inputPath string, outputDir string, timestampsMs []int) ([]ffmpeg.ExtractedFrame, error) {
+	p.mu.Lock()
+	p.calls = append(p.calls, append([]int(nil), timestampsMs...))
+	p.mu.Unlock()
+	return p.stubProcessor.ExtractFrames(ctx, inputPath, outputDir, timestampsMs)
+}
+
 func (p blockingImportProcessor) Probe(ctx context.Context, _ string) (ffmpeg.ProbeResult, error) {
 	close(p.started)
 	select {
@@ -513,7 +526,8 @@ func TestWorkspaceRejectsInvalidInterpretFPS(t *testing.T) {
 
 func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	root := t.TempDir()
-	workspace, err := NewWorkspace(root, stubProcessor{})
+	processor := &frameRecordingProcessor{}
+	workspace, err := NewWorkspace(root, processor)
 	if err != nil {
 		t.Fatalf("NewWorkspace() error = %v", err)
 	}
@@ -624,16 +638,28 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 	if len(labeled.PreviewFrames) != 3 {
 		t.Fatalf("expected preview frames from vlm label, got %d", len(labeled.PreviewFrames))
 	}
+	processor.mu.Lock()
+	frameCalls := append([][]int(nil), processor.calls...)
+	processor.mu.Unlock()
+	if len(frameCalls) != 1 || len(frameCalls[0]) != vlmFrameSampleCount {
+		t.Fatalf("expected one %d-frame extraction, got %v", vlmFrameSampleCount, frameCalls)
+	}
+	for index, frame := range labeled.PreviewFrames {
+		if frame.FrameIndex != index || !strings.Contains(frame.ImagePath, "vlm-frames") {
+			t.Fatalf("expected preview %d to reuse a VLM frame, got %+v", index, frame)
+		}
+	}
 }
 
-func TestWorkspaceLeavesVLMConcurrencyToServer(t *testing.T) {
+func TestWorkspaceLimitsLocalVLMConcurrency(t *testing.T) {
 	workspace, err := NewWorkspace(t.TempDir(), stubProcessor{})
 	if err != nil {
 		t.Fatalf("NewWorkspace() error = %v", err)
 	}
 
-	items := make([]WorkspaceItem, 0, 3)
-	for index := 0; index < 3; index++ {
+	itemCount := localVLMConcurrency + 1
+	items := make([]WorkspaceItem, 0, itemCount)
+	for index := 0; index < itemCount; index++ {
 		header, cleanup := newMultipartHeader(t, fmt.Sprintf("sample-%d.mp4", index), []byte("video"))
 		imported, importErr := workspace.ImportFiles(context.Background(), []*multipart.FileHeader{header})
 		cleanup()
@@ -643,7 +669,7 @@ func TestWorkspaceLeavesVLMConcurrencyToServer(t *testing.T) {
 		items = append(items, imported[0])
 	}
 
-	started := make(chan struct{}, 3)
+	started := make(chan struct{}, itemCount)
 	release := make(chan struct{})
 	var mu sync.Mutex
 	active := 0
@@ -675,12 +701,31 @@ func TestWorkspaceLeavesVLMConcurrencyToServer(t *testing.T) {
 		}
 	}
 
-	for index := 0; index < len(items); index++ {
+	for index := 0; index < localVLMConcurrency; index++ {
 		select {
 		case <-started:
 		case <-time.After(2 * time.Second):
 			t.Fatal("timed out waiting for VLM workers")
 		}
+	}
+	select {
+	case <-started:
+		t.Fatalf("more than %d VLM requests started", localVLMConcurrency)
+	case <-time.After(150 * time.Millisecond):
+	}
+	running := 0
+	queued := 0
+	for _, item := range items {
+		current, _ := workspace.GetItem(item.ID)
+		switch current.VLMStatus {
+		case vlmStatusRunning:
+			running++
+		case vlmStatusQueued:
+			queued++
+		}
+	}
+	if running != localVLMConcurrency || queued != 1 {
+		t.Fatalf("expected %d running and 1 queued, got %d running and %d queued", localVLMConcurrency, running, queued)
 	}
 	close(release)
 
@@ -700,8 +745,8 @@ func TestWorkspaceLeavesVLMConcurrencyToServer(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if maxActive != len(items) {
-		t.Fatalf("expected Local Agent to leave VLM concurrency to server, got max %d", maxActive)
+	if maxActive != localVLMConcurrency {
+		t.Fatalf("expected Local Agent VLM concurrency %d, got max %d", localVLMConcurrency, maxActive)
 	}
 }
 

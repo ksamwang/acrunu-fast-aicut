@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -90,7 +89,7 @@ func RenderTimeline(ctx context.Context, input RenderInput) (ProbeResult, error)
 	if err != nil {
 		return ProbeResult{}, err
 	}
-	cmd := exec.CommandContext(ctx, ffmpegPath(), args...)
+	cmd := newCommandContext(ctx, ffmpegPath(), args...)
 	cmd.Dir = input.WorkDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {

@@ -34,6 +34,7 @@ const (
 	workspaceStatusSubmitted     = "submitted"
 	interpretFPSVersion          = "input-trim-setpts-v3"
 	vlmFrameSampleCount          = 9
+	localVLMConcurrency          = 20
 
 	vlmStatusIdle    = "idle"
 	vlmStatusQueued  = "queued"
@@ -160,6 +161,7 @@ type Workspace struct {
 	items       map[string]WorkspaceItem
 	order       []string
 	activeItems map[string]int
+	vlmLimiter  chan struct{}
 }
 
 type workspaceState struct {
@@ -197,6 +199,7 @@ func NewWorkspace(root string, processor Processor) (*Workspace, error) {
 		processor:   processor,
 		items:       map[string]WorkspaceItem{},
 		activeItems: map[string]int{},
+		vlmLimiter:  make(chan struct{}, localVLMConcurrency),
 	}
 	if err := w.load(); err != nil {
 		return nil, err
@@ -560,6 +563,13 @@ func (w *Workspace) StartVLMLabel(itemID string, input WorkspaceVLMLabelInput) (
 
 func (w *Workspace) runVLMLabel(ctx context.Context, itemID string, input WorkspaceVLMLabelInput) {
 	defer w.finishItemOperation(itemID)
+	select {
+	case w.vlmLimiter <- struct{}{}:
+		defer func() { <-w.vlmLimiter }()
+	case <-ctx.Done():
+		w.failQueuedVLMLabel(itemID, input, ctx.Err())
+		return
+	}
 
 	startedAt := time.Now()
 	w.mu.Lock()
@@ -609,6 +619,24 @@ func (w *Workspace) runVLMLabel(ctx context.Context, itemID string, input Worksp
 	current.VLMError = ""
 	current.LastError = ""
 	w.items[itemID] = current
+	_ = w.persistLocked()
+}
+
+func (w *Workspace) failQueuedVLMLabel(itemID string, input WorkspaceVLMLabelInput, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	item, ok := w.items[itemID]
+	if !ok || item.VLMProductID != input.ProductID || item.VLMSourceType != input.SourceType ||
+		item.VLMSourceInMs != input.SourceInMs || item.VLMSourceOutMs != input.SourceOutMs {
+		return
+	}
+	finishedAt := time.Now()
+	item.VLMStatus = vlmStatusFailed
+	item.VLMError = err.Error()
+	item.LastError = err.Error()
+	item.VLMFinishedAt = &finishedAt
+	item.UpdatedAt = finishedAt
+	w.items[itemID] = item
 	_ = w.persistLocked()
 }
 
@@ -1083,16 +1111,6 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 		return modelgateway.AnalyzeAssetResult{}, nil, fmt.Errorf("auth_token is required")
 	}
 
-	previewTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
-	previewDir := filepath.Join(w.root, "items", item.ID, "preview-frames")
-	previewFrames, err := w.processor.ExtractFrames(ctx, item.SourcePath, previewDir, previewTimestamps)
-	if err != nil {
-		return modelgateway.AnalyzeAssetResult{}, nil, err
-	}
-	if err := validateExtractedFrames(previewFrames, len(previewTimestamps)); err != nil {
-		return modelgateway.AnalyzeAssetResult{}, nil, err
-	}
-
 	vlmTimestamps := resolveVLMFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
 	vlmDir := filepath.Join(w.root, "items", item.ID, "vlm-frames")
 	vlmFrames, err := w.processor.ExtractFrames(ctx, item.SourcePath, vlmDir, vlmTimestamps)
@@ -1103,18 +1121,8 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
 
-	previewSnapshots := make([]WorkspaceFrameSnapshot, 0, len(previewFrames))
-	for _, frame := range previewFrames {
-		timestampMs := frame.TimestampMs
-		if frame.FrameIndex >= 0 && frame.FrameIndex < len(previewTimestamps) {
-			timestampMs = previewTimestamps[frame.FrameIndex]
-		}
-		previewSnapshots = append(previewSnapshots, WorkspaceFrameSnapshot{
-			FrameIndex:  frame.FrameIndex,
-			TimestampMs: timestampMs,
-			ImagePath:   frame.OutputPath,
-		})
-	}
+	previewTimestamps := resolveThreeFrameTimestampsInRange(input.SourceInMs, input.SourceOutMs, item.Probe.FPS)
+	previewSnapshots := selectPreviewSnapshots(vlmFrames, previewTimestamps)
 
 	frameRefs := make([]modelgateway.FrameReference, 0, len(vlmFrames))
 	for _, frame := range vlmFrames {
@@ -1144,6 +1152,38 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 		return modelgateway.AnalyzeAssetResult{}, nil, err
 	}
 	return result, previewSnapshots, nil
+}
+
+func selectPreviewSnapshots(frames []ffmpeg.ExtractedFrame, targetTimestamps []int) []WorkspaceFrameSnapshot {
+	result := make([]WorkspaceFrameSnapshot, 0, len(targetTimestamps))
+	used := make(map[int]struct{}, len(targetTimestamps))
+	for previewIndex, targetTimestamp := range targetTimestamps {
+		bestIndex := -1
+		bestDistance := int(^uint(0) >> 1)
+		for frameIndex, frame := range frames {
+			if _, exists := used[frameIndex]; exists {
+				continue
+			}
+			distance := frame.TimestampMs - targetTimestamp
+			if distance < 0 {
+				distance = -distance
+			}
+			if distance < bestDistance {
+				bestIndex = frameIndex
+				bestDistance = distance
+			}
+		}
+		if bestIndex < 0 {
+			break
+		}
+		used[bestIndex] = struct{}{}
+		result = append(result, WorkspaceFrameSnapshot{
+			FrameIndex:  previewIndex,
+			TimestampMs: frames[bestIndex].TimestampMs,
+			ImagePath:   frames[bestIndex].OutputPath,
+		})
+	}
+	return result
 }
 
 func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken string, productReferenceImageDataURL string, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {

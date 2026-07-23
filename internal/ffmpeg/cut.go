@@ -3,7 +3,6 @@ package ffmpeg
 import (
 	"context"
 	"fmt"
-	"os/exec"
 )
 
 type CutOptions struct {
@@ -59,7 +58,7 @@ func CutWithOptions(ctx context.Context, inputPath string, outputPath string, st
 }
 
 func runCutCommand(ctx context.Context, args []string) error {
-	cmd := exec.CommandContext(ctx, ffmpegPath(), args...)
+	cmd := newCommandContext(ctx, ffmpegPath(), args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg cut failed: %w: %s", err, string(output))
