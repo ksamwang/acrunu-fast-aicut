@@ -88,6 +88,8 @@ type MarqueeStart = {
   pointerID: number;
   clientX: number;
   clientY: number;
+  latestClientX: number;
+  latestClientY: number;
   boardX: number;
   boardY: number;
   append: boolean;
@@ -429,6 +431,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const [importQueuePage, setImportQueuePage] = useState(1);
   const [workspacePage, setWorkspacePage] = useState(1);
   const [workspaceTotal, setWorkspaceTotal] = useState(0);
+  const [selectingAllItems, setSelectingAllItems] = useState(false);
   const [workspaceStats, setWorkspaceStats] = useState<WorkspaceStatsState>({ pending: 0, saved: 0, ready: 0, submitted: 0 });
   const [hasRunningVLMLabel, setHasRunningVLMLabel] = useState(false);
   const [selectedItemID, setSelectedItemID] = useState<string | null>(null);
@@ -464,6 +467,7 @@ export function PreprocessPage({ token }: { token: string }) {
   const selectedItemCacheRef = useRef<Record<string, WorkspaceItem>>({});
   const selectionAnchorIDRef = useRef<string | null>(null);
   const marqueeStartRef = useRef<MarqueeStart | null>(null);
+  const marqueeAutoScrollFrameRef = useRef<number | null>(null);
   const batchSubmitCheckingRef = useRef(false);
   const preprocessBoardRef = useRef<HTMLElement | null>(null);
   const assetCardRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -548,6 +552,50 @@ export function PreprocessPage({ token }: { token: string }) {
       selectedItemCacheRef.current = next;
       return next;
     });
+  };
+
+  const toggleSelectAllWorkspaceItems = async () => {
+    if (selectingAllItems || workspaceTotal === 0) {
+      return;
+    }
+    if (selectedItemIDsRef.current.size === workspaceTotal) {
+      applyWorkspaceSelection(new Set());
+      selectionAnchorIDRef.current = null;
+      return;
+    }
+
+    setSelectingAllItems(true);
+    try {
+      const allItems: WorkspaceItem[] = [];
+      const seen = new Set<string>();
+      let page = 1;
+      let total = workspaceTotal;
+      while (seen.size < total) {
+        const response = await localAgentRequest<WorkspaceListResponse>(`/workspace/items?page=${page}&page_size=100`);
+        total = response.total ?? total;
+        const pageItems = response.items ?? [];
+        if (pageItems.length === 0) {
+          break;
+        }
+        pageItems.forEach((item) => {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            allItems.push(item);
+          }
+        });
+        page += 1;
+      }
+      if (seen.size !== total) {
+        throw new Error(`只读取到 ${seen.size}/${total} 项素材`);
+      }
+      setWorkspaceTotal(total);
+      applyWorkspaceSelection(new Set(seen), allItems);
+      selectionAnchorIDRef.current = null;
+    } catch (error) {
+      message.error(error instanceof Error ? `全选失败：${error.message}` : "全选素材失败");
+    } finally {
+      setSelectingAllItems(false);
+    }
   };
 
   const replaceWorkspaceItem = (nextItem: WorkspaceItem, previousItem?: WorkspaceItem | null) => {
@@ -1678,6 +1726,94 @@ export function PreprocessPage({ token }: { token: string }) {
     }
   };
 
+  const stopMarqueeAutoScroll = () => {
+    if (marqueeAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(marqueeAutoScrollFrameRef.current);
+      marqueeAutoScrollFrameRef.current = null;
+    }
+  };
+
+  const updateMarqueeSelection = (clientX: number, clientY: number) => {
+    const start = marqueeStartRef.current;
+    const board = preprocessBoardRef.current;
+    if (!start || !board) {
+      return;
+    }
+    const boardBounds = board.getBoundingClientRect();
+    const currentX = clientX - boardBounds.left + board.scrollLeft;
+    const currentY = clientY - boardBounds.top + board.scrollTop;
+    const selectionBounds = {
+      left: Math.min(start.boardX, currentX),
+      right: Math.max(start.boardX, currentX),
+      top: Math.min(start.boardY, currentY),
+      bottom: Math.max(start.boardY, currentY)
+    };
+    setMarqueeRect({
+      left: selectionBounds.left,
+      top: selectionBounds.top,
+      width: selectionBounds.right - selectionBounds.left,
+      height: selectionBounds.bottom - selectionBounds.top
+    });
+
+    const next = start.append ? new Set(start.initialIDs) : new Set<string>();
+    items.forEach((item) => {
+      const card = assetCardRefs.current.get(item.id);
+      if (!card) {
+        return;
+      }
+      const bounds = card.getBoundingClientRect();
+      const cardBounds = {
+        left: bounds.left - boardBounds.left + board.scrollLeft,
+        right: bounds.right - boardBounds.left + board.scrollLeft,
+        top: bounds.top - boardBounds.top + board.scrollTop,
+        bottom: bounds.bottom - boardBounds.top + board.scrollTop
+      };
+      if (
+        cardBounds.left < selectionBounds.right && cardBounds.right > selectionBounds.left &&
+        cardBounds.top < selectionBounds.bottom && cardBounds.bottom > selectionBounds.top
+      ) {
+        next.add(item.id);
+      }
+    });
+    applyWorkspaceSelection(next);
+  };
+
+  const ensureMarqueeAutoScroll = () => {
+    if (marqueeAutoScrollFrameRef.current !== null) {
+      return;
+    }
+    const step = () => {
+      marqueeAutoScrollFrameRef.current = null;
+      const start = marqueeStartRef.current;
+      const board = preprocessBoardRef.current;
+      if (!start?.dragged || !board) {
+        return;
+      }
+      const bounds = board.getBoundingClientRect();
+      const edgeSize = 56;
+      const maxStep = 24;
+      let deltaY = 0;
+      if (start.latestClientY < bounds.top + edgeSize) {
+        deltaY = -Math.ceil(maxStep * Math.min(1, (bounds.top + edgeSize - start.latestClientY) / edgeSize));
+      } else if (start.latestClientY > bounds.bottom - edgeSize) {
+        deltaY = Math.ceil(maxStep * Math.min(1, (start.latestClientY - (bounds.bottom - edgeSize)) / edgeSize));
+      }
+      if (deltaY === 0) {
+        return;
+      }
+      const previousScrollTop = board.scrollTop;
+      board.scrollTop += deltaY;
+      if (board.scrollTop === previousScrollTop) {
+        return;
+      }
+      updateMarqueeSelection(start.latestClientX, start.latestClientY);
+      marqueeAutoScrollFrameRef.current = window.requestAnimationFrame(step);
+    };
+    marqueeAutoScrollFrameRef.current = window.requestAnimationFrame(step);
+  };
+
+  useEffect(() => () => stopMarqueeAutoScroll(), []);
+
   const handleBoardPointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0) {
       return;
@@ -1691,10 +1827,13 @@ export function PreprocessPage({ token }: { token: string }) {
       return;
     }
     const boardBounds = board.getBoundingClientRect();
+    stopMarqueeAutoScroll();
     marqueeStartRef.current = {
       pointerID: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
+      latestClientX: event.clientX,
+      latestClientY: event.clientY,
       boardX: event.clientX - boardBounds.left + board.scrollLeft,
       boardY: event.clientY - boardBounds.top + board.scrollTop,
       append: event.ctrlKey || event.metaKey || event.shiftKey,
@@ -1710,43 +1849,16 @@ export function PreprocessPage({ token }: { token: string }) {
     if (!start || start.pointerID !== event.pointerId || !board) {
       return;
     }
+    start.latestClientX = event.clientX;
+    start.latestClientY = event.clientY;
     const deltaX = event.clientX - start.clientX;
     const deltaY = event.clientY - start.clientY;
     if (!start.dragged && Math.hypot(deltaX, deltaY) < 4) {
       return;
     }
     start.dragged = true;
-    const boardBounds = board.getBoundingClientRect();
-    const currentX = event.clientX - boardBounds.left + board.scrollLeft;
-    const currentY = event.clientY - boardBounds.top + board.scrollTop;
-    setMarqueeRect({
-      left: Math.min(start.boardX, currentX),
-      top: Math.min(start.boardY, currentY),
-      width: Math.abs(currentX - start.boardX),
-      height: Math.abs(currentY - start.boardY)
-    });
-
-    const selectionBounds = {
-      left: Math.min(start.clientX, event.clientX),
-      right: Math.max(start.clientX, event.clientX),
-      top: Math.min(start.clientY, event.clientY),
-      bottom: Math.max(start.clientY, event.clientY)
-    };
-    const next = start.append ? new Set(start.initialIDs) : new Set<string>();
-    items.forEach((item) => {
-      const card = assetCardRefs.current.get(item.id);
-      if (!card) {
-        return;
-      }
-      const bounds = card.getBoundingClientRect();
-      if (
-        bounds.left < selectionBounds.right && bounds.right > selectionBounds.left &&
-        bounds.top < selectionBounds.bottom && bounds.bottom > selectionBounds.top
-      ) {
-        next.add(item.id);
-      }
-    });
-    applyWorkspaceSelection(next);
+    updateMarqueeSelection(event.clientX, event.clientY);
+    ensureMarqueeAutoScroll();
   };
 
   const finishBoardPointerSelection = (event: React.PointerEvent<HTMLElement>) => {
@@ -1754,6 +1866,7 @@ export function PreprocessPage({ token }: { token: string }) {
     if (!start || start.pointerID !== event.pointerId) {
       return;
     }
+    stopMarqueeAutoScroll();
     if (!start.dragged && !start.append) {
       applyWorkspaceSelection(new Set());
       selectionAnchorIDRef.current = null;
@@ -1769,6 +1882,7 @@ export function PreprocessPage({ token }: { token: string }) {
     if (marqueeStartRef.current?.pointerID !== event.pointerId) {
       return;
     }
+    stopMarqueeAutoScroll();
     marqueeStartRef.current = null;
     setMarqueeRect(null);
   };
@@ -2078,6 +2192,14 @@ export function PreprocessPage({ token }: { token: string }) {
           ) : null}
         </div>
         <Space wrap>
+          <Button
+            icon={<Check size={16} />}
+            onClick={() => void toggleSelectAllWorkspaceItems()}
+            loading={selectingAllItems}
+            disabled={workspaceTotal === 0}
+          >
+            {selectedItemIDs.size === workspaceTotal && workspaceTotal > 0 ? "取消全选" : `全选全部 (${workspaceTotal})`}
+          </Button>
           <Button icon={<RefreshIcon />} onClick={() => void loadItems()} loading={loading}>
             刷新
           </Button>
