@@ -142,6 +142,16 @@ func TestUpdateAssetReviewInMemory(t *testing.T) {
 		Subjects:         []string{"product"},
 		SceneTags:        []string{"demo"},
 		QualityTags:      []string{},
+		ModelLabels: map[string]any{
+			"scene_description":  "model description",
+			"action_description": "展示键盘图案设计细节",
+			"shot_size":          "medium_shot",
+			"camera_movement":    "static",
+			"subjects":           []string{"product"},
+			"scene_tags":         []string{"demo"},
+			"quality_tags":       []string{},
+			"usability_status":   "usable",
+		},
 		ModelResult: map[string]any{
 			"provider": "mock",
 			"score":    0.92,
@@ -153,15 +163,16 @@ func TestUpdateAssetReviewInMemory(t *testing.T) {
 	}
 
 	updated, err := service.UpdateAssetReview(asset.ID, AssetReviewUpdate{
-		SceneDescription: "manual description",
-		ShotSize:         "close_up",
-		CameraMovement:   "static",
-		Subjects:         []string{"product", "hand"},
-		SceneTags:        []string{"indoor"},
-		QualityTags:      []string{"soft_focus"},
-		UsabilityStatus:  "needs_review",
-		ReviewerNotes:    "needs crop",
-		UpdatedByUserID:  "editor-1",
+		SceneDescription:  "manual description",
+		ActionDescription: "人物双手反复拉伸和放松束裤带，展示弹性",
+		ShotSize:          "close_up",
+		CameraMovement:    "static",
+		Subjects:          []string{"product", "hand"},
+		SceneTags:         []string{"indoor"},
+		QualityTags:       []string{"soft_focus"},
+		UsabilityStatus:   "needs_review",
+		ReviewerNotes:     "needs crop",
+		UpdatedByUserID:   "editor-1",
 	})
 	if err != nil {
 		t.Fatalf("update asset review failed: %v", err)
@@ -175,6 +186,15 @@ func TestUpdateAssetReviewInMemory(t *testing.T) {
 	}
 	if updated.ReviewOverrides["scene_description"] != "manual description" {
 		t.Fatalf("expected review overrides stored, got %#v", updated.ReviewOverrides)
+	}
+	if updated.ActionDescription != "人物双手反复拉伸和放松束裤带，展示弹性" {
+		t.Fatalf("expected manual action description, got %s", updated.ActionDescription)
+	}
+	if updated.ModelLabels["action_description"] != "展示键盘图案设计细节" {
+		t.Fatalf("expected model action preserved, got %#v", updated.ModelLabels)
+	}
+	if updated.ReviewOverrides["action_description"] != "人物双手反复拉伸和放松束裤带，展示弹性" {
+		t.Fatalf("expected action override stored, got %#v", updated.ReviewOverrides)
 	}
 	if updated.UsabilityStatus != "needs_review" {
 		t.Fatalf("expected usability_status needs_review, got %s", updated.UsabilityStatus)
@@ -220,22 +240,33 @@ func TestUpdateAssetAnalysisReappliesReviewOverridesInMemory(t *testing.T) {
 		Subjects:         []string{"product"},
 		SceneTags:        []string{"demo"},
 		QualityTags:      []string{},
-		ModelResult:      map[string]any{"provider": "mock", "version": 1},
-		UpdatedByUserID:  "analyzer-1",
+		ModelLabels: map[string]any{
+			"scene_description":  "model v1",
+			"action_description": "展示图案",
+			"shot_size":          "medium_shot",
+			"camera_movement":    "static",
+			"subjects":           []string{"product"},
+			"scene_tags":         []string{"demo"},
+			"quality_tags":       []string{},
+			"usability_status":   "usable",
+		},
+		ModelResult:     map[string]any{"provider": "mock", "version": 1},
+		UpdatedByUserID: "analyzer-1",
 	}); err != nil {
 		t.Fatalf("seed analysis failed: %v", err)
 	}
 
 	if _, err := service.UpdateAssetReview(asset.ID, AssetReviewUpdate{
-		SceneDescription: "manual final",
-		ShotSize:         "close_up",
-		CameraMovement:   "static",
-		Subjects:         []string{"product", "hand"},
-		SceneTags:        []string{"indoor"},
-		QualityTags:      []string{"soft_focus"},
-		UsabilityStatus:  "needs_review",
-		ReviewerNotes:    "keep manual choice",
-		UpdatedByUserID:  "editor-1",
+		SceneDescription:  "manual final",
+		ActionDescription: "反复拉伸束裤带",
+		ShotSize:          "close_up",
+		CameraMovement:    "static",
+		Subjects:          []string{"product", "hand"},
+		SceneTags:         []string{"indoor"},
+		QualityTags:       []string{"soft_focus"},
+		UsabilityStatus:   "needs_review",
+		ReviewerNotes:     "keep manual choice",
+		UpdatedByUserID:   "editor-1",
 	}); err != nil {
 		t.Fatalf("review update failed: %v", err)
 	}
@@ -249,8 +280,18 @@ func TestUpdateAssetAnalysisReappliesReviewOverridesInMemory(t *testing.T) {
 		Subjects:         []string{"vehicle"},
 		SceneTags:        []string{"outdoor"},
 		QualityTags:      []string{"noise"},
-		ModelResult:      map[string]any{"provider": "mock", "version": 2},
-		UpdatedByUserID:  "analyzer-2",
+		ModelLabels: map[string]any{
+			"scene_description":  "model v2",
+			"action_description": "手持束裤带",
+			"shot_size":          "wide_shot",
+			"camera_movement":    "pan",
+			"subjects":           []string{"vehicle"},
+			"scene_tags":         []string{"outdoor"},
+			"quality_tags":       []string{"noise"},
+			"usability_status":   "usable",
+		},
+		ModelResult:     map[string]any{"provider": "mock", "version": 2},
+		UpdatedByUserID: "analyzer-2",
 	}); err != nil {
 		t.Fatalf("re-analysis failed: %v", err)
 	}
@@ -267,6 +308,12 @@ func TestUpdateAssetAnalysisReappliesReviewOverridesInMemory(t *testing.T) {
 	}
 	if reloaded.ReviewOverrides["scene_description"] != "manual final" {
 		t.Fatalf("expected review overrides retained, got %#v", reloaded.ReviewOverrides)
+	}
+	if reloaded.ActionDescription != "反复拉伸束裤带" {
+		t.Fatalf("expected manual action override to stay effective, got %s", reloaded.ActionDescription)
+	}
+	if reloaded.ModelLabels["action_description"] != "手持束裤带" {
+		t.Fatalf("expected refreshed model action to stay separate, got %#v", reloaded.ModelLabels)
 	}
 	if got, ok := reloaded.ModelResult["version"].(int); !ok || got != 2 {
 		t.Fatalf("expected latest model result retained, got %#v", reloaded.ModelResult)
@@ -585,6 +632,21 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create asset failed: %v", err)
 	}
+	manualAction := "人物双手反复拉伸和放松束裤带，展示弹性"
+	if _, err := service.UpdateAssetReview(asset.ID, AssetReviewUpdate{
+		SceneDescription:  asset.SceneDescription,
+		ActionDescription: manualAction,
+		ShotSize:          asset.ShotSize,
+		CameraMovement:    asset.CameraMovement,
+		Subjects:          asset.Subjects,
+		SceneTags:         asset.SceneTags,
+		QualityTags:       asset.QualityTags,
+		UsabilityStatus:   asset.UsabilityStatus,
+		ReviewerNotes:     asset.ReviewerNotes,
+		UpdatedByUserID:   "editor-1",
+	}); err != nil {
+		t.Fatalf("UpdateAssetReview() error = %v", err)
+	}
 	if _, err := service.CreateSpeechSegment(CreateSpeechSegmentInput{
 		AssetID:         asset.ID,
 		StartMs:         0,
@@ -607,7 +669,7 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	if preview.OpenSemanticDescription == "" {
 		t.Fatalf("expected open semantic description")
 	}
-	for _, expected := range []string{"P1", "easy installation", "demonstrates product installation", "indoor studio"} {
+	for _, expected := range []string{"P1", "easy installation", manualAction, "indoor studio"} {
 		if !strings.Contains(preview.OpenSemanticDescription, expected) {
 			t.Fatalf("expected semantic text to contain %q, got %s", expected, preview.OpenSemanticDescription)
 		}
@@ -618,8 +680,11 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	if preview.EmbeddingTargets[0].ObjectType != "shot" {
 		t.Fatalf("expected first target to be shot, got %#v", preview.EmbeddingTargets[0])
 	}
-	if preview.EmbeddingTargets[0].Metadata["action_description"] != "demonstrates product installation" {
+	if preview.EmbeddingTargets[0].Metadata["action_description"] != manualAction {
 		t.Fatalf("expected action description metadata, got %#v", preview.EmbeddingTargets[0].Metadata)
+	}
+	if strings.Contains(preview.EmbeddingTargets[0].Text, "demonstrates product installation") {
+		t.Fatalf("expected shot text to exclude stale model action, got %s", preview.EmbeddingTargets[0].Text)
 	}
 	if preview.EmbeddingTargets[0].Metadata["visible_product"] != true {
 		t.Fatalf("expected visible product metadata, got %#v", preview.EmbeddingTargets[0].Metadata)

@@ -39,6 +39,16 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 		CameraMovement:   "static",
 		Subjects:         []string{"product"},
 		SceneTags:        []string{"demo"},
+		ModelLabels: map[string]any{
+			"scene_description":  "model description",
+			"action_description": "展示键盘图案设计细节",
+			"shot_size":          "medium_shot",
+			"camera_movement":    "static",
+			"subjects":           []string{"product"},
+			"scene_tags":         []string{"demo"},
+			"quality_tags":       []string{},
+			"usability_status":   "usable",
+		},
 		ModelResult: map[string]any{
 			"provider": "mock",
 			"score":    0.92,
@@ -54,14 +64,15 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 	})
 
 	body, err := json.Marshal(map[string]any{
-		"scene_description": "manual description",
-		"shot_size":         "close_up",
-		"camera_movement":   "static",
-		"subjects":          []string{"product"},
-		"scene_tags":        []string{"indoor"},
-		"quality_tags":      []string{"soft_focus"},
-		"usability_status":  "needs_review",
-		"reviewer_notes":    "adjust crop",
+		"scene_description":  "manual description",
+		"action_description": "人物双手反复拉伸和放松束裤带，展示弹性",
+		"shot_size":          "close_up",
+		"camera_movement":    "static",
+		"subjects":           []string{"product"},
+		"scene_tags":         []string{"indoor"},
+		"quality_tags":       []string{"soft_focus"},
+		"usability_status":   "needs_review",
+		"reviewer_notes":     "adjust crop",
 	})
 	if err != nil {
 		t.Fatalf("marshal body failed: %v", err)
@@ -96,6 +107,15 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 	if updated.ReviewOverrides["scene_description"] != "manual description" {
 		t.Fatalf("expected review overrides stored, got %#v", updated.ReviewOverrides)
 	}
+	if updated.ActionDescription != "人物双手反复拉伸和放松束裤带，展示弹性" {
+		t.Fatalf("expected action description updated, got %s", updated.ActionDescription)
+	}
+	if updated.ModelLabels["action_description"] != "展示键盘图案设计细节" {
+		t.Fatalf("expected original model action preserved, got %#v", updated.ModelLabels)
+	}
+	if updated.ReviewOverrides["action_description"] != "人物双手反复拉伸和放松束裤带，展示弹性" {
+		t.Fatalf("expected action override stored, got %#v", updated.ReviewOverrides)
+	}
 	if updated.ReviewerNotes != "adjust crop" {
 		t.Fatalf("expected reviewer notes updated, got %s", updated.ReviewerNotes)
 	}
@@ -117,6 +137,9 @@ func TestHandleUpdateAssetReview(t *testing.T) {
 	}
 	if resp.Data.ReviewOverrides["scene_description"] != "manual description" {
 		t.Fatalf("expected response review overrides, got %#v", resp.Data.ReviewOverrides)
+	}
+	if resp.Data.ActionDescription != "人物双手反复拉伸和放松束裤带，展示弹性" {
+		t.Fatalf("expected response action description, got %s", resp.Data.ActionDescription)
 	}
 }
 

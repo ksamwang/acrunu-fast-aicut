@@ -79,6 +79,7 @@ type Asset struct {
 	BitrateKbps             int            `json:"bitrate_kbps,omitempty"`
 	LikelyHasSpeech         bool           `json:"likely_has_speech"`
 	SceneDescription        string         `json:"scene_description,omitempty"`
+	ActionDescription       string         `json:"action_description,omitempty"`
 	ShotSize                string         `json:"shot_size,omitempty"`
 	CameraMovement          string         `json:"camera_movement,omitempty"`
 	Subjects                []string       `json:"subjects,omitempty"`
@@ -299,15 +300,16 @@ type AssetAnalysisUpdate struct {
 }
 
 type AssetReviewUpdate struct {
-	SceneDescription string
-	ShotSize         string
-	CameraMovement   string
-	Subjects         []string
-	SceneTags        []string
-	QualityTags      []string
-	UsabilityStatus  string
-	ReviewerNotes    string
-	UpdatedByUserID  string
+	SceneDescription  string
+	ActionDescription string
+	ShotSize          string
+	CameraMovement    string
+	Subjects          []string
+	SceneTags         []string
+	QualityTags       []string
+	UsabilityStatus   string
+	ReviewerNotes     string
+	UpdatedByUserID   string
 }
 
 type AssetArchiveUpdate struct {
@@ -391,6 +393,7 @@ func (s *ProductAssetService) CreateAsset(input CreateAssetInput) (Asset, error)
 		BitrateKbps:             input.BitrateKbps,
 		LikelyHasSpeech:         input.LikelyHasSpeech,
 		SceneDescription:        input.SceneDescription,
+		ActionDescription:       stringValueFromMap(input.ModelLabels, "action_description"),
 		ShotSize:                input.ShotSize,
 		CameraMovement:          input.CameraMovement,
 		Subjects:                append([]string(nil), input.Subjects...),
@@ -1740,7 +1743,7 @@ func (s *ProductAssetService) decorateSellingPointsWithAssetCounts(items []Selli
 }
 
 func assetFromDBRecord(row repository.AssetRecord) Asset {
-	return Asset{
+	asset := Asset{
 		ID:                      row.ID,
 		ProductID:               row.ProductID,
 		AssetName:               row.AssetName,
@@ -1789,6 +1792,8 @@ func assetFromDBRecord(row repository.AssetRecord) Asset {
 		AnalyzedAt:              row.AnalyzedAt,
 		ArchivedAt:              row.ArchivedAt,
 	}
+	asset.ActionDescription = stringValueFromMap(mergeLabelMaps(asset.ModelLabels, asset.ReviewOverrides), "action_description")
+	return asset
 }
 
 func speechSegmentFromRecord(row repository.SpeechSegmentRecord) SpeechSegment {
@@ -1809,7 +1814,7 @@ func speechSegmentFromRecord(row repository.SpeechSegmentRecord) SpeechSegment {
 }
 
 func assetFromDBRow(row db.Asset) Asset {
-	return Asset{
+	asset := Asset{
 		ID:                      assetUUIDString(row.ID),
 		ProductID:               assetUUIDString(row.ProductID),
 		AssetName:               assetTextString(row.AssetName),
@@ -1858,6 +1863,8 @@ func assetFromDBRow(row db.Asset) Asset {
 		AnalyzedAt:              optionalTime(row.AnalyzedAt),
 		ArchivedAt:              optionalTime(row.ArchivedAt),
 	}
+	asset.ActionDescription = stringValueFromMap(mergeLabelMaps(asset.ModelLabels, asset.ReviewOverrides), "action_description")
+	return asset
 }
 
 func assetUUIDString(value pgtype.UUID) string {
@@ -2016,13 +2023,14 @@ func resolveModelLabels(update AssetAnalysisUpdate) map[string]any {
 
 func buildReviewOverrides(update AssetReviewUpdate) map[string]any {
 	return map[string]any{
-		"scene_description": update.SceneDescription,
-		"shot_size":         update.ShotSize,
-		"camera_movement":   update.CameraMovement,
-		"subjects":          append([]string(nil), update.Subjects...),
-		"scene_tags":        append([]string(nil), update.SceneTags...),
-		"quality_tags":      append([]string(nil), update.QualityTags...),
-		"usability_status":  update.UsabilityStatus,
+		"scene_description":  update.SceneDescription,
+		"action_description": update.ActionDescription,
+		"shot_size":          update.ShotSize,
+		"camera_movement":    update.CameraMovement,
+		"subjects":           append([]string(nil), update.Subjects...),
+		"scene_tags":         append([]string(nil), update.SceneTags...),
+		"quality_tags":       append([]string(nil), update.QualityTags...),
+		"usability_status":   update.UsabilityStatus,
 	}
 }
 
@@ -2037,6 +2045,7 @@ func mergeLabelMaps(base map[string]any, override map[string]any) map[string]any
 func applyAssetEffectiveLabels(asset *Asset, modelLabels map[string]any, reviewOverrides map[string]any) {
 	effective := mergeLabelMaps(modelLabels, reviewOverrides)
 	asset.SceneDescription = stringValueFromMap(effective, "scene_description")
+	asset.ActionDescription = stringValueFromMap(effective, "action_description")
 	asset.ShotSize = stringValueFromMap(effective, "shot_size")
 	asset.CameraMovement = stringValueFromMap(effective, "camera_movement")
 	asset.Subjects = stringSliceValueFromMap(effective, "subjects")
@@ -2156,8 +2165,8 @@ func buildOpenSemanticDescription(asset Asset, productName string, sellingPointT
 	if sceneContext := stringValueFromMap(asset.ModelLabels, "scene_context"); sceneContext != "" {
 		parts = append(parts, "场景："+sceneContext)
 	}
-	if actionDescription := stringValueFromMap(asset.ModelLabels, "action_description"); actionDescription != "" {
-		parts = append(parts, "动作："+actionDescription)
+	if asset.ActionDescription != "" {
+		parts = append(parts, "动作："+asset.ActionDescription)
 	}
 	if visibleProduct, ok := boolValueFromMap(asset.ModelLabels, "visible_product"); ok {
 		parts = append(parts, "目标产品可见："+boolDisplay(visibleProduct))
@@ -2211,7 +2220,6 @@ func buildShotEmbeddingMetadata(asset Asset, productName string, sellingPointTex
 		"visible_product",
 		"product_position",
 		"scene_context",
-		"action_description",
 		"people_presence",
 		"face_visible",
 		"lighting_condition",
@@ -2219,6 +2227,9 @@ func buildShotEmbeddingMetadata(asset Asset, productName string, sellingPointTex
 		if value, ok := asset.ModelLabels[key]; ok {
 			metadata[key] = value
 		}
+	}
+	if asset.ActionDescription != "" {
+		metadata["action_description"] = asset.ActionDescription
 	}
 	return metadata
 }

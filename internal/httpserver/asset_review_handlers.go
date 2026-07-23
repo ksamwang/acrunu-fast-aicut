@@ -9,14 +9,15 @@ import (
 )
 
 type updateAssetReviewRequest struct {
-	SceneDescription string   `json:"scene_description"`
-	ShotSize         string   `json:"shot_size"`
-	CameraMovement   string   `json:"camera_movement"`
-	Subjects         []string `json:"subjects"`
-	SceneTags        []string `json:"scene_tags"`
-	QualityTags      []string `json:"quality_tags"`
-	UsabilityStatus  string   `json:"usability_status"`
-	ReviewerNotes    string   `json:"reviewer_notes"`
+	SceneDescription  string   `json:"scene_description"`
+	ActionDescription string   `json:"action_description"`
+	ShotSize          string   `json:"shot_size"`
+	CameraMovement    string   `json:"camera_movement"`
+	Subjects          []string `json:"subjects"`
+	SceneTags         []string `json:"scene_tags"`
+	QualityTags       []string `json:"quality_tags"`
+	UsabilityStatus   string   `json:"usability_status"`
+	ReviewerNotes     string   `json:"reviewer_notes"`
 }
 
 type updateAssetSellingPointsRequest struct {
@@ -44,15 +45,16 @@ func (s *Server) handleUpdateAssetReview(c *gin.Context) {
 	}
 
 	asset, err := s.productAssetService.UpdateAssetReview(c.Param("assetID"), services.AssetReviewUpdate{
-		SceneDescription: req.SceneDescription,
-		ShotSize:         req.ShotSize,
-		CameraMovement:   req.CameraMovement,
-		Subjects:         req.Subjects,
-		SceneTags:        req.SceneTags,
-		QualityTags:      req.QualityTags,
-		UsabilityStatus:  req.UsabilityStatus,
-		ReviewerNotes:    req.ReviewerNotes,
-		UpdatedByUserID:  user.ID,
+		SceneDescription:  req.SceneDescription,
+		ActionDescription: req.ActionDescription,
+		ShotSize:          req.ShotSize,
+		CameraMovement:    req.CameraMovement,
+		Subjects:          req.Subjects,
+		SceneTags:         req.SceneTags,
+		QualityTags:       req.QualityTags,
+		UsabilityStatus:   req.UsabilityStatus,
+		ReviewerNotes:     req.ReviewerNotes,
+		UpdatedByUserID:   user.ID,
 	})
 	if err != nil {
 		handleProductError(c, err)

@@ -20,6 +20,7 @@ export type Asset = {
   bitrate_kbps?: number;
   reviewer_notes?: string;
   scene_description?: string;
+  action_description?: string;
   shot_size?: string;
   camera_movement?: string;
   subjects?: string[];
@@ -113,6 +114,7 @@ export type AssetEmbeddingRunResult = {
 
 export type AssetReviewPayload = {
   scene_description: string;
+  action_description: string;
   shot_size: string;
   camera_movement: string;
   subjects: string[];

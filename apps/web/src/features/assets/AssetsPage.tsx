@@ -309,6 +309,7 @@ export function AssetsPage({ token }: { token: string }) {
 
     reviewForm.setFieldsValue({
       scene_description: selectedAsset.scene_description || "",
+      action_description: selectedAsset.action_description || "",
       shot_size: selectedAsset.shot_size || "",
       camera_movement: selectedAsset.camera_movement || "",
       subjects: selectedAsset.subjects || [],
@@ -341,6 +342,11 @@ export function AssetsPage({ token }: { token: string }) {
       setEditingAnalysis(false);
       setReviewDirty(false);
       await assets.reload();
+      try {
+        setSemanticPreview(await getSemanticPreview(selectedAsset.id, token));
+      } catch {
+        message.warning("复核已保存，但开放语义预览刷新失败");
+      }
       message.success("素材复核已更新");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "更新素材复核失败");
@@ -811,6 +817,7 @@ export function AssetsPage({ token }: { token: string }) {
                         setReviewDirty(false);
                         reviewForm.setFieldsValue({
                           scene_description: selectedAsset.scene_description || "",
+                          action_description: selectedAsset.action_description || "",
                           shot_size: selectedAsset.shot_size || "",
                           camera_movement: selectedAsset.camera_movement || "",
                           subjects: selectedAsset.subjects || [],
@@ -861,6 +868,9 @@ export function AssetsPage({ token }: { token: string }) {
                   >
                     <Form.Item name="scene_description" label="画面描述">
                       <Input.TextArea rows={3} />
+                    </Form.Item>
+                    <Form.Item name="action_description" label="动作描述">
+                      <Input.TextArea rows={3} placeholder="描述画面中实际发生的动作，例如：人物双手反复拉伸和放松束裤带，展示弹性" />
                     </Form.Item>
                     <div className="asset-detail-form-grid">
                       <Form.Item name="shot_size" label="景别">
@@ -920,6 +930,9 @@ export function AssetsPage({ token }: { token: string }) {
                   <Descriptions bordered column={1} size="small" data-testid="asset-analysis-panel" className="asset-detail-analysis-summary">
                     <Descriptions.Item label="画面描述">
                       {selectedAsset.scene_description || <Typography.Text type="secondary">暂无分析结果。</Typography.Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="动作描述">
+                      {selectedAsset.action_description || <Typography.Text type="secondary">暂无动作描述。</Typography.Text>}
                     </Descriptions.Item>
                     <Descriptions.Item label="景别">{translateValue(selectedAsset.shot_size, shotSizeLabels)}</Descriptions.Item>
                     <Descriptions.Item label="运镜">{translateValue(selectedAsset.camera_movement, cameraMovementLabels)}</Descriptions.Item>
