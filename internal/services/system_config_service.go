@@ -121,6 +121,13 @@ func (s *SystemConfigService) Snapshot() (map[string]any, error) {
 	return snapshot, nil
 }
 
+func (s *SystemConfigService) Refresh(ctx context.Context) error {
+	if s == nil || s.queries == nil {
+		return nil
+	}
+	return s.reload(ctx)
+}
+
 func (s *SystemConfigService) seedDefaults() {
 	for _, config := range defaultSystemConfigs() {
 		s.configs[config.Key] = config

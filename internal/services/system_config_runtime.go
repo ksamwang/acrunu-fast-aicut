@@ -56,6 +56,7 @@ func ResolveVLMAnalyzerConfig(service *SystemConfigService, fallback appconfig.C
 }
 
 func ResolveVLMAnalyzerConfigWithProviders(ctx context.Context, service *SystemConfigService, providerService *ModelProviderService, fallback appconfig.Config) modelgateway.Config {
+	refreshSystemConfig(ctx, service)
 	resolved := ResolveVLMAnalyzerConfig(service, fallback)
 	if service == nil || providerService == nil {
 		return resolved
@@ -79,6 +80,7 @@ func ResolveVLMAnalyzerConfigWithProviders(ctx context.Context, service *SystemC
 }
 
 func ResolveEmbeddingConfigWithProviders(ctx context.Context, service *SystemConfigService, providerService *ModelProviderService, fallback appconfig.Config) modelgateway.Config {
+	refreshSystemConfig(ctx, service)
 	resolved := modelgateway.Config{
 		Provider:   "mock",
 		Model:      "text-embedding-v4",
@@ -120,6 +122,7 @@ func ResolveEmbeddingConfigWithProviders(ctx context.Context, service *SystemCon
 }
 
 func ResolveLLMScriptConfigWithProviders(ctx context.Context, service *SystemConfigService, providerService *ModelProviderService, fallback appconfig.Config) modelgateway.Config {
+	refreshSystemConfig(ctx, service)
 	resolved := modelgateway.Config{
 		Provider: "openai_compatible",
 		BaseURL:  fallback.VLMBaseURL,
@@ -171,6 +174,12 @@ func ResolveLLMScriptConfigWithProviders(ctx context.Context, service *SystemCon
 	resolved.BaseURL = access.BaseURL
 	resolved.APIKey = access.APIKey
 	return resolved
+}
+
+func refreshSystemConfig(ctx context.Context, service *SystemConfigService) {
+	if service != nil {
+		_ = service.Refresh(ctx)
+	}
 }
 
 func configStringValue(value any) string {

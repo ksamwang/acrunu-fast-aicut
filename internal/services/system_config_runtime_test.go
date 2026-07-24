@@ -6,6 +6,7 @@ import (
 	"time"
 
 	appconfig "github.com/ksamwang/acrunu-fast-aicut/internal/config"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/repository/db"
 )
 
 func TestResolveVLMAnalyzerConfigPrefersSystemConfigValues(t *testing.T) {
@@ -94,5 +95,32 @@ func TestResolveLLMScriptConfigLeavesMaxTokensUnsetWithoutSystemConfig(t *testin
 
 	if resolved.MaxTokens != 0 {
 		t.Fatalf("expected unset LLM max tokens, got %d", resolved.MaxTokens)
+	}
+}
+
+func TestRuntimeModelResolversRefreshSharedConfig(t *testing.T) {
+	queries := &mutableSystemConfigQuerier{rows: []db.SystemConfig{
+		{ConfigKey: "llm.model", ConfigValue: []byte(`"fresh-llm"`), ConfigType: "string"},
+		{ConfigKey: "vlm.model", ConfigValue: []byte(`"fresh-vlm"`), ConfigType: "string"},
+		{ConfigKey: "embedding.model", ConfigValue: []byte(`"fresh-embedding"`), ConfigType: "string"},
+	}}
+	service := &SystemConfigService{
+		configs: map[string]SystemConfig{
+			"llm.model":       {Key: "llm.model", Value: "stale-llm", Type: "string"},
+			"vlm.model":       {Key: "vlm.model", Value: "stale-vlm", Type: "string"},
+			"embedding.model": {Key: "embedding.model", Value: "stale-embedding", Type: "string"},
+		},
+		queries: queries,
+	}
+	fallback := appconfig.Config{VLMProvider: "mock"}
+
+	if resolved := ResolveLLMScriptConfigWithProviders(context.Background(), service, nil, fallback); resolved.Model != "fresh-llm" {
+		t.Fatalf("expected refreshed LLM model, got %q", resolved.Model)
+	}
+	if resolved := ResolveVLMAnalyzerConfigWithProviders(context.Background(), service, nil, fallback); resolved.Model != "fresh-vlm" {
+		t.Fatalf("expected refreshed VLM model, got %q", resolved.Model)
+	}
+	if resolved := ResolveEmbeddingConfigWithProviders(context.Background(), service, nil, fallback); resolved.Model != "fresh-embedding" {
+		t.Fatalf("expected refreshed embedding model, got %q", resolved.Model)
 	}
 }

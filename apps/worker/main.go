@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
-	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
@@ -52,7 +51,7 @@ func main() {
 	}
 	queueClient := queue.NewClient(cfg.RedisAddr, cfg.QueueBackend, cfg.StorageRoot)
 	defer queueClient.Close()
-	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(context.Background(), systemConfigService.Service, modelProviderService.Service, cfg), nil)
+	analyzer := services.NewRuntimeAssetAnalyzer(systemConfigService.Service, modelProviderService.Service, cfg)
 	assetProcessingService := services.NewAssetProcessingService(
 		cfg.StorageRoot,
 		productAssetService.Service,
