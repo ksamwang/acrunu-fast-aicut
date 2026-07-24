@@ -243,6 +243,41 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       stage_label: "生成失败",
       error_message: "测试生成失败",
       created_at: "2026-07-15T08:10:00.000Z"
+    },
+    {
+      id: "work-batch-retry-failed-1",
+      run_id: "work-batch-retry-failed-1",
+      product_id: "product-1",
+      product_name: "Smart Light",
+      created_by_user_id: "dev-admin",
+      created_by_name: "Admin",
+      title: "批量重试失败成片一",
+      hook: "批量重试一",
+      script_text: "第一条用于批量重试的失败成片。",
+      duration_ms: 0,
+      status: "failed",
+      progress: 100,
+      stage_label: "生成失败",
+      error_message: "测试生成失败",
+      created_at: "2026-07-15T08:00:00.000Z"
+    },
+    {
+      id: "work-batch-retry-completed",
+      run_id: "work-batch-retry-completed",
+      product_id: "product-1",
+      product_name: "Smart Light",
+      created_by_user_id: "dev-admin",
+      created_by_name: "Admin",
+      title: "批量重试已完成成片",
+      hook: "批量重试已完成",
+      script_text: "这是一条用于批量重新生成的已完成成片。",
+      duration_ms: 5000,
+      status: "completed",
+      progress: 100,
+      stage_label: "已完成",
+      created_at: "2026-07-15T07:59:00.000Z",
+      completed_at: "2026-07-15T08:00:00.000Z",
+      video_url: "/storage/renders/generations/work-batch-retry-completed/final.mp4"
     }
   ];
 
@@ -623,6 +658,24 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ data: regenerated })
+      });
+      return;
+    }
+
+    if (url.includes("/api/workbench/works/") && url.endsWith("/retry")) {
+      const workID = url.split("/").at(-2);
+      const retried = finishedWorks.find((work) => work.id === workID);
+      if (retried) {
+        Object.assign(retried, {
+          status: "generating",
+          progress: 76,
+          stage_label: "召回素材",
+          error_message: undefined
+        });
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data: retried })
       });
       return;
     }
@@ -1162,16 +1215,37 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   const batchDeleteCompleted = page.getByTestId("finished-work-work-batch-delete-completed");
   const batchDeleteFailed = page.getByTestId("finished-work-work-batch-delete-failed");
   await page.getByRole("button", { name: "批量选择" }).click();
-  await batchDeleteCompleted.locator(".finished-work-media").click();
+  await batchDeleteCompleted.click({ button: "right" });
+  await expect(page.getByText("已选 1 项", { exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "删除选中" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await batchDeleteFailed.locator(".finished-work-media").click();
   await expect(page.getByText("已选 2 项", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "下载选中" })).toBeDisabled();
-  await page.getByRole("button", { name: "删除选中" }).click();
+  await batchDeleteCompleted.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "删除选中" }).click();
   const batchDeleteConfirm = page.locator(".ant-modal-confirm").filter({ hasText: "删除 2 个成品？" });
   await expect(batchDeleteConfirm).toBeVisible();
   await batchDeleteConfirm.locator(".ant-btn-dangerous").click();
   await expect(batchDeleteCompleted).toHaveCount(0);
   await expect(batchDeleteFailed).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "批量选择" })).toBeVisible();
+
+  const batchRetryOne = page.getByTestId("finished-work-work-batch-retry-failed-1");
+  const batchRetryTwo = page.getByTestId("finished-work-work-batch-retry-completed");
+  await page.getByRole("button", { name: "批量选择" }).click();
+  await batchRetryOne.click({ button: "right" });
+  await page.keyboard.press("Escape");
+  await batchRetryTwo.locator(".finished-work-media").click();
+  await expect(page.getByText("已选 2 项", { exact: true })).toBeVisible();
+  await batchRetryOne.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "重试选中" }).click();
+  const batchRetryConfirm = page.locator(".ant-modal-confirm").filter({ hasText: "重试 2 个成品？" });
+  await expect(batchRetryConfirm).toContainText("失败成品 1 个");
+  await expect(batchRetryConfirm).toContainText("已完成成品 1 个");
+  await batchRetryConfirm.getByRole("button", { name: "开始重试" }).click();
+  await expect(batchRetryOne).toHaveAttribute("data-status", "generating");
+  await expect(batchRetryTwo).toHaveAttribute("data-status", "generating");
   await expect(page.getByRole("button", { name: "批量选择" })).toBeVisible();
 
   const completedDetailButton = completedWork.getByRole("button");

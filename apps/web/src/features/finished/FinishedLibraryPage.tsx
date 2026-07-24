@@ -7,7 +7,7 @@ import { formatDuration } from "../../shared/lib/format";
 import type { FinishedWork } from "../../shared/types/generation";
 import type { Product } from "../../shared/types/product";
 import { listProducts } from "../products/api";
-import { deleteVoiceoverWork, listVoiceoverWorks, regenerateVoiceoverWork } from "../workbench/api";
+import { deleteVoiceoverWork, listVoiceoverWorks, regenerateVoiceoverWork, retryVoiceoverWork } from "../workbench/api";
 import { FinishedWorkDetail } from "./FinishedWorkDetail";
 import { FinishedWorkVisual } from "./FinishedWorkVisual";
 import { createFinishedWorkDownload } from "./api";
@@ -67,6 +67,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedWorkIDs, setSelectedWorkIDs] = useState<Set<string>>(() => new Set());
   const [downloading, setDownloading] = useState(false);
+  const [retryingSelected, setRetryingSelected] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
 
   useEffect(() => {
@@ -116,10 +117,22 @@ export function FinishedLibraryPage({ token }: { token: string }) {
 
   const selectedWork = selectedWorkID ? works.find((work) => work.id === selectedWorkID) : undefined;
   const selectableWorks = filteredWorks.filter((work) => work.status !== "generating");
-  const selectedWorks = works.filter((work) => selectedWorkIDs.has(work.id));
-  const canDownloadSelection = selectedWorks.length > 0
-    && selectedWorks.length === selectedWorkIDs.size
-    && selectedWorks.every((work) => work.status === "completed" && Boolean(work.video_url));
+  const canDownloadWorks = (workIDs: string[]) => {
+    const workIDSet = new Set(workIDs);
+    const targetWorks = works.filter((work) => workIDSet.has(work.id));
+    return targetWorks.length > 0
+      && targetWorks.length === workIDSet.size
+      && targetWorks.every((work) => work.status === "completed" && Boolean(work.video_url));
+  };
+  const canRetryWorks = (workIDs: string[]) => {
+    const workIDSet = new Set(workIDs);
+    const targetWorks = works.filter((work) => workIDSet.has(work.id));
+    return targetWorks.length > 0
+      && targetWorks.length === workIDSet.size
+      && targetWorks.every((work) => work.status !== "generating");
+  };
+  const canDownloadSelection = canDownloadWorks(Array.from(selectedWorkIDs));
+  const canRetrySelection = canRetryWorks(Array.from(selectedWorkIDs));
   const allSelectableSelected = selectableWorks.length > 0 && selectableWorks.every((work) => selectedWorkIDs.has(work.id));
 
   useEffect(() => {
@@ -159,13 +172,13 @@ export function FinishedLibraryPage({ token }: { token: string }) {
     setSelectedWorkIDs(new Set());
   };
 
-  const downloadSelectedWorks = async () => {
-    if (!canDownloadSelection) {
+  const downloadSelectedWorks = async (workIDs = Array.from(selectedWorkIDs)) => {
+    if (!canDownloadWorks(workIDs)) {
       return;
     }
     setDownloading(true);
     try {
-      const batch = await createFinishedWorkDownload(Array.from(selectedWorkIDs), token);
+      const batch = await createFinishedWorkDownload(workIDs, token);
       const link = document.createElement("a");
       link.href = batch.download_url;
       link.download = batch.file_name;
@@ -181,11 +194,79 @@ export function FinishedLibraryPage({ token }: { token: string }) {
     }
   };
 
-  const deleteSelectedWorks = async () => {
-    if (selectedWorkIDs.size === 0) {
+  const retrySelectedWorks = async (workIDs = Array.from(selectedWorkIDs)) => {
+    if (!canRetryWorks(workIDs)) {
       return;
     }
-    const workIDs = Array.from(selectedWorkIDs);
+    const retriedWorks: FinishedWork[] = [];
+    const failedIDs: string[] = [];
+    const targetWorks = new Map(works.filter((work) => workIDs.includes(work.id)).map((work) => [work.id, work]));
+    setRetryingSelected(true);
+    try {
+      for (let index = 0; index < workIDs.length; index += 4) {
+        const batch = workIDs.slice(index, index + 4);
+        const results = await Promise.all(batch.map(async (workID) => {
+          try {
+            const work = targetWorks.get(workID);
+            const next = work?.status === "failed"
+              ? await retryVoiceoverWork(workID, token)
+              : await regenerateVoiceoverWork(workID, token);
+            return { workID, work: next };
+          } catch {
+            return { workID, work: null };
+          }
+        }));
+        results.forEach((result) => {
+          if (result.work) {
+            retriedWorks.push(result.work);
+          } else {
+            failedIDs.push(result.workID);
+          }
+        });
+      }
+      if (retriedWorks.length > 0) {
+        const retriedByID = new Map(retriedWorks.map((work) => [work.id, work]));
+        setWorks((current) => current.map((work) => retriedByID.get(work.id) ?? work));
+      }
+      if (failedIDs.length === 0) {
+        message.success(`已重试 ${retriedWorks.length} 个成品`);
+        exitSelectionMode();
+      } else {
+        setSelectedWorkIDs(new Set(failedIDs));
+        const result = `已重试 ${retriedWorks.length} 项，失败 ${failedIDs.length} 项`;
+        if (retriedWorks.length > 0) {
+          message.warning(result);
+        } else {
+          message.error(result);
+        }
+      }
+    } finally {
+      setRetryingSelected(false);
+    }
+  };
+
+  const confirmRetrySelected = (workIDs = Array.from(selectedWorkIDs)) => {
+    if (!canRetryWorks(workIDs)) {
+      return;
+    }
+    const workIDSet = new Set(workIDs);
+    const targetWorks = works.filter((work) => workIDSet.has(work.id));
+    const failedCount = targetWorks.filter((work) => work.status === "failed").length;
+    const completedCount = targetWorks.filter((work) => work.status === "completed").length;
+    Modal.confirm({
+      title: `重试 ${workIDs.length} 个成品？`,
+      content: `失败成品 ${failedCount} 个将从失败阶段继续，已完成成品 ${completedCount} 个将从配音阶段重新生成并替换现有视频。`,
+      okText: "开始重试",
+      cancelText: "取消",
+      centered: true,
+      onOk: () => retrySelectedWorks(workIDs)
+    });
+  };
+
+  const deleteSelectedWorks = async (workIDs = Array.from(selectedWorkIDs)) => {
+    if (workIDs.length === 0) {
+      return;
+    }
     const deletedIDs: string[] = [];
     const failedIDs: string[] = [];
     setDeletingSelected(true);
@@ -226,18 +307,18 @@ export function FinishedLibraryPage({ token }: { token: string }) {
     }
   };
 
-  const confirmDeleteSelected = () => {
-    if (selectedWorkIDs.size === 0) {
+  const confirmDeleteSelected = (workIDs = Array.from(selectedWorkIDs)) => {
+    if (workIDs.length === 0) {
       return;
     }
     Modal.confirm({
-      title: `删除 ${selectedWorkIDs.size} 个成品？`,
+      title: `删除 ${workIDs.length} 个成品？`,
       content: "所选成品将从成品库移除，已渲染的视频文件也会删除。此操作不可撤销。",
       okText: "删除",
       cancelText: "取消",
       okButtonProps: { danger: true },
       centered: true,
-      onOk: deleteSelectedWorks
+      onOk: () => deleteSelectedWorks(workIDs)
     });
   };
 
@@ -249,6 +330,19 @@ export function FinishedLibraryPage({ token }: { token: string }) {
       message.success("已开始重新生成");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "重新生成失败");
+    } finally {
+      setActionWorkID(null);
+    }
+  };
+
+  const retryWork = async (workID: string) => {
+    setActionWorkID(workID);
+    try {
+      const retried = await retryVoiceoverWork(workID, token);
+      setWorks((current) => current.map((work) => (work.id === retried.id ? retried : work)));
+      message.success("已开始重试");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "重试失败");
     } finally {
       setActionWorkID(null);
     }
@@ -292,12 +386,13 @@ export function FinishedLibraryPage({ token }: { token: string }) {
 
   const workContextMenu = (work: FinishedWork): MenuProps => {
     const disabled = work.status === "generating" || actionWorkID !== null;
+    const retryable = work.status === "failed";
     return {
       items: [
         {
-          key: "regenerate",
+          key: retryable ? "retry" : "regenerate",
           icon: <RotateCcw size={15} />,
-          label: "重新生成",
+          label: retryable ? "重试" : "重新生成",
           disabled
         },
         { type: "divider" },
@@ -310,10 +405,49 @@ export function FinishedLibraryPage({ token }: { token: string }) {
         }
       ],
       onClick: ({ key }) => {
-        if (key === "regenerate") {
+        if (key === "retry") {
+          void retryWork(work.id);
+        } else if (key === "regenerate") {
           confirmRegenerate(work);
         } else if (key === "delete") {
           confirmDelete(work);
+        }
+      }
+    };
+  };
+
+  const batchContextMenu = (work: FinishedWork): MenuProps => {
+    const workIDs = selectedWorkIDs.has(work.id) ? Array.from(selectedWorkIDs) : [work.id];
+    return {
+      items: [
+        {
+          key: "retry-selected",
+          icon: <RotateCcw size={15} />,
+          label: "重试选中",
+          disabled: !canRetryWorks(workIDs) || retryingSelected || downloading || deletingSelected
+        },
+        {
+          key: "download-selected",
+          icon: <Download size={15} />,
+          label: "下载选中",
+          disabled: !canDownloadWorks(workIDs) || retryingSelected || downloading || deletingSelected
+        },
+        { type: "divider" },
+        {
+          key: "delete-selected",
+          icon: <Trash2 size={15} />,
+          label: "删除选中",
+          danger: true,
+          disabled: workIDs.length === 0 || retryingSelected || downloading || deletingSelected
+        }
+      ],
+      onClick: ({ key }) => {
+        if (key === "retry-selected") {
+          confirmRetrySelected(workIDs);
+        } else if (key === "download-selected") {
+          void downloadSelectedWorks(workIDs);
+        } else if (key === "delete-selected") {
+          confirmDeleteSelected(workIDs);
         }
       }
     };
@@ -339,12 +473,13 @@ export function FinishedLibraryPage({ token }: { token: string }) {
         {selectionMode ? (
           <>
             <span className="finished-selection-summary"><CheckSquare2 size={17} />已选 {selectedWorkIDs.size} 项</span>
-            <Button onClick={toggleSelectAll} disabled={selectableWorks.length === 0 || downloading || deletingSelected}>{allSelectableSelected ? "取消全选" : "全选当前结果"}</Button>
-            <Button onClick={() => setSelectedWorkIDs(new Set())} disabled={selectedWorkIDs.size === 0 || downloading || deletingSelected}>清空</Button>
+            <Button onClick={toggleSelectAll} disabled={selectableWorks.length === 0 || retryingSelected || downloading || deletingSelected}>{allSelectableSelected ? "取消全选" : "全选当前结果"}</Button>
+            <Button onClick={() => setSelectedWorkIDs(new Set())} disabled={selectedWorkIDs.size === 0 || retryingSelected || downloading || deletingSelected}>清空</Button>
             <span className="finished-toolbar-spacer" />
-            <Button danger icon={<Trash2 size={16} />} loading={deletingSelected} disabled={selectedWorkIDs.size === 0 || downloading} onClick={confirmDeleteSelected}>删除选中</Button>
-            <Button type="primary" icon={<Download size={16} />} loading={downloading} disabled={!canDownloadSelection || deletingSelected} title={selectedWorkIDs.size > 0 && !canDownloadSelection ? "仅支持下载已完成且存在视频的成品" : undefined} onClick={() => void downloadSelectedWorks()}>下载选中</Button>
-            <Button icon={<X size={16} />} disabled={downloading || deletingSelected} onClick={exitSelectionMode}>退出选择</Button>
+            <Button icon={<RotateCcw size={16} />} loading={retryingSelected} disabled={!canRetrySelection || downloading || deletingSelected} onClick={() => confirmRetrySelected()}>重试选中</Button>
+            <Button danger icon={<Trash2 size={16} />} loading={deletingSelected} disabled={selectedWorkIDs.size === 0 || retryingSelected || downloading} onClick={() => confirmDeleteSelected()}>删除选中</Button>
+            <Button type="primary" icon={<Download size={16} />} loading={downloading} disabled={!canDownloadSelection || retryingSelected || deletingSelected} title={selectedWorkIDs.size > 0 && !canDownloadSelection ? "仅支持下载已完成且存在视频的成品" : undefined} onClick={() => void downloadSelectedWorks()}>下载选中</Button>
+            <Button icon={<X size={16} />} disabled={retryingSelected || downloading || deletingSelected} onClick={exitSelectionMode}>退出选择</Button>
           </>
         ) : (
           <>
@@ -384,11 +519,21 @@ export function FinishedLibraryPage({ token }: { token: string }) {
               const selectable = work.status !== "generating";
               const selected = selectedWorkIDs.has(work.id);
               return (
-                <Dropdown key={work.id} menu={workContextMenu(work)} trigger={["contextMenu"]} disabled={selectionMode}>
+                <Dropdown
+                  key={work.id}
+                  menu={selectionMode ? batchContextMenu(work) : workContextMenu(work)}
+                  trigger={["contextMenu"]}
+                  disabled={selectionMode && !selectable}
+                >
                   <article
                     className={`finished-work-card${isGenerating ? " is-generating" : ""}${isFailed ? " is-failed" : ""}${selectionMode ? " is-selection-mode" : ""}${selected ? " is-selected" : ""}`}
                     data-status={work.status}
                     data-testid={`finished-work-${work.id}`}
+                    onContextMenu={() => {
+                      if (selectionMode && selectable && !selected) {
+                        setSelectedWorkIDs(new Set([work.id]));
+                      }
+                    }}
                   >
                     {selectionMode ? (
                       <span className="finished-work-selector" onClick={(event) => event.stopPropagation()}>

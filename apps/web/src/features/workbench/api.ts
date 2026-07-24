@@ -104,6 +104,12 @@ export function regenerateVoiceoverWork(workID: string, token: string) {
   }, token);
 }
 
+export function retryVoiceoverWork(workID: string, token: string) {
+  return apiRequest<FinishedWork>(`/api/workbench/works/${encodeURIComponent(workID)}/retry`, {
+    method: "POST"
+  }, token);
+}
+
 export function deleteVoiceoverWork(workID: string, token: string) {
   return apiRequest<{ deleted: boolean }>(`/api/workbench/works/${encodeURIComponent(workID)}`, {
     method: "DELETE"
