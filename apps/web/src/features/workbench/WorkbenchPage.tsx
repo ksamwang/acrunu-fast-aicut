@@ -3,6 +3,7 @@ import { Button, Empty, Input, InputNumber, Modal, Popover, Segmented, Select, S
 import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, FileUp, ListChecks, Music2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
+import { createUUID } from "../../shared/lib/uuid";
 import type { ScriptGenerationJob, ScriptGenerationJobInput, ScriptGenerationJobMode, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { BGMSelection, BGMTrack } from "../../shared/types/bgm";
 import type { Product, SellingPoint } from "../../shared/types/product";
@@ -631,7 +632,7 @@ export function WorkbenchPage({ token }: { token: string }) {
       const retained = mode === "replace" ? [] : current.variants;
       const available = Math.max(0, maxWorkbenchScripts - retained.length);
       const imported = scripts.slice(0, available).map<ScriptVariant>((script, index) => ({
-        id: crypto.randomUUID(),
+        id: createUUID(),
         order: retained.length + index + 1,
         hook: deriveScriptHook(script.script_text, script.title),
         script_text: script.script_text,

@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 test("uses the workbench and finished library through Hash routes", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(globalThis.crypto, "randomUUID", { configurable: true, value: undefined });
+  });
+
   let assetSellingPoints = [
     {
       id: "sp-1",
