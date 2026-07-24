@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestValidateVisualPlanResultAllowsBeatToCrossNarrationSegments(t *testing.T) {
+func TestValidateVisualPlanResultUsesCompleteNarrationSegments(t *testing.T) {
 	input := VisualPlanInput{
 		ProductName: "束裤带",
 		ScriptText:  "骑车时裤脚总被链条蹭脏。固定后骑行更安心。",
@@ -19,8 +19,8 @@ func TestValidateVisualPlanResultAllowsBeatToCrossNarrationSegments(t *testing.T
 		},
 	}
 	result := VisualPlanResult{VisualBeats: []VisualPlanBeat{
-		{NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1200, DurationClass: VisualDurationClassBrief, Label: "痛点", VisualGoal: "裤脚接近链条", SourceType: "visual_only"},
-		{NarrationSegmentID: "n-1", StartMs: 1200, EndMs: 4000, DurationClass: VisualDurationClassStandard, Label: "固定结果", VisualGoal: "完整展示固定裤脚并开始骑行", SourceType: "visual_only"},
+		{NarrationSegmentID: "n-1", StartMs: 0, EndMs: 2000, DurationClass: VisualDurationClassStandard, Label: "痛点", VisualGoal: "裤脚接近链条", SourceType: "visual_only"},
+		{NarrationSegmentID: "n-2", StartMs: 2000, EndMs: 4000, DurationClass: VisualDurationClassStandard, Label: "固定结果", VisualGoal: "完整展示固定裤脚并开始骑行", SourceType: "visual_only"},
 	}}
 	if err := ValidateVisualPlanResult(result, input); err != nil {
 		t.Fatalf("expected visual plan to be valid: %v", err)
@@ -70,7 +70,7 @@ func TestValidateVisualPlanResultRejectsInvalidTimeline(t *testing.T) {
 	}
 }
 
-func TestValidateVisualPlanResultRejectsIncompleteActionBeat(t *testing.T) {
+func TestValidateVisualPlanResultAllowsShortNarrationForActionPadding(t *testing.T) {
 	input := VisualPlanInput{
 		ProductName: "束裤带",
 		ScriptText:  "快拆设计，收纳方便。",
@@ -80,14 +80,32 @@ func TestValidateVisualPlanResultRejectsIncompleteActionBeat(t *testing.T) {
 		},
 	}
 	err := ValidateVisualPlanResult(VisualPlanResult{VisualBeats: []VisualPlanBeat{{
-		NarrationSegmentID: "n-1", StartMs: 0, EndMs: 2000, DurationClass: VisualDurationClassAction,
-		Label: "快拆收纳", VisualGoal: "完整展示拆下并收纳束裤带", SourceType: "visual_only",
+		NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1400, DurationClass: VisualDurationClassAction,
+		Label: "快拆", VisualGoal: "完整展示拆下束裤带", SourceType: "visual_only",
 	}, {
-		NarrationSegmentID: "n-2", StartMs: 2000, EndMs: 3000, DurationClass: VisualDurationClassBrief,
+		NarrationSegmentID: "n-2", StartMs: 1400, EndMs: 3000, DurationClass: VisualDurationClassStandard,
 		Label: "结束", VisualGoal: "展示收纳结果", SourceType: "visual_only",
 	}}}, input)
-	if err == nil {
-		t.Fatal("expected an action beat shorter than 2800ms to be rejected")
+	if err != nil {
+		t.Fatalf("expected service-side action padding to allow short narration: %v", err)
+	}
+}
+
+func TestValidateVisualPlanResultRejectsSequentialActionsInOneBeat(t *testing.T) {
+	input := VisualPlanInput{
+		ProductName: "束裤带",
+		ScriptText:  "一秒快拆，收纳方便。",
+		NarrationSegments: []VisualPlanNarrationSegment{
+			{ID: "n-1", StartMs: 0, EndMs: 1000, Text: "一秒快拆，"},
+			{ID: "n-2", StartMs: 1000, EndMs: 2000, Text: "收纳方便。"},
+		},
+	}
+	err := ValidateVisualPlanResult(VisualPlanResult{VisualBeats: []VisualPlanBeat{{
+		NarrationSegmentID: "n-1", StartMs: 0, EndMs: 2000, DurationClass: VisualDurationClassAction,
+		Label: "快拆与收纳", VisualGoal: "快速拆卸，然后折叠收纳", SourceType: "visual_only",
+	}}}, input)
+	if err == nil || !strings.Contains(err.Error(), "combines sequential actions") {
+		t.Fatalf("expected compound action beat to be rejected, got %v", err)
 	}
 }
 
@@ -132,16 +150,19 @@ func TestValidateVisualPlanResultRejectsMissingNarrativeBeat(t *testing.T) {
 
 func TestValidateVisualPlanResultAllowsMultipleAtomicVisualsForNarrativeBeat(t *testing.T) {
 	input := VisualPlanInput{
-		ProductName:       "束裤带",
-		ScriptText:        "一物多用，能绑水壶和修车工具。",
-		NarrationSegments: []VisualPlanNarrationSegment{{ID: "n-1", StartMs: 0, EndMs: 5000, Text: "一物多用，能绑水壶和修车工具。"}},
+		ProductName: "束裤带",
+		ScriptText:  "一物多用，能绑水壶和修车工具。",
+		NarrationSegments: []VisualPlanNarrationSegment{
+			{ID: "n-1", StartMs: 0, EndMs: 3000, Text: "一物多用，能绑水壶。"},
+			{ID: "n-2", StartMs: 3000, EndMs: 5000, Text: "也能绑修车工具。"},
+		},
 		NarrativeBeats: []VisualPlanNarrativeBeat{{
 			ID: "business-multiuse", Label: "一物多用", VisualGoal: "展示绑水壶和修车工具", SourceType: "visual_only",
 		}},
 	}
 	result := VisualPlanResult{VisualBeats: []VisualPlanBeat{
 		{NarrationSegmentID: "n-1", NarrativeBeatID: "business-multiuse", StartMs: 0, EndMs: 3000, DurationClass: VisualDurationClassAction, Label: "绑水壶", VisualGoal: "展示束裤带固定水壶", SourceType: "visual_only"},
-		{NarrationSegmentID: "n-1", NarrativeBeatID: "business-multiuse", StartMs: 3000, EndMs: 5000, DurationClass: VisualDurationClassStandard, Label: "绑工具", VisualGoal: "展示束裤带固定修车工具的结果", SourceType: "visual_only"},
+		{NarrationSegmentID: "n-2", NarrativeBeatID: "business-multiuse", StartMs: 3000, EndMs: 5000, DurationClass: VisualDurationClassStandard, Label: "绑工具", VisualGoal: "展示束裤带固定修车工具的结果", SourceType: "visual_only"},
 	}}
 	if err := ValidateVisualPlanResult(result, input); err != nil {
 		t.Fatalf("expected one business intention to allow multiple atomic visuals: %v", err)

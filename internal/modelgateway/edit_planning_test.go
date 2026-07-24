@@ -251,3 +251,17 @@ func TestValidateEditPlanResultRejectsTinyFillerClip(t *testing.T) {
 		t.Fatalf("expected tiny filler clip to be rejected, got %v", err)
 	}
 }
+
+func TestValidateEditPlanResultRejectsClipLongerThanThreePointFiveSeconds(t *testing.T) {
+	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{{
+		VisualBeatID: "visual-1", CandidateID: "candidate-1", StartMs: 0, EndMs: 3600,
+		SourceInMs: 0, SourceOutMs: 3600, Label: "过长镜头", VisualGoal: "展示产品",
+	}}}, []EditPlanRequirement{{
+		VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 3600,
+		NarrationText: "展示产品。", VisualGoal: "展示产品", SourceType: "visual_only",
+		Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceInMs: 0, SourceOutMs: 10_000}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "longer than 3500ms") {
+		t.Fatalf("expected the single-shot duration cap to be enforced, got %v", err)
+	}
+}

@@ -19,7 +19,7 @@ const (
 	defaultRenderWidth  = 1080
 	defaultRenderHeight = 1920
 	defaultRenderFPS    = 30
-	ffmpegRenderVersion = "ffmpeg-v4-vbr"
+	ffmpegRenderVersion = "ffmpeg-v5-paced-vbr"
 )
 
 type generationTimelineRenderer interface {
@@ -115,6 +115,21 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	if work.DurationMs <= 0 || work.AudioStorageKey == "" || len(work.NarrationSegments) == 0 {
 		return fmt.Errorf("narration audio and segments are required for rendering")
 	}
+	if plan.SourceDurationMs > 0 && absInt(plan.SourceDurationMs-work.DurationMs) > 50 {
+		return fmt.Errorf("edit plan narration source duration does not match voiceover")
+	}
+	renderDurationMs := work.DurationMs
+	narrationSegments := work.NarrationSegments
+	narrationPauses := []ffmpeg.AudioPause{}
+	if plan.TimelineDurationMs > 0 {
+		renderDurationMs = plan.TimelineDurationMs
+	}
+	if len(plan.NarrationSegments) > 0 {
+		narrationSegments = plan.NarrationSegments
+	}
+	for _, pause := range plan.NarrationPauses {
+		narrationPauses = append(narrationPauses, ffmpeg.AudioPause{AfterMs: pause.AfterMs, DurationMs: pause.DurationMs})
+	}
 	narrationPath, err := safeStoragePath(s.storageRoot, work.AudioStorageKey)
 	if err != nil {
 		return err
@@ -136,12 +151,12 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 
 	clips := append([]EditPlanClip(nil), plan.Clips...)
 	sort.SliceStable(clips, func(i, j int) bool { return clips[i].StartMs < clips[j].StartMs })
-	renderClips, err := s.buildRenderClips(run, work.DurationMs, clips)
+	renderClips, err := s.buildRenderClips(run, renderDurationMs, clips)
 	if err != nil {
 		return err
 	}
-	subtitles := make([]ffmpeg.SubtitleCue, 0, len(work.NarrationSegments))
-	for _, segment := range work.NarrationSegments {
+	subtitles := make([]ffmpeg.SubtitleCue, 0, len(narrationSegments))
+	for _, segment := range narrationSegments {
 		text := SubtitleDisplayText(segment.Text)
 		if text == "" {
 			continue
@@ -165,23 +180,24 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 		slog.String("generation_run_id", run.ID),
 		slog.Int("clip_count", len(renderClips)),
 		slog.Int("subtitle_count", len(subtitles)),
-		slog.Int("duration_ms", work.DurationMs),
+		slog.Int("duration_ms", renderDurationMs),
 	)
 	probe, err := s.renderer.RenderTimeline(ctx, ffmpeg.RenderInput{
-		Clips:         renderClips,
-		NarrationPath: narrationPath,
-		BGMPath:       bgmPath,
-		BGMGainDB:     resolvedBGMGain(bgmConfig),
-		BGMFadeInMs:   resolvedBGMFadeIn(bgmConfig),
-		BGMFadeOutMs:  resolvedBGMFadeOut(bgmConfig),
-		Subtitles:     subtitles,
-		SubtitleStyle: renderSnapshotSubtitleStyle(run.ConfigSnapshot),
-		OutputPath:    temporaryOutput,
-		WorkDir:       workDir,
-		DurationMs:    work.DurationMs,
-		Width:         width,
-		Height:        height,
-		FPS:           fps,
+		Clips:           renderClips,
+		NarrationPath:   narrationPath,
+		NarrationPauses: narrationPauses,
+		BGMPath:         bgmPath,
+		BGMGainDB:       resolvedBGMGain(bgmConfig),
+		BGMFadeInMs:     resolvedBGMFadeIn(bgmConfig),
+		BGMFadeOutMs:    resolvedBGMFadeOut(bgmConfig),
+		Subtitles:       subtitles,
+		SubtitleStyle:   renderSnapshotSubtitleStyle(run.ConfigSnapshot),
+		OutputPath:      temporaryOutput,
+		WorkDir:         workDir,
+		DurationMs:      renderDurationMs,
+		Width:           width,
+		Height:          height,
+		FPS:             fps,
 	})
 	if err != nil {
 		return err
@@ -189,7 +205,7 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	if probe.Width != width || probe.Height != height {
 		return fmt.Errorf("render output dimensions are %dx%d, want %dx%d", probe.Width, probe.Height, width, height)
 	}
-	if difference := absInt(probe.DurationMs - work.DurationMs); difference > 500 {
+	if difference := absInt(probe.DurationMs - renderDurationMs); difference > 500 {
 		return fmt.Errorf("render output duration differs from narration by %dms", difference)
 	}
 	if err := os.MkdirAll(filepath.Dir(finalPath), 0755); err != nil {

@@ -14,6 +14,7 @@ import (
 
 const (
 	MinimumEditPlanClipDurationMs = 800
+	MaximumEditPlanClipDurationMs = 3500
 	MaximumEditPlanClipsPerBeat   = 4
 )
 
@@ -293,6 +294,7 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 	expectedStartMs := requirements[0].StartMs
 	requirementIndex := 0
 	clipCounts := make(map[string]int, len(requirements))
+	longestClipByVisualBeat := make(map[string]int, len(requirements))
 	for index := range result.Clips {
 		clip := &result.Clips[index]
 		clip.VisualBeatID = strings.TrimSpace(clip.VisualBeatID)
@@ -322,6 +324,9 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 		if clipDurationMs < MinimumEditPlanClipDurationMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is shorter than %dms", index+1, MinimumEditPlanClipDurationMs), false, nil)
 		}
+		if clipDurationMs > MaximumEditPlanClipDurationMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is longer than %dms", index+1, MaximumEditPlanClipDurationMs), false, nil)
+		}
 		if clip.SourceOutMs-clip.SourceInMs != clipDurationMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source duration does not match its timeline duration", index+1), false, nil)
 		}
@@ -333,6 +338,9 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is outside its candidate", index+1), false, nil)
 		}
 		clipCounts[clip.VisualBeatID]++
+		if clipDurationMs > longestClipByVisualBeat[clip.VisualBeatID] {
+			longestClipByVisualBeat[clip.VisualBeatID] = clipDurationMs
+		}
 		if clipCounts[clip.VisualBeatID] > MaximumEditPlanClipsPerBeat {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan visual beat %q has more than %d clips", clip.VisualBeatID, MaximumEditPlanClipsPerBeat), false, nil)
 		}
@@ -343,6 +351,18 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 	}
 	if requirementIndex != len(requirements) || expectedStartMs != requirements[len(requirements)-1].EndMs {
 		return NewError(ErrorCodeInvalidResponse, "edit plan clips do not cover the visual timeline", false, nil)
+	}
+	for _, requirement := range requirements {
+		if requirement.DurationClass != VisualDurationClassAction {
+			continue
+		}
+		requiredDurationMs := actionVisualBeatMinimumMs
+		if durationMs := requirement.EndMs - requirement.StartMs; durationMs < requiredDurationMs {
+			requiredDurationMs = durationMs
+		}
+		if longestClipByVisualBeat[requirement.VisualBeatID] < requiredDurationMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan action beat %q must contain a complete clip of at least %dms", requirement.VisualBeatID, requiredDurationMs), false, nil)
+		}
 	}
 	return nil
 }

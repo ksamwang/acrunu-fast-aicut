@@ -115,21 +115,30 @@ type EditPlanClip struct {
 }
 
 type EditPlan struct {
-	ID                string          `json:"id"`
-	GenerationRunID   string          `json:"generation_run_id"`
-	ScriptVariantID   string          `json:"script_variant_id"`
-	VoiceoverID       string          `json:"voiceover_id"`
-	Status            string          `json:"status"`
-	CandidateSnapshot json.RawMessage `json:"candidate_snapshot,omitempty"`
-	PlanJSON          json.RawMessage `json:"plan_json,omitempty"`
-	LLMProvider       string          `json:"llm_provider,omitempty"`
-	LLMModel          string          `json:"llm_model,omitempty"`
-	PromptVersion     string          `json:"prompt_version,omitempty"`
-	ErrorMessage      string          `json:"error_message,omitempty"`
-	VisualBeats       []VisualBeat    `json:"visual_beats"`
-	Clips             []EditPlanClip  `json:"clips"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	ID                 string             `json:"id"`
+	GenerationRunID    string             `json:"generation_run_id"`
+	ScriptVariantID    string             `json:"script_variant_id"`
+	VoiceoverID        string             `json:"voiceover_id"`
+	Status             string             `json:"status"`
+	CandidateSnapshot  json.RawMessage    `json:"candidate_snapshot,omitempty"`
+	PlanJSON           json.RawMessage    `json:"plan_json,omitempty"`
+	LLMProvider        string             `json:"llm_provider,omitempty"`
+	LLMModel           string             `json:"llm_model,omitempty"`
+	PromptVersion      string             `json:"prompt_version,omitempty"`
+	ErrorMessage       string             `json:"error_message,omitempty"`
+	SourceDurationMs   int                `json:"source_duration_ms,omitempty"`
+	TimelineDurationMs int                `json:"timeline_duration_ms,omitempty"`
+	NarrationSegments  []NarrationSegment `json:"narration_segments,omitempty"`
+	NarrationPauses    []NarrationPause   `json:"narration_pauses,omitempty"`
+	VisualBeats        []VisualBeat       `json:"visual_beats"`
+	Clips              []EditPlanClip     `json:"clips"`
+	CreatedAt          time.Time          `json:"created_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+}
+
+type NarrationPause struct {
+	AfterMs    int `json:"after_ms"`
+	DurationMs int `json:"duration_ms"`
 }
 
 type CreateGenerationRunInput struct {
@@ -760,16 +769,24 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 	}
 	if len(plan.CandidateSnapshot) == 0 {
 		plan.CandidateSnapshot = mustRunJSON(map[string]any{
-			"visual_beats":   plan.VisualBeats,
-			"candidate_sets": []CandidateSet{},
-			"clips":          plan.Clips,
+			"source_duration_ms":   plan.SourceDurationMs,
+			"timeline_duration_ms": plan.TimelineDurationMs,
+			"narration_segments":   plan.NarrationSegments,
+			"narration_pauses":     plan.NarrationPauses,
+			"visual_beats":         plan.VisualBeats,
+			"candidate_sets":       []CandidateSet{},
+			"clips":                plan.Clips,
 		})
 	}
 	if len(plan.PlanJSON) == 0 {
 		plan.PlanJSON = mustRunJSON(map[string]any{
-			"visual_beats":   plan.VisualBeats,
-			"candidate_sets": []CandidateSet{},
-			"clips":          plan.Clips,
+			"source_duration_ms":   plan.SourceDurationMs,
+			"timeline_duration_ms": plan.TimelineDurationMs,
+			"narration_segments":   plan.NarrationSegments,
+			"narration_pauses":     plan.NarrationPauses,
+			"visual_beats":         plan.VisualBeats,
+			"candidate_sets":       []CandidateSet{},
+			"clips":                plan.Clips,
 		})
 	}
 	if !json.Valid(plan.CandidateSnapshot) || !json.Valid(plan.PlanJSON) {
@@ -920,6 +937,10 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 	}
 	stored.VisualBeats = cloneVisualBeats(plan.VisualBeats)
 	stored.Clips = cloneEditPlanClips(plan.Clips)
+	stored.SourceDurationMs = plan.SourceDurationMs
+	stored.TimelineDurationMs = plan.TimelineDurationMs
+	stored.NarrationSegments = cloneNarrationSegments(plan.NarrationSegments)
+	stored.NarrationPauses = cloneNarrationPauses(plan.NarrationPauses)
 	return stored, nil
 }
 
@@ -949,6 +970,7 @@ func (s *GenerationRunService) GetEditPlan(ctx context.Context, runID string) (E
 	if err != nil {
 		return EditPlan{}, err
 	}
+	decodeEditPlanTimeline(&plan)
 	visualBeatRows, err := s.pool.Query(ctx, `
 		SELECT id::text, narration_segment_id::text, narrative_beat_id, start_ms, end_ms, duration_class,
 			label, selling_point, visual_goal, source_type
@@ -1088,6 +1110,12 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	}
 	plan, err := s.GetEditPlan(ctx, run.ID)
 	if err == nil {
+		if len(plan.NarrationSegments) > 0 {
+			work.NarrationSegments = cloneNarrationSegments(plan.NarrationSegments)
+		}
+		if plan.TimelineDurationMs > 0 {
+			work.DurationMs = plan.TimelineDurationMs
+		}
 		work.VisualBeats = cloneVisualBeats(plan.VisualBeats)
 		work.EditPlan = editPlanWorkClips(plan.Clips)
 	} else if !errors.Is(err, ErrEditPlanNotFound) {
@@ -1253,6 +1281,9 @@ func validateEditPlanForStorage(plan EditPlan) error {
 	if len(plan.Clips) > 0 && len(plan.VisualBeats) == 0 {
 		return fmt.Errorf("clip segments require visual beats")
 	}
+	if err := validateEditPlanNarrationTimeline(plan); err != nil {
+		return err
+	}
 	visualBeats := map[string]VisualBeat{}
 	expectedStartMs := 0
 	for index, beat := range plan.VisualBeats {
@@ -1278,6 +1309,7 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		expectedStartMs = beat.EndMs
 	}
 	clipCounts := make(map[string]int, len(plan.VisualBeats))
+	longestClipByVisualBeat := make(map[string]int, len(plan.VisualBeats))
 	expectedClipStartMs := 0
 	for index, clip := range plan.Clips {
 		if normalizeID(clip.VisualBeatID) == "" || normalizeID(clip.NarrationSegmentID) == "" || normalizeID(clip.AssetID) == "" {
@@ -1302,10 +1334,16 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		if clip.TimelineDurationMs < modelgateway.MinimumEditPlanClipDurationMs {
 			return fmt.Errorf("clip %d is shorter than %dms", index+1, modelgateway.MinimumEditPlanClipDurationMs)
 		}
+		if clip.TimelineDurationMs > modelgateway.MaximumEditPlanClipDurationMs {
+			return fmt.Errorf("clip %d is longer than %dms", index+1, modelgateway.MaximumEditPlanClipDurationMs)
+		}
 		if clip.SourceType != "visual_only" && clip.SourceType != "talking_head" {
 			return fmt.Errorf("clip %d source type is invalid", index+1)
 		}
 		clipCounts[clip.VisualBeatID]++
+		if clip.TimelineDurationMs > longestClipByVisualBeat[clip.VisualBeatID] {
+			longestClipByVisualBeat[clip.VisualBeatID] = clip.TimelineDurationMs
+		}
 		if clipCounts[clip.VisualBeatID] > modelgateway.MaximumEditPlanClipsPerBeat {
 			return fmt.Errorf("visual beat %q has too many clips", clip.VisualBeatID)
 		}
@@ -1319,7 +1357,43 @@ func validateEditPlanForStorage(plan EditPlan) error {
 			if clipCounts[beatID] == 0 {
 				return fmt.Errorf("visual beat %q has no clips", beatID)
 			}
+			beat := visualBeats[beatID]
+			if beat.DurationClass == VisualBeatDurationAction && longestClipByVisualBeat[beatID] < 2800 {
+				return fmt.Errorf("action visual beat %q has no complete action clip", beatID)
+			}
 		}
+	}
+	return nil
+}
+
+func validateEditPlanNarrationTimeline(plan EditPlan) error {
+	if plan.SourceDurationMs == 0 && plan.TimelineDurationMs == 0 && len(plan.NarrationSegments) == 0 && len(plan.NarrationPauses) == 0 {
+		return nil
+	}
+	if plan.SourceDurationMs <= 0 || plan.TimelineDurationMs < plan.SourceDurationMs || len(plan.NarrationSegments) == 0 {
+		return fmt.Errorf("edit plan narration timeline is incomplete")
+	}
+	previousEndMs := 0
+	for index, segment := range plan.NarrationSegments {
+		if normalizeID(segment.ID) == "" || strings.TrimSpace(segment.Text) == "" || segment.StartMs < previousEndMs || segment.EndMs <= segment.StartMs || segment.EndMs > plan.TimelineDurationMs {
+			return fmt.Errorf("edit plan narration segment %d is invalid", index+1)
+		}
+		previousEndMs = segment.EndMs
+	}
+	pauseDurationMs := 0
+	previousPauseAfterMs := -1
+	for index, pause := range plan.NarrationPauses {
+		if pause.AfterMs <= previousPauseAfterMs || pause.AfterMs <= 0 || pause.AfterMs > plan.SourceDurationMs || pause.DurationMs <= 0 {
+			return fmt.Errorf("edit plan narration pause %d is invalid", index+1)
+		}
+		previousPauseAfterMs = pause.AfterMs
+		pauseDurationMs += pause.DurationMs
+	}
+	if plan.SourceDurationMs+pauseDurationMs != plan.TimelineDurationMs {
+		return fmt.Errorf("edit plan narration pauses do not match timeline duration")
+	}
+	if len(plan.VisualBeats) > 0 && plan.VisualBeats[len(plan.VisualBeats)-1].EndMs != plan.TimelineDurationMs {
+		return fmt.Errorf("visual beats do not match narration timeline duration")
 	}
 	return nil
 }
@@ -1363,7 +1437,36 @@ func cloneEditPlan(plan EditPlan) EditPlan {
 	plan.PlanJSON = append(json.RawMessage(nil), plan.PlanJSON...)
 	plan.VisualBeats = cloneVisualBeats(plan.VisualBeats)
 	plan.Clips = cloneEditPlanClips(plan.Clips)
+	plan.NarrationSegments = cloneNarrationSegments(plan.NarrationSegments)
+	plan.NarrationPauses = cloneNarrationPauses(plan.NarrationPauses)
 	return plan
+}
+
+func cloneNarrationSegments(segments []NarrationSegment) []NarrationSegment {
+	return append([]NarrationSegment(nil), segments...)
+}
+
+func cloneNarrationPauses(pauses []NarrationPause) []NarrationPause {
+	return append([]NarrationPause(nil), pauses...)
+}
+
+func decodeEditPlanTimeline(plan *EditPlan) {
+	if plan == nil || len(plan.PlanJSON) == 0 {
+		return
+	}
+	var payload struct {
+		SourceDurationMs   int                `json:"source_duration_ms"`
+		TimelineDurationMs int                `json:"timeline_duration_ms"`
+		NarrationSegments  []NarrationSegment `json:"narration_segments"`
+		NarrationPauses    []NarrationPause   `json:"narration_pauses"`
+	}
+	if err := json.Unmarshal(plan.PlanJSON, &payload); err != nil {
+		return
+	}
+	plan.SourceDurationMs = payload.SourceDurationMs
+	plan.TimelineDurationMs = payload.TimelineDurationMs
+	plan.NarrationSegments = cloneNarrationSegments(payload.NarrationSegments)
+	plan.NarrationPauses = cloneNarrationPauses(payload.NarrationPauses)
 }
 
 func cloneEditPlanClips(clips []EditPlanClip) []EditPlanClip {

@@ -77,6 +77,35 @@ func TestRenderTimelineArgsLoopsAndMixesBackgroundMusic(t *testing.T) {
 	}
 }
 
+func TestRenderTimelineArgsInsertsNarrationPauses(t *testing.T) {
+	args, err := renderTimelineArgs(RenderInput{
+		Clips:           []RenderClip{{InputPath: "clip.mp4", SourceInMs: 0, SourceOutMs: 1700}},
+		NarrationPath:   "voice.wav",
+		NarrationPauses: []AudioPause{{AfterMs: 600, DurationMs: 500}},
+		OutputPath:      "output.mp4",
+		WorkDir:         "work",
+		DurationMs:      1700,
+		Width:           1080,
+		Height:          1920,
+		FPS:             30,
+	})
+	if err != nil {
+		t.Fatalf("renderTimelineArgs() error = %v", err)
+	}
+	joined := strings.Join(args, " ")
+	for _, expected := range []string{
+		"atrim=duration=1.200",
+		"atrim=start=0.000:end=0.600",
+		"anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=0.500",
+		"atrim=start=0.600:end=1.200",
+		"concat=n=3:v=0:a=1[narration]",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("paused narration args missing %q:\n%s", expected, joined)
+		}
+	}
+}
+
 func TestBuildASSUsesCleanTextAndTransparentBackground(t *testing.T) {
 	t.Parallel()
 	content := buildASS([]SubtitleCue{{StartMs: 0, EndMs: 1230, Text: "骑行更安全"}}, 1080, 1920, SubtitleStyle{})
@@ -134,7 +163,7 @@ func TestRenderTimelineIntegration(t *testing.T) {
 		path string
 		args []string
 	}{
-		{first, []string{"-y", "-f", "lavfi", "-i", "color=c=red:s=320x568:r=30:d=0.7", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p"}},
+		{first, []string{"-y", "-f", "lavfi", "-i", "color=c=red:s=320x568:r=30:d=2.0", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p"}},
 		{second, []string{"-y", "-f", "lavfi", "-i", "color=c=blue:s=320x568:r=30:d=0.7", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p"}},
 		{narration, []string{"-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1.2", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le"}},
 		{bgm, []string{"-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=0.4", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le"}},
@@ -168,5 +197,28 @@ func TestRenderTimelineIntegration(t *testing.T) {
 	}
 	if result.Width != 360 || result.Height != 640 || !result.HasAudio || result.DurationMs < 1100 || result.DurationMs > 1300 {
 		t.Fatalf("unexpected rendered media %#v", result)
+	}
+
+	pausedOutputPath := filepath.Join(root, "paused-output.mp4")
+	paused, err := RenderTimeline(context.Background(), RenderInput{
+		Clips:           []RenderClip{{InputPath: first, SourceInMs: 0, SourceOutMs: 1700}},
+		NarrationPath:   narration,
+		NarrationPauses: []AudioPause{{AfterMs: 600, DurationMs: 500}},
+		Subtitles: []SubtitleCue{
+			{StartMs: 0, EndMs: 600, Text: "第一句"},
+			{StartMs: 1100, EndMs: 1700, Text: "第二句"},
+		},
+		OutputPath: pausedOutputPath,
+		WorkDir:    filepath.Join(root, "paused-work"),
+		DurationMs: 1700,
+		Width:      360,
+		Height:     640,
+		FPS:        30,
+	})
+	if err != nil {
+		t.Fatalf("RenderTimeline() with narration pause error = %v", err)
+	}
+	if !paused.HasAudio || paused.DurationMs < 1600 || paused.DurationMs > 1800 {
+		t.Fatalf("unexpected paused render %#v", paused)
 	}
 }

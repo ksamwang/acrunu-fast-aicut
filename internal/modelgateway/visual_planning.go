@@ -118,8 +118,10 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		return err
 	}
 	segments := make(map[string]VisualPlanNarrationSegment, len(input.NarrationSegments))
+	segmentEnds := make(map[int]struct{}, len(input.NarrationSegments))
 	for _, segment := range input.NarrationSegments {
 		segments[segment.ID] = segment
+		segmentEnds[segment.EndMs] = struct{}{}
 	}
 	narrativeBeats := make(map[string]struct{}, len(input.NarrativeBeats))
 	for _, beat := range input.NarrativeBeats {
@@ -145,6 +147,12 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		if beat.Label == "" || beat.VisualGoal == "" || !isVisualPlanSourceType(beat.SourceType) {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d is incomplete", index+1), false, nil)
 		}
+		if containsSequentialVisualActions(beat.VisualGoal) {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d combines sequential actions", index+1), false, nil)
+		}
+		if visualGoalRequiresActionDuration(beat.VisualGoal) && beat.DurationClass != VisualDurationClassAction {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d must use action duration", index+1), false, nil)
+		}
 		if beat.NarrativeBeatID != "" {
 			if _, ok := narrativeBeats[beat.NarrativeBeatID]; !ok {
 				return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d references an unknown narrative beat", index+1), false, nil)
@@ -154,16 +162,19 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		if beat.StartMs != expectedStart || beat.EndMs <= beat.StartMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d does not continue the timeline", index+1), false, nil)
 		}
-		if beat.StartMs < segment.StartMs || beat.StartMs >= segment.EndMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d narration anchor does not contain its start", index+1), false, nil)
+		if beat.StartMs != segment.StartMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d must start at its narration segment boundary", index+1), false, nil)
+		}
+		if _, ok := segmentEnds[beat.EndMs]; !ok {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d must end at a narration segment boundary", index+1), false, nil)
 		}
 		durationMs := beat.EndMs - beat.StartMs
-		minimumMs, maximumMs, ok := visualBeatDurationRange(beat.DurationClass)
+		_, maximumMs, ok := visualBeatDurationRange(beat.DurationClass)
 		if !ok {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d duration class is invalid", index+1), false, nil)
 		}
-		if durationMs < minimumMs || durationMs > maximumMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d duration %dms is outside %s range %d-%dms", index+1, durationMs, beat.DurationClass, minimumMs, maximumMs), false, nil)
+		if durationMs > maximumMs {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d duration %dms exceeds %s maximum %dms", index+1, durationMs, beat.DurationClass, maximumMs), false, nil)
 		}
 		if beat.DurationClass == VisualDurationClassBrief {
 			briefBeatCount++
@@ -183,6 +194,27 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		}
 	}
 	return nil
+}
+
+func containsSequentialVisualActions(value string) bool {
+	for _, marker := range []string{"然后", "随后", "接着", "再将", "再把"} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func visualGoalRequiresActionDuration(value string) bool {
+	for _, marker := range []string{
+		"放入口袋", "塞入口袋", "折叠收纳", "拉伸", "撕开", "重新粘贴",
+		"环绕并固定", "缠绕并固定", "安装过程", "调节过程", "佩戴过程",
+	} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func visualBeatDurationRange(class string) (int, int, bool) {

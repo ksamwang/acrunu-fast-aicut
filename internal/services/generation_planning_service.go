@@ -118,11 +118,14 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	}
 
 	basePlan := EditPlan{
-		GenerationRunID: run.ID,
-		ScriptVariantID: run.ScriptVariantID,
-		VoiceoverID:     run.VoiceoverID,
-		Status:          "planning",
-		PromptVersion:   modelgateway.VisualPlanPromptVersion + "+" + modelgateway.EditPlanPromptVersion,
+		GenerationRunID:    run.ID,
+		ScriptVariantID:    run.ScriptVariantID,
+		VoiceoverID:        run.VoiceoverID,
+		Status:             "planning",
+		PromptVersion:      modelgateway.VisualPlanPromptVersion + "+" + modelgateway.EditPlanPromptVersion,
+		SourceDurationMs:   work.DurationMs,
+		TimelineDurationMs: work.DurationMs,
+		NarrationSegments:  cloneNarrationSegments(work.NarrationSegments),
 	}
 	if err := updatePlanArtifacts(&basePlan, nil, nil, nil); err != nil {
 		return EditPlan{}, err
@@ -143,11 +146,14 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	visualBeats, err := materializeVisualBeats(visualResult, visualInput)
+	visualBeats, narrationSegments, narrationPauses, timelineDurationMs, err := materializeVisualTimeline(visualResult, visualInput)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
 	basePlan.VisualBeats = visualBeats
+	basePlan.NarrationSegments = narrationSegments
+	basePlan.NarrationPauses = narrationPauses
+	basePlan.TimelineDurationMs = timelineDurationMs
 	basePlan.LLMProvider = visualProvider
 	basePlan.LLMModel = visualModel
 	if err := updatePlanArtifacts(&basePlan, visualBeats, nil, nil); err != nil {
@@ -160,7 +166,7 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err := s.runs.UpdateStage(ctx, run.ID, generationRunStageRetrieving, 80); err != nil {
 		return EditPlan{}, err
 	}
-	requirements, err := BuildShotRequirements(visualBeats, work.NarrationSegments)
+	requirements, err := BuildShotRequirements(visualBeats, narrationSegments)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -303,26 +309,83 @@ func buildVisualPlannerInput(productName string, work VoiceoverWork) modelgatewa
 	}
 }
 
-func materializeVisualBeats(result modelgateway.VisualPlanResult, input modelgateway.VisualPlanInput) ([]VisualBeat, error) {
+func materializeVisualTimeline(result modelgateway.VisualPlanResult, input modelgateway.VisualPlanInput) ([]VisualBeat, []NarrationSegment, []NarrationPause, int, error) {
 	if err := modelgateway.ValidateVisualPlanResult(result, input); err != nil {
-		return nil, err
+		return nil, nil, nil, 0, err
 	}
+	pauses := make([]NarrationPause, 0, len(result.VisualBeats))
 	beats := make([]VisualBeat, 0, len(result.VisualBeats))
+	cumulativePauseMs := 0
 	for _, beat := range result.VisualBeats {
+		originalDurationMs := beat.EndMs - beat.StartMs
+		pauseMs := visualBeatTimelinePadding(beat.DurationClass, originalDurationMs)
 		beats = append(beats, VisualBeat{
 			ID:                 uuid.NewString(),
 			NarrationSegmentID: beat.NarrationSegmentID,
 			NarrativeBeatID:    beat.NarrativeBeatID,
-			StartMs:            beat.StartMs,
-			EndMs:              beat.EndMs,
+			StartMs:            beat.StartMs + cumulativePauseMs,
+			EndMs:              beat.EndMs + cumulativePauseMs + pauseMs,
 			DurationClass:      beat.DurationClass,
 			Label:              beat.Label,
 			SellingPoint:       beat.SellingPoint,
 			VisualGoal:         beat.VisualGoal,
 			SourceType:         beat.SourceType,
 		})
+		if pauseMs > 0 {
+			pauses = append(pauses, NarrationPause{AfterMs: beat.EndMs, DurationMs: pauseMs})
+			cumulativePauseMs += pauseMs
+		}
 	}
-	return beats, nil
+	narrationSegments := shiftNarrationSegments(input.NarrationSegments, pauses)
+	return beats, narrationSegments, pauses, input.NarrationSegments[len(input.NarrationSegments)-1].EndMs + cumulativePauseMs, nil
+}
+
+func visualBeatTimelinePadding(durationClass string, durationMs int) int {
+	minimumMs, maximumMs, basePauseMs := 0, 0, 0
+	switch durationClass {
+	case modelgateway.VisualDurationClassBrief:
+		minimumMs, maximumMs, basePauseMs = 1000, 1800, 150
+	case modelgateway.VisualDurationClassStandard:
+		minimumMs, maximumMs, basePauseMs = 1800, 4500, 250
+	case modelgateway.VisualDurationClassAction:
+		minimumMs, maximumMs, basePauseMs = 2800, 6000, 350
+	default:
+		return 0
+	}
+	targetMs := durationMs + basePauseMs
+	if targetMs < minimumMs {
+		targetMs = minimumMs
+	}
+	if targetMs > maximumMs {
+		targetMs = maximumMs
+	}
+	if targetMs <= durationMs {
+		return 0
+	}
+	return targetMs - durationMs
+}
+
+func shiftNarrationSegments(input []modelgateway.VisualPlanNarrationSegment, pauses []NarrationPause) []NarrationSegment {
+	result := make([]NarrationSegment, 0, len(input))
+	for _, segment := range input {
+		startShiftMs := 0
+		endShiftMs := 0
+		for _, pause := range pauses {
+			if pause.AfterMs <= segment.StartMs {
+				startShiftMs += pause.DurationMs
+			}
+			if pause.AfterMs < segment.EndMs {
+				endShiftMs += pause.DurationMs
+			}
+		}
+		result = append(result, NarrationSegment{
+			ID:      segment.ID,
+			StartMs: segment.StartMs + startShiftMs,
+			EndMs:   segment.EndMs + endShiftMs,
+			Text:    segment.Text,
+		})
+	}
+	return result
 }
 
 func validateCandidateSets(sets []CandidateSet) error {
@@ -464,9 +527,13 @@ func updatePlanArtifacts(plan *EditPlan, visualBeats []VisualBeat, candidateSets
 		clips = []EditPlanClip{}
 	}
 	payload := map[string]any{
-		"visual_beats":   visualBeats,
-		"candidate_sets": candidateSets,
-		"clips":          clips,
+		"source_duration_ms":   plan.SourceDurationMs,
+		"timeline_duration_ms": plan.TimelineDurationMs,
+		"narration_segments":   plan.NarrationSegments,
+		"narration_pauses":     plan.NarrationPauses,
+		"visual_beats":         visualBeats,
+		"candidate_sets":       candidateSets,
+		"clips":                clips,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

@@ -111,6 +111,45 @@ func TestBuildVisualPlannerInputForcesVisualOnlyTTSMaterial(t *testing.T) {
 	}
 }
 
+func TestMaterializeVisualTimelinePadsEachSemanticBeforeNextNarration(t *testing.T) {
+	input := modelgateway.VisualPlanInput{
+		ProductName: "束裤带",
+		ScriptText:  "一秒快拆，大面积魔术贴，收纳方便。高弹松紧带，拉伸自如，贴合脚踝。",
+		NarrationSegments: []modelgateway.VisualPlanNarrationSegment{
+			{ID: "quick", StartMs: 0, EndMs: 1015, Text: "一秒快拆，"},
+			{ID: "velcro", StartMs: 1015, EndMs: 2284, Text: "大面积魔术贴，"},
+			{ID: "storage", StartMs: 2284, EndMs: 3250, Text: "收纳方便。"},
+			{ID: "elastic", StartMs: 3250, EndMs: 4458, Text: "高弹松紧带，"},
+			{ID: "stretch", StartMs: 4458, EndMs: 5430, Text: "拉伸自如，"},
+			{ID: "fit", StartMs: 5430, EndMs: 6450, Text: "贴合脚踝。"},
+		},
+	}
+	result := modelgateway.VisualPlanResult{VisualBeats: []modelgateway.VisualPlanBeat{
+		{NarrationSegmentID: "quick", StartMs: 0, EndMs: 1015, DurationClass: modelgateway.VisualDurationClassBrief, Label: "快拆", VisualGoal: "展示一秒快拆", SourceType: "visual_only"},
+		{NarrationSegmentID: "velcro", StartMs: 1015, EndMs: 2284, DurationClass: modelgateway.VisualDurationClassStandard, Label: "魔术贴", VisualGoal: "展示大面积魔术贴", SourceType: "visual_only"},
+		{NarrationSegmentID: "storage", StartMs: 2284, EndMs: 3250, DurationClass: modelgateway.VisualDurationClassAction, Label: "收纳", VisualGoal: "完整展示放入口袋", SourceType: "visual_only"},
+		{NarrationSegmentID: "elastic", StartMs: 3250, EndMs: 5430, DurationClass: modelgateway.VisualDurationClassAction, Label: "拉伸", VisualGoal: "完整展示反复拉伸", SourceType: "visual_only"},
+		{NarrationSegmentID: "fit", StartMs: 5430, EndMs: 6450, DurationClass: modelgateway.VisualDurationClassStandard, Label: "贴合", VisualGoal: "展示贴合脚踝", SourceType: "visual_only"},
+	}}
+
+	beats, segments, pauses, durationMs, err := materializeVisualTimeline(result, input)
+	if err != nil {
+		t.Fatalf("materialize timeline: %v", err)
+	}
+	if beats[1].StartMs != 1165 || beats[1].EndMs != 2965 {
+		t.Fatalf("expected velcro visual to complete before storage, got %#v", beats[1])
+	}
+	if beats[2].StartMs != 2965 || beats[2].EndMs != 5765 {
+		t.Fatalf("expected storage visual to receive a full action window, got %#v", beats[2])
+	}
+	if segments[2].StartMs != 2965 || segments[2].EndMs != 3931 || segments[3].StartMs != 5765 {
+		t.Fatalf("expected high-elasticity narration to wait for storage, got %#v", segments)
+	}
+	if len(pauses) != 5 || durationMs <= input.NarrationSegments[len(input.NarrationSegments)-1].EndMs {
+		t.Fatalf("expected persisted editorial pauses, pauses=%#v duration=%d", pauses, durationMs)
+	}
+}
+
 func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	assets := NewProductAssetService()
 	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
@@ -154,8 +193,8 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 		NewModelProviderService(),
 		config.Config{},
 	).WithVisualPlanner(deterministicVisualPlanner{beats: []modelgateway.VisualPlanBeat{
-		{NarrationSegmentID: "narration-1", NarrativeBeatID: "business-pain", StartMs: 0, EndMs: 1000, DurationClass: modelgateway.VisualDurationClassBrief, Label: "痛点", VisualGoal: "裤脚靠近链条", SourceType: "visual_only"},
-		{NarrationSegmentID: "narration-1", NarrativeBeatID: "business-result", StartMs: 1000, EndMs: 3500, DurationClass: modelgateway.VisualDurationClassStandard, Label: "固定结果", VisualGoal: "完整展示束裤带固定裤脚并开始骑行", SourceType: "visual_only"},
+		{NarrationSegmentID: "narration-1", NarrativeBeatID: "business-pain", StartMs: 0, EndMs: 2000, DurationClass: modelgateway.VisualDurationClassStandard, Label: "痛点", VisualGoal: "裤脚靠近链条", SourceType: "visual_only"},
+		{NarrationSegmentID: "narration-2", NarrativeBeatID: "business-result", StartMs: 2000, EndMs: 3500, DurationClass: modelgateway.VisualDurationClassAction, Label: "固定结果", VisualGoal: "完整展示束裤带固定裤脚并开始骑行", SourceType: "visual_only"},
 	}}).WithPlanner(deterministicEditPlanner{})
 
 	plan, err := planning.Generate(context.Background(), GenerateEditPlanInput{
@@ -169,14 +208,20 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	if plan.Status != "ready" || len(plan.VisualBeats) != 2 || len(plan.Clips) != 2 {
 		t.Fatalf("unexpected plan %#v", plan)
 	}
-	if plan.VisualBeats[1].DurationClass != VisualBeatDurationStandard {
+	if plan.VisualBeats[1].DurationClass != VisualBeatDurationAction {
 		t.Fatalf("expected visual duration class to be persisted, got %#v", plan.VisualBeats)
 	}
 	if plan.VisualBeats[0].NarrativeBeatID != "business-pain" || plan.VisualBeats[1].NarrativeBeatID != "business-result" {
 		t.Fatalf("expected business intention references to be persisted, got %#v", plan.VisualBeats)
 	}
-	if plan.Clips[0].NarrationSegmentID != plan.Clips[1].NarrationSegmentID || plan.Clips[0].VisualBeatID == plan.Clips[1].VisualBeatID {
-		t.Fatalf("expected the second visual beat to cross narration segments from its first anchor, got %#v", plan.Clips)
+	if plan.Clips[0].NarrationSegmentID == plan.Clips[1].NarrationSegmentID || plan.Clips[0].VisualBeatID == plan.Clips[1].VisualBeatID {
+		t.Fatalf("expected each visual beat to stay on complete narration semantics, got %#v", plan.Clips)
+	}
+	if plan.SourceDurationMs != 3500 || plan.TimelineDurationMs != 5050 || len(plan.NarrationPauses) != 2 {
+		t.Fatalf("expected service-side editorial pauses, got %#v", plan)
+	}
+	if plan.NarrationSegments[1].StartMs != 2250 || plan.NarrationSegments[1].EndMs != 3750 {
+		t.Fatalf("expected later narration to be shifted after the first visual, got %#v", plan.NarrationSegments)
 	}
 	if plan.Clips[0].AssetID != "asset-1" || plan.Clips[1].AssetID != "asset-2" || !plan.Clips[1].UseOriginalAudio {
 		t.Fatalf("candidate mapping or audio policy was not retained %#v", plan.Clips)
@@ -190,15 +235,22 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 		}
 	}
 	var artifacts struct {
-		VisualBeats   []VisualBeat   `json:"visual_beats"`
-		CandidateSets []CandidateSet `json:"candidate_sets"`
-		Clips         []EditPlanClip `json:"clips"`
+		SourceDurationMs   int                `json:"source_duration_ms"`
+		TimelineDurationMs int                `json:"timeline_duration_ms"`
+		NarrationSegments  []NarrationSegment `json:"narration_segments"`
+		NarrationPauses    []NarrationPause   `json:"narration_pauses"`
+		VisualBeats        []VisualBeat       `json:"visual_beats"`
+		CandidateSets      []CandidateSet     `json:"candidate_sets"`
+		Clips              []EditPlanClip     `json:"clips"`
 	}
 	if err := json.Unmarshal(plan.PlanJSON, &artifacts); err != nil {
 		t.Fatalf("decode plan artifacts: %v", err)
 	}
 	if len(artifacts.VisualBeats) != 2 || len(artifacts.CandidateSets) != 2 || len(artifacts.Clips) != 2 {
 		t.Fatalf("plan artifact snapshot is incomplete %#v", artifacts)
+	}
+	if artifacts.SourceDurationMs != 3500 || artifacts.TimelineDurationMs != 5050 || len(artifacts.NarrationSegments) != 2 || len(artifacts.NarrationPauses) != 2 {
+		t.Fatalf("plan artifact narration timeline is incomplete %#v", artifacts)
 	}
 	updatedRun, err := runs.Get(context.Background(), run.ID)
 	if err != nil {

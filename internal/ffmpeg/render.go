@@ -33,6 +33,11 @@ type SubtitleCue struct {
 	Text    string
 }
 
+type AudioPause struct {
+	AfterMs    int
+	DurationMs int
+}
+
 type SubtitleStyle struct {
 	FontFamily            string
 	FontWeight            int
@@ -53,20 +58,21 @@ type SubtitleStyle struct {
 }
 
 type RenderInput struct {
-	Clips         []RenderClip
-	NarrationPath string
-	BGMPath       string
-	BGMGainDB     float64
-	BGMFadeInMs   int
-	BGMFadeOutMs  int
-	Subtitles     []SubtitleCue
-	SubtitleStyle SubtitleStyle
-	OutputPath    string
-	WorkDir       string
-	DurationMs    int
-	Width         int
-	Height        int
-	FPS           int
+	Clips           []RenderClip
+	NarrationPath   string
+	NarrationPauses []AudioPause
+	BGMPath         string
+	BGMGainDB       float64
+	BGMFadeInMs     int
+	BGMFadeOutMs    int
+	Subtitles       []SubtitleCue
+	SubtitleStyle   SubtitleStyle
+	OutputPath      string
+	WorkDir         string
+	DurationMs      int
+	Width           int
+	Height          int
+	FPS             int
 }
 
 func RenderTimeline(ctx context.Context, input RenderInput) (ProbeResult, error) {
@@ -171,10 +177,11 @@ func renderTimelineArgs(input RenderInput) ([]string, error) {
 
 	narrationIndex := len(input.Clips)
 	totalDuration := millisecondsAsSeconds(input.DurationMs)
-	filters = append(filters, fmt.Sprintf(
-		"[%d:a:0]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=duration=%s,asetpts=PTS-STARTPTS[narration]",
-		narrationIndex, totalDuration,
-	))
+	narrationFilters, err := buildNarrationFilters(narrationIndex, input.DurationMs, input.NarrationPauses)
+	if err != nil {
+		return nil, err
+	}
+	filters = append(filters, narrationFilters...)
 	audioOutput := "[narration]"
 	if hasOriginalAudio {
 		filters = append(filters,
@@ -245,6 +252,91 @@ func validateRenderInput(input RenderInput) error {
 	for index, cue := range input.Subtitles {
 		if cue.StartMs < 0 || cue.EndMs <= cue.StartMs || cue.EndMs > input.DurationMs || strings.TrimSpace(cue.Text) == "" {
 			return fmt.Errorf("render subtitle %d is invalid", index+1)
+		}
+	}
+	if err := validateAudioPauses(input.DurationMs, input.NarrationPauses); err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildNarrationFilters(inputIndex int, durationMs int, pauses []AudioPause) ([]string, error) {
+	if err := validateAudioPauses(durationMs, pauses); err != nil {
+		return nil, err
+	}
+	if len(pauses) == 0 {
+		return []string{fmt.Sprintf(
+			"[%d:a:0]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=duration=%s,asetpts=PTS-STARTPTS[narration]",
+			inputIndex, millisecondsAsSeconds(durationMs),
+		)}, nil
+	}
+	pauseDurationMs := 0
+	for _, pause := range pauses {
+		pauseDurationMs += pause.DurationMs
+	}
+	sourceDurationMs := durationMs - pauseDurationMs
+	filters := []string{fmt.Sprintf(
+		"[%d:a:0]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=duration=%s,asetpts=PTS-STARTPTS[narration_source]",
+		inputIndex, millisecondsAsSeconds(sourceDurationMs),
+	)}
+	type audioRange struct{ startMs, endMs int }
+	ranges := make([]audioRange, 0, len(pauses)+1)
+	startMs := 0
+	for _, pause := range pauses {
+		ranges = append(ranges, audioRange{startMs: startMs, endMs: pause.AfterMs})
+		startMs = pause.AfterMs
+	}
+	if startMs < sourceDurationMs {
+		ranges = append(ranges, audioRange{startMs: startMs, endMs: sourceDurationMs})
+	}
+	if len(ranges) > 1 {
+		outputs := strings.Builder{}
+		for index := range ranges {
+			fmt.Fprintf(&outputs, "[narration_split_%d]", index)
+		}
+		filters = append(filters, fmt.Sprintf("[narration_source]asplit=%d%s", len(ranges), outputs.String()))
+	}
+	components := strings.Builder{}
+	for index, current := range ranges {
+		inputLabel := "[narration_source]"
+		if len(ranges) > 1 {
+			inputLabel = fmt.Sprintf("[narration_split_%d]", index)
+		}
+		filters = append(filters, fmt.Sprintf(
+			"%satrim=start=%s:end=%s,asetpts=PTS-STARTPTS[narration_part_%d]",
+			inputLabel, millisecondsAsSeconds(current.startMs), millisecondsAsSeconds(current.endMs), index,
+		))
+		fmt.Fprintf(&components, "[narration_part_%d]", index)
+		if index < len(pauses) {
+			filters = append(filters, fmt.Sprintf(
+				"anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=%s,asetpts=PTS-STARTPTS[narration_pause_%d]",
+				millisecondsAsSeconds(pauses[index].DurationMs), index,
+			))
+			fmt.Fprintf(&components, "[narration_pause_%d]", index)
+		}
+	}
+	componentCount := len(ranges) + len(pauses)
+	filters = append(filters, fmt.Sprintf("%sconcat=n=%d:v=0:a=1[narration]", components.String(), componentCount))
+	return filters, nil
+}
+
+func validateAudioPauses(durationMs int, pauses []AudioPause) error {
+	pauseDurationMs := 0
+	previousAfterMs := -1
+	for index, pause := range pauses {
+		if pause.AfterMs <= previousAfterMs || pause.AfterMs <= 0 || pause.DurationMs <= 0 {
+			return fmt.Errorf("render narration pause %d is invalid", index+1)
+		}
+		previousAfterMs = pause.AfterMs
+		pauseDurationMs += pause.DurationMs
+	}
+	sourceDurationMs := durationMs - pauseDurationMs
+	if sourceDurationMs <= 0 {
+		return fmt.Errorf("render narration pauses exceed duration")
+	}
+	for index, pause := range pauses {
+		if pause.AfterMs > sourceDurationMs {
+			return fmt.Errorf("render narration pause %d exceeds source duration", index+1)
 		}
 	}
 	return nil

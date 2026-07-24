@@ -179,7 +179,7 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 			Dimension:         queryDimension,
 			QueryEmbedding:    embedding.Embedding,
 			SourceTypes:       requirementSourceTypes(requirement.SourceType),
-			MinimumDurationMs: modelgateway.MinimumEditPlanClipDurationMs,
+			MinimumDurationMs: minimumCandidateDuration(requirement.DurationClass),
 			Limit:             limit,
 		}
 		candidates, err := s.store.SearchCandidates(ctx, searchInput)
@@ -198,6 +198,19 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 	return sets, nil
 }
 
+func minimumCandidateDuration(durationClass string) int {
+	switch normalizeVisualBeatDurationClass(durationClass) {
+	case VisualBeatDurationBrief:
+		return 1000
+	case VisualBeatDurationStandard:
+		return 1800
+	case VisualBeatDurationAction:
+		return 2800
+	default:
+		return modelgateway.MinimumEditPlanClipDurationMs
+	}
+}
+
 func BuildShotRequirements(visualBeats []VisualBeat, narrationSegments []NarrationSegment) ([]ShotRequirement, error) {
 	if len(visualBeats) == 0 {
 		return nil, fmt.Errorf("visual beats are required")
@@ -207,7 +220,7 @@ func BuildShotRequirements(visualBeats []VisualBeat, narrationSegments []Narrati
 	}
 	requirements := make([]ShotRequirement, 0, len(visualBeats))
 	expectedStartMs := narrationSegments[0].StartMs
-	timelineEndMs := narrationSegments[len(narrationSegments)-1].EndMs
+	timelineEndMs := visualBeats[len(visualBeats)-1].EndMs
 	for index, beat := range visualBeats {
 		if beat.StartMs != expectedStartMs || beat.EndMs <= beat.StartMs || beat.EndMs > timelineEndMs {
 			return nil, fmt.Errorf("visual beat %d timeline range is invalid", index+1)
@@ -271,7 +284,10 @@ func validateNarrationTimeline(segments []NarrationSegment, expectedDurationMs i
 	}
 	previousEndMs := 0
 	for index, segment := range segments {
-		if strings.TrimSpace(segment.ID) == "" || strings.TrimSpace(segment.Text) == "" || segment.StartMs != previousEndMs || segment.EndMs <= segment.StartMs {
+		if strings.TrimSpace(segment.ID) == "" || strings.TrimSpace(segment.Text) == "" || segment.StartMs < previousEndMs || segment.EndMs <= segment.StartMs {
+			return fmt.Errorf("narration timeline is invalid at segment %d", index+1)
+		}
+		if expectedDurationMs > 0 && segment.StartMs != previousEndMs {
 			return fmt.Errorf("narration timeline is not continuous at segment %d", index+1)
 		}
 		previousEndMs = segment.EndMs

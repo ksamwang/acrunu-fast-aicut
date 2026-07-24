@@ -98,14 +98,15 @@ func TestBuildShotRequirementsCombinesNarrationAcrossVisualBeat(t *testing.T) {
 	}
 }
 
-func TestBuildShotRequirementsRejectsNonContinuousNarrationTimeline(t *testing.T) {
-	_, err := BuildShotRequirements([]VisualBeat{{
-		ID: "visual-1", NarrationSegmentID: "n-1", StartMs: 0, EndMs: 900, VisualGoal: "展示动作", SourceType: "visual_only",
-	}}, []NarrationSegment{
+func TestBuildShotRequirementsAllowsEditorialPauseBetweenNarrationSegments(t *testing.T) {
+	requirements, err := BuildShotRequirements([]VisualBeat{
+		{ID: "visual-1", NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1000, VisualGoal: "展示动作", SourceType: "visual_only"},
+		{ID: "visual-2", NarrationSegmentID: "n-2", StartMs: 1000, EndMs: 2000, VisualGoal: "展示结果", SourceType: "visual_only"},
+	}, []NarrationSegment{
 		{ID: "n-1", StartMs: 0, EndMs: 900, Text: "第一句"},
 		{ID: "n-2", StartMs: 1000, EndMs: 2000, Text: "第二句"},
 	})
-	if err == nil {
-		t.Fatal("expected non-continuous narration timeline to be rejected")
+	if err != nil || len(requirements) != 2 {
+		t.Fatalf("expected narration gaps to represent editorial pauses, got %#v, err=%v", requirements, err)
 	}
 }
