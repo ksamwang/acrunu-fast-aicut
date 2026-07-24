@@ -92,10 +92,17 @@ func (h *WorkerHandler) HandleVoiceAudition(ctx context.Context, payload queue.V
 }
 
 func (h *WorkerHandler) HandleVoiceoverGenerate(ctx context.Context, payload queue.VoiceoverGeneratePayload) error {
+	current, err := h.isCurrentGenerationTask(ctx, payload.GenerationRunID, payload.TaskID, generationRunTaskStageVoiceover)
+	if err != nil {
+		return err
+	}
+	if !current {
+		return h.completeSupersededTask(ctx, payload.TaskID)
+	}
 	if payload.GenerationRunID != "" && h.generationRunService != nil {
 		_ = h.generationRunService.UpdateStage(ctx, payload.GenerationRunID, generationRunStageVoicing, 16)
 	}
-	err := h.runVoiceTask(ctx, payload.TaskID, "voiceover_generate", func(runCtx context.Context) error {
+	err = h.runVoiceTask(ctx, payload.TaskID, "voiceover_generate", func(runCtx context.Context) error {
 		if h.voiceoverService == nil {
 			return fmt.Errorf("voiceover service is not configured")
 		}
@@ -109,23 +116,33 @@ func (h *WorkerHandler) HandleVoiceoverGenerate(ctx context.Context, payload que
 }
 
 func (h *WorkerHandler) HandleEditPlanGenerate(ctx context.Context, payload queue.EditPlanGeneratePayload) error {
-	err := h.runVoiceTask(ctx, payload.TaskID, "edit_plan_generate", func(runCtx context.Context) error {
+	current, err := h.isCurrentGenerationTask(ctx, payload.GenerationRunID, payload.TaskID, generationRunTaskStageEditPlan)
+	if err != nil {
+		return err
+	}
+	if !current {
+		return h.completeSupersededTask(ctx, payload.TaskID)
+	}
+	err = h.runVoiceTask(ctx, payload.TaskID, "edit_plan_generate", func(runCtx context.Context) error {
 		if h.generationPlanning == nil {
 			return fmt.Errorf("generation planning service is not configured")
 		}
-		if h.voiceoverService != nil && h.generationRunService != nil && payload.GenerationRunID != "" {
-			run, err := h.generationRunService.Get(runCtx, payload.GenerationRunID)
-			if err != nil {
-				return err
-			}
+		if h.generationRunService == nil {
+			return fmt.Errorf("generation run service is not configured")
+		}
+		run, err := h.generationRunService.Get(runCtx, payload.GenerationRunID)
+		if err != nil {
+			return err
+		}
+		if h.voiceoverService != nil {
 			if err := h.voiceoverService.EnsureCurrentNarrationSegments(runCtx, run.VoiceoverTaskID); err != nil {
 				return err
 			}
 		}
-		_, err := h.generationPlanning.Generate(runCtx, GenerateEditPlanInput{
+		_, err = h.generationPlanning.Generate(runCtx, GenerateEditPlanInput{
 			GenerationRunID: payload.GenerationRunID,
-			ScriptVariantID: payload.ScriptVariantID,
-			VoiceoverID:     payload.VoiceoverID,
+			ScriptVariantID: run.ScriptVariantID,
+			VoiceoverID:     run.VoiceoverID,
 		})
 		return err
 	})
@@ -137,7 +154,14 @@ func (h *WorkerHandler) HandleEditPlanGenerate(ctx context.Context, payload queu
 }
 
 func (h *WorkerHandler) HandleGenerationRender(ctx context.Context, payload queue.GenerationRenderPayload) error {
-	err := h.runVoiceTask(ctx, payload.TaskID, "generation_render", func(runCtx context.Context) error {
+	current, err := h.isCurrentGenerationTask(ctx, payload.GenerationRunID, payload.TaskID, generationRunTaskStageRender)
+	if err != nil {
+		return err
+	}
+	if !current {
+		return h.completeSupersededTask(ctx, payload.TaskID)
+	}
+	err = h.runVoiceTask(ctx, payload.TaskID, "generation_render", func(runCtx context.Context) error {
 		if h.generationRenderer == nil || h.generationRunService == nil {
 			return fmt.Errorf("generation renderer is not configured")
 		}
@@ -278,6 +302,31 @@ func (h *WorkerHandler) markGenerationRunFailed(runID string, cause error) {
 	if err := h.generationRunService.MarkFailed(context.Background(), runID, cause); err != nil {
 		return
 	}
+}
+
+func (h *WorkerHandler) isCurrentGenerationTask(ctx context.Context, runID string, taskID string, stage string) (bool, error) {
+	if h.generationRunService == nil || runID == "" || taskID == "" {
+		return true, nil
+	}
+	current, exists, err := h.generationRunService.FindTaskByStage(ctx, runID, stage)
+	if err != nil {
+		return false, err
+	}
+	return exists && current.GenerationTaskID == taskID, nil
+}
+
+func (h *WorkerHandler) completeSupersededTask(ctx context.Context, taskID string) error {
+	if h.taskService == nil || taskID == "" {
+		return nil
+	}
+	task, err := h.taskService.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if task.Status == "completed" || task.Status == "failed" {
+		return nil
+	}
+	return h.taskService.MarkCompleted(ctx, taskID)
 }
 
 func (h *WorkerHandler) runVoiceTask(ctx context.Context, taskID string, taskType string, run func(context.Context) error) error {

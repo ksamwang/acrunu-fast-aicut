@@ -49,11 +49,11 @@ func isVisualBeatDurationValid(class string, durationMs int) bool {
 	case VisualBeatDurationLegacy:
 		return durationMs > 0
 	case VisualBeatDurationBrief:
-		return durationMs >= 1000 && durationMs <= 1800
+		return durationMs >= 1000
 	case VisualBeatDurationStandard:
-		return durationMs >= 1800 && durationMs <= 4500
+		return durationMs >= 1800
 	case VisualBeatDurationAction:
-		return durationMs >= 2800 && durationMs <= 6000
+		return durationMs >= 2800
 	default:
 		return false
 	}

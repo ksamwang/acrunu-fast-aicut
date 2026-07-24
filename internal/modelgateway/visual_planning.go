@@ -145,8 +145,8 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		if containsSequentialVisualActions(beat.VisualGoal) {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d combines sequential actions", index+1), false, nil)
 		}
-		if visualGoalRequiresActionDuration(beat.VisualGoal) && beat.DurationClass != VisualDurationClassAction {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d must use action duration", index+1), false, nil)
+		if visualGoalRequiresActionDuration(beat.VisualGoal) {
+			beat.DurationClass = VisualDurationClassAction
 		}
 		if beat.NarrativeBeatID != "" {
 			if _, ok := narrativeBeats[beat.NarrativeBeatID]; !ok {

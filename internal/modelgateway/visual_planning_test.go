@@ -91,6 +91,27 @@ func TestValidateVisualPlanResultAllowsShortNarrationForActionPadding(t *testing
 	}
 }
 
+func TestValidateVisualPlanResultPromotesVisibleActionDuration(t *testing.T) {
+	input := VisualPlanInput{
+		ProductName: "束裤带",
+		ScriptText:  "高弹松紧带拉伸自如，",
+		NarrationSegments: []VisualPlanNarrationSegment{{
+			ID: "n-1", StartMs: 0, EndMs: 1807, Text: "高弹松紧带拉伸自如，",
+		}},
+	}
+	result := VisualPlanResult{VisualBeats: []VisualPlanBeat{{
+		NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1807,
+		DurationClass: VisualDurationClassStandard, Label: "弹力演示",
+		VisualGoal: "展示高弹松紧带反复拉伸", SourceType: "visual_only",
+	}}}
+	if err := ValidateVisualPlanResult(result, input); err != nil {
+		t.Fatalf("expected visible action class to be normalized: %v", err)
+	}
+	if result.VisualBeats[0].DurationClass != VisualDurationClassAction {
+		t.Fatalf("expected visible action to use action duration, got %q", result.VisualBeats[0].DurationClass)
+	}
+}
+
 func TestValidateVisualPlanResultAllowsHookLongerThanBriefGuideline(t *testing.T) {
 	for _, durationMs := range []int{2320, 2230, 2094} {
 		input := VisualPlanInput{

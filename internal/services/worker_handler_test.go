@@ -80,3 +80,45 @@ func TestWorkerHandlerAssetMethodsAllowNilProcessingService(t *testing.T) {
 		t.Fatalf("expected nil processing service to be ignored for embedding, got %v", err)
 	}
 }
+
+func TestWorkerHandlerIgnoresSupersededEditPlanTask(t *testing.T) {
+	ctx := context.Background()
+	taskService := NewTaskService(t.TempDir())
+	runs := NewGenerationRunService(nil)
+	run, err := runs.Create(ctx, CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create generation run: %v", err)
+	}
+	currentTask, err := taskService.CreateEditPlanGenerateTask(ctx, "user-1", "product-1", queue.EditPlanGeneratePayload{GenerationRunID: run.ID})
+	if err != nil {
+		t.Fatalf("create current edit plan task: %v", err)
+	}
+	if err := runs.LinkTask(ctx, run.ID, currentTask.ID, generationRunTaskStageEditPlan); err != nil {
+		t.Fatalf("link current edit plan task: %v", err)
+	}
+	staleTask, err := taskService.CreateEditPlanGenerateTask(ctx, "user-1", "product-1", queue.EditPlanGeneratePayload{GenerationRunID: run.ID})
+	if err != nil {
+		t.Fatalf("create stale edit plan task: %v", err)
+	}
+
+	handler := NewWorkerHandler(taskService, nil).WithGenerationPipeline(runs, nil, nil)
+	if err := handler.HandleEditPlanGenerate(ctx, queue.EditPlanGeneratePayload{
+		TaskID: staleTask.ID, GenerationRunID: run.ID, ScriptVariantID: "stale-script", VoiceoverID: "stale-voiceover",
+	}); err != nil {
+		t.Fatalf("superseded task should be acknowledged without planning: %v", err)
+	}
+	storedTask, err := taskService.GetTask(ctx, staleTask.ID)
+	if err != nil {
+		t.Fatalf("get stale edit plan task: %v", err)
+	}
+	if storedTask.Status != "completed" {
+		t.Fatalf("expected superseded task to be completed, got %q", storedTask.Status)
+	}
+	storedRun, err := runs.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("get generation run: %v", err)
+	}
+	if storedRun.Status == generationRunStatusFailed {
+		t.Fatalf("superseded task must not fail the current generation run: %#v", storedRun)
+	}
+}
