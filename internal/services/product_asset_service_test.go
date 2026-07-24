@@ -674,6 +674,12 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 			t.Fatalf("expected semantic text to contain %q, got %s", expected, preview.OpenSemanticDescription)
 		}
 	}
+	sceneIndex := strings.Index(preview.OpenSemanticDescription, "画面描述：")
+	actionIndex := strings.Index(preview.OpenSemanticDescription, "动作：")
+	sellingPointIndex := strings.Index(preview.OpenSemanticDescription, "关联卖点：")
+	if sceneIndex < 0 || actionIndex <= sceneIndex || sellingPointIndex <= actionIndex {
+		t.Fatalf("expected product scene and action before secondary semantics, got %s", preview.OpenSemanticDescription)
+	}
 	if len(preview.EmbeddingTargets) != 2 {
 		t.Fatalf("expected shot + speech_segment targets, got %d", len(preview.EmbeddingTargets))
 	}

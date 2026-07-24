@@ -333,15 +333,41 @@ func buildCandidateQueryText(requirement ShotRequirement) string {
 }
 
 func candidateSemanticSummary(text string) string {
+	return prioritizedSemanticSummary(text, maxCandidateSemanticSummaryRunes)
+}
+
+func prioritizedSemanticSummary(text string, limit int) string {
 	text = strings.TrimSpace(text)
-	if len(text) == 0 {
+	if text == "" || limit <= 0 {
 		return ""
 	}
-	runes := []rune(text)
-	if len(runes) <= maxCandidateSemanticSummaryRunes {
-		return text
+	parts := strings.Split(text, "；")
+	ordered := make([]string, 0, len(parts))
+	used := make([]bool, len(parts))
+	for _, prefix := range []string{"产品：", "画面描述：", "动作：", "景别：", "运镜："} {
+		for index, part := range parts {
+			part = strings.TrimSpace(part)
+			if !used[index] && strings.HasPrefix(part, prefix) {
+				ordered = append(ordered, part)
+				used[index] = true
+			}
+		}
 	}
-	return string(runes[:maxCandidateSemanticSummaryRunes]) + "..."
+	for index, part := range parts {
+		part = strings.TrimSpace(part)
+		if !used[index] && part != "" {
+			ordered = append(ordered, part)
+		}
+	}
+	result := strings.Join(ordered, "；")
+	runes := []rune(result)
+	if len(runes) <= limit {
+		return result
+	}
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
 }
 
 func validateShotRequirement(requirement ShotRequirement) error {

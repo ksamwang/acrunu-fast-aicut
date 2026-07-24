@@ -2,11 +2,25 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 )
+
+func TestCandidateSemanticSummaryPrioritizesSceneAndAction(t *testing.T) {
+	input := "产品：束裤带；关联卖点：防卷链条；素材类型：纯画面；景别：近景；运镜：固定；主体：人物、自行车；场景标签：户外、草地、骑行；质量标签：清晰、稳定；场景：户外草地；画面描述：束裤带环绕脚踝并收紧裤脚；动作：骑行踩踏时束裤带持续固定裤脚"
+	summary := candidateSemanticSummary(input)
+	for _, expected := range []string{"产品：束裤带", "画面描述：束裤带环绕脚踝并收紧裤脚", "动作：骑行踩踏时束裤带持续固定裤脚"} {
+		if !strings.Contains(summary, expected) {
+			t.Fatalf("expected prioritized summary to contain %q, got %s", expected, summary)
+		}
+	}
+	if strings.Index(summary, "动作：") > strings.Index(summary, "关联卖点：") {
+		t.Fatalf("expected action before secondary metadata, got %s", summary)
+	}
+}
 
 type recordingCandidateStore struct {
 	inputs []CandidateSearchInput

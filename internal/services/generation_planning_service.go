@@ -452,12 +452,7 @@ func plannerCandidateCount(input modelgateway.EditPlanInput) int {
 }
 
 func truncatePlannerCandidateSummary(summary string) string {
-	summary = strings.TrimSpace(summary)
-	runes := []rune(summary)
-	if len(runes) <= maximumPlannerCandidateSemanticSummaryRunes {
-		return summary
-	}
-	return string(runes[:maximumPlannerCandidateSemanticSummaryRunes-3]) + "..."
+	return prioritizedSemanticSummary(summary, maximumPlannerCandidateSemanticSummaryRunes)
 }
 
 func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet) ([]EditPlanClip, error) {

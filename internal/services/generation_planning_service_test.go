@@ -403,6 +403,19 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 	}
 }
 
+func TestPlannerCandidateSummaryKeepsActionBeforeTruncation(t *testing.T) {
+	summary := "产品：束裤带；关联卖点：防卷链条；素材类型：纯画面；景别：近景；运镜：固定；主体：人物、自行车；场景标签：" + strings.Repeat("户外、", 30) + "；画面描述：束裤带收紧固定裤脚；动作：骑行踩踏时束裤带持续固定裤脚"
+	compact := truncatePlannerCandidateSummary(summary)
+	if len([]rune(compact)) > maximumPlannerCandidateSemanticSummaryRunes {
+		t.Fatalf("planner summary exceeds limit: %s", compact)
+	}
+	for _, expected := range []string{"画面描述：束裤带收紧固定裤脚", "动作：骑行踩踏时束裤带持续固定裤脚"} {
+		if !strings.Contains(compact, expected) {
+			t.Fatalf("expected planner summary to retain %q, got %s", expected, compact)
+		}
+	}
+}
+
 func TestMaterializeEditPlanAllowsMultipleClipsForVisualBeat(t *testing.T) {
 	sets := []CandidateSet{{
 		Requirement: ShotRequirement{

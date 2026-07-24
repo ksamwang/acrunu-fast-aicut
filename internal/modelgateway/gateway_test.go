@@ -64,6 +64,11 @@ func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
 	if !strings.Contains(visualBundle.Prompts[0].User, "visible_product means the target product is visible") {
 		t.Fatalf("expected target product visibility rule, got %s", visualBundle.Prompts[0].User)
 	}
+	for _, expected := range []string{"retrieval summaries, not exhaustive inventories", "make it the subject of scene_description", "normally no more than 50 Chinese characters"} {
+		if !strings.Contains(visualBundle.Prompts[0].User, expected) {
+			t.Fatalf("expected product-centered description rule %q, got %s", expected, visualBundle.Prompts[0].User)
+		}
+	}
 
 	talkingHeadBundle := BuildPromptBundle(AnalyzeAssetInput{
 		AssetID:     "asset-2",

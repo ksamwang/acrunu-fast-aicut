@@ -18,7 +18,7 @@ type PromptBundle struct {
 	Prompts []PromptSpec   `json:"prompts"`
 }
 
-const PromptVersion = "phase2-v2"
+const PromptVersion = "phase2-v3"
 const ScriptGenerationPromptVersion = "workbench-script-v2"
 const EditPlanPromptVersion = "workbench-edit-plan-v4"
 const VisualPlanPromptVersion = "workbench-visual-plan-v6"
@@ -52,7 +52,7 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 	}
 	targetProductRules := ""
 	if productContext != "" || referenceContext != "" {
-		targetProductRules = " Prioritize describing the target product's visible usage or installation state in scene_description and action_description. Do not confuse the target product with carrier/background objects such as bottle, bicycle, table, packaging, wall, or hand. visible_product means the target product is visible in the video frames, not merely that any product-like object exists. product_position should describe the target product position or attachment relationship in the video frame; use not_visible when the target product is not visible. visual_tags should include target-product tags when visible, plus useful scene tags."
+		targetProductRules = " When the target product is visible, make it the subject of scene_description and action_description. scene_description must state the target product's visible state, attachment relationship, or demonstrated result; omit unrelated clothing colors, scenery, and carrier details unless needed to understand product use. action_description must state one primary product-related action or demonstrated effect across the frame sequence. Avoid generic wording such as merely saying a person holds or displays the product; name what is operated, changed, fixed, stretched, attached, removed, or demonstrated. Do not confuse the target product with carrier/background objects such as bottle, bicycle, table, packaging, wall, or hand. visible_product means the target product is visible in the video frames, not merely that any product-like object exists. product_position should describe the target product position or attachment relationship in the video frame; use not_visible when the target product is not visible. visual_tags should include target-product tags when visible, plus useful scene tags."
 	}
 
 	return PromptBundle{
@@ -69,6 +69,7 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 					"Judge shot_size by the target subject or target product, not by the surrounding environment or carrier object. " +
 					"camera_movement enum: static, pan, tilt, push_in, pull_out, tracking, orbit, zoom, handheld, mixed, unknown. " +
 					"Judge camera movement only from camera motion, not subject motion. If the camera is fixed while a person or product moves, return static. Use unknown when the sampled frames are insufficient to infer movement reliably. Do not use slow_push_in; speed is not part of this field. " +
+					"scene_description and action_description are retrieval summaries, not exhaustive inventories. Use one focused Chinese sentence for each, normally no more than 50 Chinese characters. scene_description summarizes the primary retrievable visual and product state. action_description summarizes the primary visible action and its result from the chronological frame sequence. Do not repeat the same sentence in both fields. " +
 					"Use concise Chinese values for descriptions/tags where possible. " + contextLine + productContext + referenceContext + targetProductRules,
 			},
 		},

@@ -2140,11 +2140,14 @@ func buildOpenSemanticDescription(asset Asset, productName string, sellingPointT
 	if productName != "" {
 		parts = append(parts, "产品："+productName)
 	}
-	if len(sellingPointTexts) > 0 {
-		parts = append(parts, "关联卖点："+strings.Join(sellingPointTexts, "、"))
-	}
 	if asset.SceneDescription != "" {
 		parts = append(parts, "画面描述："+asset.SceneDescription)
+	}
+	if asset.ActionDescription != "" {
+		parts = append(parts, "动作："+asset.ActionDescription)
+	}
+	if len(sellingPointTexts) > 0 {
+		parts = append(parts, "关联卖点："+strings.Join(sellingPointTexts, "、"))
 	}
 	parts = append(parts, "素材类型："+sourceTypeDisplay(asset.SourceType))
 	if asset.ShotSize != "" {
@@ -2164,9 +2167,6 @@ func buildOpenSemanticDescription(asset Asset, productName string, sellingPointT
 	}
 	if sceneContext := stringValueFromMap(asset.ModelLabels, "scene_context"); sceneContext != "" {
 		parts = append(parts, "场景："+sceneContext)
-	}
-	if asset.ActionDescription != "" {
-		parts = append(parts, "动作："+asset.ActionDescription)
 	}
 	if visibleProduct, ok := boolValueFromMap(asset.ModelLabels, "visible_product"); ok {
 		parts = append(parts, "目标产品可见："+boolDisplay(visibleProduct))
