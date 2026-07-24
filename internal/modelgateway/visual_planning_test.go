@@ -91,6 +91,26 @@ func TestValidateVisualPlanResultAllowsShortNarrationForActionPadding(t *testing
 	}
 }
 
+func TestValidateVisualPlanResultAllowsHookLongerThanBriefGuideline(t *testing.T) {
+	for _, durationMs := range []int{2320, 2230, 2094} {
+		input := VisualPlanInput{
+			ProductName: "束裤带",
+			ScriptText:  "骑行水壶总没地方放？",
+			NarrationSegments: []VisualPlanNarrationSegment{{
+				ID: "n-1", StartMs: 0, EndMs: durationMs, Text: "骑行水壶总没地方放？",
+			}},
+		}
+		result := VisualPlanResult{VisualBeats: []VisualPlanBeat{{
+			NarrationSegmentID: "n-1", StartMs: 0, EndMs: durationMs,
+			DurationClass: VisualDurationClassBrief, Label: "痛点钩子",
+			VisualGoal: "展示骑行水壶无处固定", SourceType: "visual_only",
+		}}}
+		if err := ValidateVisualPlanResult(result, input); err != nil {
+			t.Fatalf("expected %dms hook to keep its complete narration boundary: %v", durationMs, err)
+		}
+	}
+}
+
 func TestValidateVisualPlanResultRejectsSequentialActionsInOneBeat(t *testing.T) {
 	input := VisualPlanInput{
 		ProductName: "束裤带",
@@ -111,14 +131,18 @@ func TestValidateVisualPlanResultRejectsSequentialActionsInOneBeat(t *testing.T)
 
 func TestValidateVisualPlanResultLimitsBriefCuts(t *testing.T) {
 	input := VisualPlanInput{
-		ProductName:       "束裤带",
-		ScriptText:        "连续展示产品。",
-		NarrationSegments: []VisualPlanNarrationSegment{{ID: "n-1", StartMs: 0, EndMs: 4000, Text: "连续展示产品。"}},
+		ProductName: "束裤带",
+		ScriptText:  "展示产品，展示细节，展示结果。",
+		NarrationSegments: []VisualPlanNarrationSegment{
+			{ID: "n-1", StartMs: 0, EndMs: 1200, Text: "展示产品，"},
+			{ID: "n-2", StartMs: 1200, EndMs: 2400, Text: "展示细节，"},
+			{ID: "n-3", StartMs: 2400, EndMs: 4000, Text: "展示结果。"},
+		},
 	}
 	err := ValidateVisualPlanResult(VisualPlanResult{VisualBeats: []VisualPlanBeat{
 		{NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1200, DurationClass: VisualDurationClassBrief, Label: "短切一", VisualGoal: "产品外观", SourceType: "visual_only"},
-		{NarrationSegmentID: "n-1", StartMs: 1200, EndMs: 2400, DurationClass: VisualDurationClassBrief, Label: "短切二", VisualGoal: "产品细节", SourceType: "visual_only"},
-		{NarrationSegmentID: "n-1", StartMs: 2400, EndMs: 4000, DurationClass: VisualDurationClassBrief, Label: "短切三", VisualGoal: "产品结果", SourceType: "visual_only"},
+		{NarrationSegmentID: "n-2", StartMs: 1200, EndMs: 2400, DurationClass: VisualDurationClassBrief, Label: "短切二", VisualGoal: "产品细节", SourceType: "visual_only"},
+		{NarrationSegmentID: "n-3", StartMs: 2400, EndMs: 4000, DurationClass: VisualDurationClassBrief, Label: "短切三", VisualGoal: "产品结果", SourceType: "visual_only"},
 	}}, input)
 	if err == nil {
 		t.Fatal("expected excessive brief cuts to be rejected")

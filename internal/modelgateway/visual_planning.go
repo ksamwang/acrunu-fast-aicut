@@ -11,13 +11,8 @@ const (
 	VisualDurationClassStandard = "standard"
 	VisualDurationClassAction   = "action"
 
-	briefVisualBeatMinimumMs    = 1000
-	briefVisualBeatMaximumMs    = 1800
-	standardVisualBeatMinimumMs = 1800
-	standardVisualBeatMaximumMs = 4500
-	actionVisualBeatMinimumMs   = 2800
-	actionVisualBeatMaximumMs   = 6000
-	briefVisualBeatIntervalMs   = 8000
+	actionVisualBeatMinimumMs = 2800
+	briefVisualBeatIntervalMs = 8000
 )
 
 type VisualPlanNarrationSegment struct {
@@ -168,13 +163,8 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		if _, ok := segmentEnds[beat.EndMs]; !ok {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d must end at a narration segment boundary", index+1), false, nil)
 		}
-		durationMs := beat.EndMs - beat.StartMs
-		_, maximumMs, ok := visualBeatDurationRange(beat.DurationClass)
-		if !ok {
+		if !isVisualDurationClass(beat.DurationClass) {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d duration class is invalid", index+1), false, nil)
-		}
-		if durationMs > maximumMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d duration %dms exceeds %s maximum %dms", index+1, durationMs, beat.DurationClass, maximumMs), false, nil)
 		}
 		if beat.DurationClass == VisualDurationClassBrief {
 			briefBeatCount++
@@ -217,17 +207,8 @@ func visualGoalRequiresActionDuration(value string) bool {
 	return false
 }
 
-func visualBeatDurationRange(class string) (int, int, bool) {
-	switch class {
-	case VisualDurationClassBrief:
-		return briefVisualBeatMinimumMs, briefVisualBeatMaximumMs, true
-	case VisualDurationClassStandard:
-		return standardVisualBeatMinimumMs, standardVisualBeatMaximumMs, true
-	case VisualDurationClassAction:
-		return actionVisualBeatMinimumMs, actionVisualBeatMaximumMs, true
-	default:
-		return 0, 0, false
-	}
+func isVisualDurationClass(class string) bool {
+	return class == VisualDurationClassBrief || class == VisualDurationClassStandard || class == VisualDurationClassAction
 }
 
 func validateVisualPlanInput(input VisualPlanInput) error {
