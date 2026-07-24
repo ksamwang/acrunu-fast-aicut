@@ -438,3 +438,68 @@ func TestMaterializeEditPlanAllowsMultipleClipsForVisualBeat(t *testing.T) {
 		t.Fatalf("unexpected materialized clips %#v", clips)
 	}
 }
+
+func TestValidateCandidateSetsRequiresEnoughUniqueAssets(t *testing.T) {
+	sets := []CandidateSet{
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "展示外观。", VisualGoal: "展示外观", SourceType: "visual_only"},
+			Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-shared"}},
+		},
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "展示使用。", VisualGoal: "展示使用", SourceType: "visual_only"},
+			Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-shared"}},
+		},
+	}
+	if err := validateCandidateSets(sets); err == nil || !strings.Contains(err.Error(), "cannot be assigned enough non-repeating materials") {
+		t.Fatalf("expected insufficient unique candidate capacity, got %v", err)
+	}
+}
+
+func TestValidateCandidateSetsFindsGlobalUniqueAssignment(t *testing.T) {
+	sets := []CandidateSet{
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "展示外观。", VisualGoal: "展示外观", SourceType: "visual_only"},
+			Candidates: []AssetCandidate{
+				{ID: "candidate-a", AssetID: "asset-a"},
+				{ID: "candidate-b", AssetID: "asset-b"},
+			},
+		},
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "展示使用。", VisualGoal: "展示使用", SourceType: "visual_only"},
+			Candidates:  []AssetCandidate{{ID: "candidate-a", AssetID: "asset-a"}},
+		},
+	}
+	if err := validateCandidateSets(sets); err != nil {
+		t.Fatalf("expected a global unique candidate assignment, got %v", err)
+	}
+}
+
+func TestValidateCandidateSetsRequiresDistinctAssetsForLongVisualBeat(t *testing.T) {
+	sets := []CandidateSet{{
+		Requirement: ShotRequirement{VisualBeatID: "visual-long", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 4000, NarrationText: "完整展示动作。", VisualGoal: "完整展示动作", SourceType: "visual_only"},
+		Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-1"}},
+	}}
+	if err := validateCandidateSets(sets); err == nil || !strings.Contains(err.Error(), "requires 2 unique materials") {
+		t.Fatalf("expected long visual beat to require two assets, got %v", err)
+	}
+}
+
+func TestMaterializeEditPlanRejectsDifferentCandidatesForSameAsset(t *testing.T) {
+	sets := []CandidateSet{{
+		Requirement: ShotRequirement{
+			VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1600,
+			NarrationText: "展示产品。", VisualGoal: "展示产品", SourceType: "visual_only",
+		},
+		Candidates: []AssetCandidate{
+			{ID: "candidate-a", AssetID: "asset-shared", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2000},
+			{ID: "candidate-b", AssetID: "asset-shared", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2000},
+		},
+	}}
+	_, err := materializeEditPlan(modelgateway.EditPlanResult{Clips: []modelgateway.EditPlanClipChoice{
+		{VisualBeatID: "visual-1", CandidateID: "candidate-a", StartMs: 0, EndMs: 800, SourceInMs: 0, SourceOutMs: 800, Label: "第一段", VisualGoal: "展示产品"},
+		{VisualBeatID: "visual-1", CandidateID: "candidate-b", StartMs: 800, EndMs: 1600, SourceInMs: 800, SourceOutMs: 1600, Label: "第二段", VisualGoal: "展示产品"},
+	}}, sets)
+	if err == nil || !strings.Contains(err.Error(), "reuses asset") {
+		t.Fatalf("expected candidates from the same asset to be rejected, got %v", err)
+	}
+}

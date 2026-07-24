@@ -1310,9 +1310,11 @@ func validateEditPlanForStorage(plan EditPlan) error {
 	}
 	clipCounts := make(map[string]int, len(plan.VisualBeats))
 	longestClipByVisualBeat := make(map[string]int, len(plan.VisualBeats))
+	usedAssetIDs := make(map[string]int, len(plan.Clips))
 	expectedClipStartMs := 0
 	for index, clip := range plan.Clips {
-		if normalizeID(clip.VisualBeatID) == "" || normalizeID(clip.NarrationSegmentID) == "" || normalizeID(clip.AssetID) == "" {
+		assetID := normalizeID(clip.AssetID)
+		if normalizeID(clip.VisualBeatID) == "" || normalizeID(clip.NarrationSegmentID) == "" || assetID == "" {
 			return fmt.Errorf("clip %d references are required", index+1)
 		}
 		beat, exists := visualBeats[clip.VisualBeatID]
@@ -1331,6 +1333,10 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		if clip.SourceOutMs-clip.SourceInMs != clip.TimelineDurationMs {
 			return fmt.Errorf("clip %d source duration does not match its timeline duration", index+1)
 		}
+		if previousIndex, exists := usedAssetIDs[assetID]; exists {
+			return fmt.Errorf("clip %d reuses asset %q already selected by clip %d", index+1, assetID, previousIndex+1)
+		}
+		usedAssetIDs[assetID] = index
 		if clip.TimelineDurationMs < modelgateway.MinimumEditPlanClipDurationMs {
 			return fmt.Errorf("clip %d is shorter than %dms", index+1, modelgateway.MinimumEditPlanClipDurationMs)
 		}

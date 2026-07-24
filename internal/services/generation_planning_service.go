@@ -400,6 +400,53 @@ func validateCandidateSets(sets []CandidateSet) error {
 			return fmt.Errorf("%w: visual beat %d has no eligible material for %q", ErrNoEligibleAssetCandidate, index+1, set.Requirement.VisualGoal)
 		}
 	}
+	return validateUniqueCandidateCapacity(sets)
+}
+
+func validateUniqueCandidateCapacity(sets []CandidateSet) error {
+	type candidateSlot struct {
+		setIndex int
+	}
+	slots := make([]candidateSlot, 0, len(sets))
+	for setIndex, set := range sets {
+		durationMs := set.Requirement.EndMs - set.Requirement.StartMs
+		requiredClips := (durationMs + modelgateway.MaximumEditPlanClipDurationMs - 1) / modelgateway.MaximumEditPlanClipDurationMs
+		for slotIndex := 0; slotIndex < requiredClips; slotIndex++ {
+			slots = append(slots, candidateSlot{setIndex: setIndex})
+		}
+	}
+
+	assetAssignments := make(map[string]int, len(slots))
+	var assignSlot func(int, map[string]bool) bool
+	assignSlot = func(slotIndex int, visitedAssets map[string]bool) bool {
+		set := sets[slots[slotIndex].setIndex]
+		for _, candidate := range set.Candidates {
+			assetID := strings.TrimSpace(candidate.AssetID)
+			if assetID == "" || visitedAssets[assetID] {
+				continue
+			}
+			visitedAssets[assetID] = true
+			assignedSlot, assigned := assetAssignments[assetID]
+			if !assigned || assignSlot(assignedSlot, visitedAssets) {
+				assetAssignments[assetID] = slotIndex
+				return true
+			}
+		}
+		return false
+	}
+
+	for slotIndex := range slots {
+		if assignSlot(slotIndex, map[string]bool{}) {
+			continue
+		}
+		setIndex := slots[slotIndex].setIndex
+		return fmt.Errorf(
+			"%w: visual beat %d cannot be assigned enough non-repeating materials; the edit plan requires %d unique materials",
+			ErrNoEligibleAssetCandidate,
+			setIndex+1,
+			len(slots),
+		)
+	}
 	return nil
 }
 
@@ -471,7 +518,8 @@ func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet
 		candidatesByVisualBeat[set.Requirement.VisualBeatID] = candidateMap
 	}
 	clips := make([]EditPlanClip, 0, len(result.Clips))
-	for _, choice := range result.Clips {
+	usedAssetIDs := make(map[string]int, len(result.Clips))
+	for index, choice := range result.Clips {
 		requirement, ok := requirementsByVisualBeat[choice.VisualBeatID]
 		if !ok {
 			return nil, fmt.Errorf("planner output references unknown visual beat %q", choice.VisualBeatID)
@@ -480,9 +528,17 @@ func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet
 		if !ok {
 			return nil, fmt.Errorf("planner selected candidate %q outside the allowed set", choice.CandidateID)
 		}
+		assetID := strings.TrimSpace(candidate.AssetID)
+		if assetID == "" {
+			return nil, fmt.Errorf("planner candidate %q has no source asset", candidate.ID)
+		}
 		if choice.SourceInMs < candidate.SourceInMs || choice.SourceOutMs > candidate.SourceOutMs || choice.SourceOutMs <= choice.SourceInMs {
 			return nil, fmt.Errorf("planner source range is outside candidate %q", candidate.ID)
 		}
+		if previousIndex, exists := usedAssetIDs[assetID]; exists {
+			return nil, fmt.Errorf("planner clip %d reuses asset %q already selected by clip %d", index+1, assetID, previousIndex+1)
+		}
+		usedAssetIDs[assetID] = index
 		durationMs := choice.EndMs - choice.StartMs
 		if choice.SourceOutMs-choice.SourceInMs != durationMs {
 			return nil, fmt.Errorf("planner source range must match clip timeline in visual beat %q", requirement.VisualBeatID)
@@ -491,7 +547,7 @@ func materializeEditPlan(result modelgateway.EditPlanResult, sets []CandidateSet
 			ID:                 "",
 			VisualBeatID:       requirement.VisualBeatID,
 			NarrationSegmentID: requirement.NarrationSegmentID,
-			AssetID:            candidate.AssetID,
+			AssetID:            assetID,
 			SpeechSegmentID:    candidate.SpeechSegmentID,
 			SourceInMs:         choice.SourceInMs,
 			SourceOutMs:        choice.SourceOutMs,

@@ -181,6 +181,19 @@ func TestValidateEditPlanResultAllowsRepeatedNarrationSegmentAcrossVisualBeats(t
 	}
 }
 
+func TestValidateEditPlanResultRejectsRepeatedCandidateAcrossVisualBeats(t *testing.T) {
+	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
+		{VisualBeatID: "visual-1", CandidateID: "candidate-shared", StartMs: 0, EndMs: 1000, SourceInMs: 0, SourceOutMs: 1000, Label: "第一段", VisualGoal: "画面一"},
+		{VisualBeatID: "visual-2", CandidateID: "candidate-shared", StartMs: 1000, EndMs: 2000, SourceInMs: 1000, SourceOutMs: 2000, Label: "第二段", VisualGoal: "画面二"},
+	}}, []EditPlanRequirement{
+		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面一", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-shared", SourceOutMs: 2400}}},
+		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "第二句", VisualGoal: "画面二", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-shared", SourceOutMs: 2400}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "reuses candidate") {
+		t.Fatalf("expected repeated candidate to be rejected, got %v", err)
+	}
+}
+
 func TestValidateEditPlanResultRejectsOutOfOrderVisualBeats(t *testing.T) {
 	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
 		{VisualBeatID: "visual-2", CandidateID: "candidate-2", StartMs: 0, EndMs: 1000, SourceInMs: 0, SourceOutMs: 1000, Label: "第二段", VisualGoal: "画面"},

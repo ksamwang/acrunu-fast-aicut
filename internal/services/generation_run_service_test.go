@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -126,6 +127,31 @@ func TestGenerationRunPersistsMultipleClipsPerVisualBeat(t *testing.T) {
 	}
 	if len(stored.Clips) != 2 || stored.Clips[1].AssetID != "asset-pocket" {
 		t.Fatalf("multi-clip plan was not retained %#v", stored.Clips)
+	}
+}
+
+func TestGenerationRunRejectsRepeatedAssetInEditPlan(t *testing.T) {
+	service := NewGenerationRunService(nil)
+	run, err := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create generation run: %v", err)
+	}
+	_, err = service.SaveEditPlan(context.Background(), EditPlan{
+		GenerationRunID: run.ID,
+		ScriptVariantID: "script-1",
+		VoiceoverID:     "voiceover-1",
+		Status:          "ready",
+		VisualBeats: []VisualBeat{
+			{ID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, Label: "第一段", VisualGoal: "展示外观", SourceType: "visual_only"},
+			{ID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, Label: "第二段", VisualGoal: "展示使用", SourceType: "visual_only"},
+		},
+		Clips: []EditPlanClip{
+			{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", AssetID: "asset-shared", SourceInMs: 0, SourceOutMs: 1000, StartMs: 0, EndMs: 1000, TimelineDurationMs: 1000, SourceType: "visual_only"},
+			{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", AssetID: "asset-shared", SourceInMs: 1000, SourceOutMs: 2000, StartMs: 1000, EndMs: 2000, TimelineDurationMs: 1000, SourceType: "visual_only"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "reuses asset") {
+		t.Fatalf("expected repeated asset to be rejected, got %v", err)
 	}
 }
 

@@ -295,6 +295,7 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 	requirementIndex := 0
 	clipCounts := make(map[string]int, len(requirements))
 	longestClipByVisualBeat := make(map[string]int, len(requirements))
+	usedCandidateIDs := make(map[string]int, len(result.Clips))
 	for index := range result.Clips {
 		clip := &result.Clips[index]
 		clip.VisualBeatID = strings.TrimSpace(clip.VisualBeatID)
@@ -334,6 +335,10 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 		if !ok {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d selects a candidate outside the allowed set", index+1), false, nil)
 		}
+		if previousIndex, exists := usedCandidateIDs[clip.CandidateID]; exists {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d reuses candidate %q already selected by clip %d", index+1, clip.CandidateID, previousIndex+1), false, nil)
+		}
+		usedCandidateIDs[clip.CandidateID] = index
 		if clip.SourceInMs < candidate.SourceInMs || clip.SourceOutMs > candidate.SourceOutMs {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is outside its candidate", index+1), false, nil)
 		}
