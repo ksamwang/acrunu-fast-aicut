@@ -40,6 +40,7 @@ RUN python3 -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" --upgra
 WORKDIR /app
 
 COPY deploy/asr/app.py /app/app.py
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/acrunu-fast-cut/
 
 EXPOSE 10096
 

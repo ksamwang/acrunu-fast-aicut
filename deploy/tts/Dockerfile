@@ -53,6 +53,7 @@ RUN cd /opt/CosyVoice \
 WORKDIR /app
 
 COPY deploy/tts/app.py /app/app.py
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/acrunu-fast-cut/
 
 EXPOSE 50000
 

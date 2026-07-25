@@ -40,10 +40,13 @@ VersionInfoCompany=ACRUNU
 VersionInfoDescription={#MyAppName} Installer
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
+LicenseFile={#SourceDir}\LICENSE
 
 [Files]
 Source: "{#SourceDir}\local-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\tray.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\ffmpeg\bin\ffmpeg.exe"; DestDir: "{app}\ffmpeg\bin"; Flags: ignoreversion
 Source: "{#SourceDir}\ffmpeg\bin\ffprobe.exe"; DestDir: "{app}\ffmpeg\bin"; Flags: ignoreversion
 Source: "{#SourceDir}\ffmpeg\LICENSE"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion

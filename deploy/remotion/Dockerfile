@@ -20,6 +20,7 @@ RUN npm ci --omit=dev
 
 COPY deploy/remotion/server.mjs ./server.mjs
 COPY deploy/remotion/src ./src
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/acrunu-fast-cut/
 RUN chown -R node:node /app
 
 USER node

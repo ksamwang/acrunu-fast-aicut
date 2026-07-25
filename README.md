@@ -1,5 +1,7 @@
 # acrunu-fast-aicut
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
+
 基于自研 `LLM + VLM` 的短视频批量剪辑系统。
 
 当前仓库处于开发阶段，核心目标是围绕素材库、素材分析、检索、文案、配音、编排与渲染，逐步打通可验证的业务闭环。
@@ -332,3 +334,11 @@ npm run build
 cd .\apps\web
 npm run test:e2e
 ```
+
+## 开源许可
+
+本项目的原创代码以 [GNU General Public License v3.0](./LICENSE) 发布，SPDX 标识为 `GPL-3.0-only`。
+
+复制、修改或分发本项目及其构建产物时，需要遵守 GPL v3，并向接收者提供对应版本的完整源代码。项目依赖的 FFmpeg、Remotion、FunASR、CosyVoice、字体、模型权重及其他第三方组件继续适用各自的许可证；详见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。用户导入的音视频、图片、音乐及生成内容不因使用本项目而自动变更其权利归属。
+
+`ACRUNU Fast Cut` 名称、Logo 及其他品牌标识不包含在 GPL 授权范围内。

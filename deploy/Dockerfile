@@ -27,5 +27,6 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=builder /out/${BIN_NAME} /app/${BIN_NAME}
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/acrunu-fast-cut/
 
 CMD ["/bin/sh", "-c", "/app/${BIN_NAME}"]

@@ -60,6 +60,8 @@ $ffprobePath = Require-File $ffprobePath "FFprobe"
 $ffmpegDistributionRoot = Join-Path $repoRoot ".tools\ffmpeg\ffmpeg-8.1.1-essentials_build"
 $ffmpegLicense = Require-File (Join-Path $ffmpegDistributionRoot "LICENSE") "FFmpeg license"
 $ffmpegReadme = Require-File (Join-Path $ffmpegDistributionRoot "README.txt") "FFmpeg readme"
+$projectLicense = Require-File (Join-Path $repoRoot "LICENSE") "Project license"
+$thirdPartyNotices = Require-File (Join-Path $repoRoot "THIRD_PARTY_NOTICES.md") "Third-party notices"
 $trayIcon = Require-File (Join-Path $repoRoot "apps\local-agent\tray.ico") "Local Agent tray icon"
 $iscc = Find-ISCC $ISCCPath
 
@@ -82,6 +84,8 @@ Copy-Item -LiteralPath $ffmpegPath -Destination (Join-Path $ffmpegBinStage "ffmp
 Copy-Item -LiteralPath $ffprobePath -Destination (Join-Path $ffmpegBinStage "ffprobe.exe")
 Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $ffmpegStage "LICENSE")
 Copy-Item -LiteralPath $ffmpegReadme -Destination (Join-Path $ffmpegStage "README.txt")
+Copy-Item -LiteralPath $projectLicense -Destination (Join-Path $stagingRoot "LICENSE")
+Copy-Item -LiteralPath $thirdPartyNotices -Destination (Join-Path $stagingRoot "THIRD_PARTY_NOTICES.md")
 Copy-Item -LiteralPath $trayIcon -Destination (Join-Path $stagingRoot "tray.ico")
 
 $installerScript = Join-Path $repoRoot "deploy\local-agent\installer.iss"

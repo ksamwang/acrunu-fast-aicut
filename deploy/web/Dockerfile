@@ -14,6 +14,7 @@ FROM nginx:1.27-alpine
 
 COPY deploy/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /src/apps/web/dist /usr/share/nginx/html
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/acrunu-fast-cut/
 
 EXPOSE 80
 
