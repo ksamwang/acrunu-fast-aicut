@@ -11,7 +11,7 @@ const (
 	VisualDurationClassStandard = "standard"
 	VisualDurationClassAction   = "action"
 
-	actionVisualBeatMinimumMs = 2800
+	actionVisualBeatMinimumMs = MinimumActionEditPlanClipDurationMs
 	briefVisualBeatIntervalMs = 8000
 )
 
@@ -133,7 +133,7 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		beat.Label = strings.TrimSpace(beat.Label)
 		beat.DurationClass = strings.TrimSpace(beat.DurationClass)
 		beat.SellingPoint = strings.TrimSpace(beat.SellingPoint)
-		beat.VisualGoal = strings.TrimSpace(beat.VisualGoal)
+		beat.VisualGoal = normalizeVisualGoalForRetrieval(beat.VisualGoal)
 		beat.SourceType = strings.TrimSpace(beat.SourceType)
 		segment, ok := segments[beat.NarrationSegmentID]
 		if !ok {
@@ -184,6 +184,23 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		}
 	}
 	return nil
+}
+
+func normalizeVisualGoalForRetrieval(value string) string {
+	value = strings.TrimSpace(value)
+	for {
+		trimmed := value
+		for _, prefix := range []string{"骑行结束后", "使用结束后", "出门前", "骑行前", "日常使用时", "随后", "最后"} {
+			if strings.HasPrefix(trimmed, prefix) {
+				trimmed = strings.TrimSpace(strings.TrimLeft(strings.TrimPrefix(trimmed, prefix), "，,。；;：: "))
+				break
+			}
+		}
+		if trimmed == value {
+			return value
+		}
+		value = trimmed
+	}
 }
 
 func containsSequentialVisualActions(value string) bool {

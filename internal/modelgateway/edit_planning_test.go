@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
+func TestOpenAICompatibleEditPlannerRequestsMaterialSelectionsOnly(t *testing.T) {
 	var logs bytes.Buffer
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -37,8 +37,13 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 		if _, exists := request["enable_thinking"]; exists {
 			t.Fatalf("planner request must not contain provider-specific fields: %#v", request)
 		}
+		for _, forbidden := range []string{"narration-1", "visual-1", "source_in_ms", "source_out_ms"} {
+			if strings.Contains(string(body), forbidden) {
+				t.Fatalf("planner selection request must not expose %q: %s", forbidden, string(body))
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"visual_beat_id\":\"visual-1\",\"candidate_id\":\"candidate-1\",\"start_ms\":0,\"end_ms\":1800,\"source_in_ms\":0,\"source_out_ms\":1800,\"label\":\"展示\",\"visual_goal\":\"展示产品使用动作\"}]}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"slot_id\":\"s001\",\"candidate_id\":\"m001\"}]}"}}]}`))
 	}))
 	defer server.Close()
 
@@ -49,29 +54,11 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 		MaxTokens: 8192,
 		Timeout:   time.Second,
 	}).WithLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
-	result, err := planner.PlanEdits(context.Background(), EditPlanInput{
-		ProductName: "束裤带",
-		ScriptText:  "骑行时固定裤脚，更安心。",
-		Requirements: []EditPlanRequirement{{
-			VisualBeatID:       "visual-1",
-			NarrationSegmentID: "narration-1",
-			StartMs:            0,
-			EndMs:              1800,
-			NarrationText:      "骑行时固定裤脚，更安心。",
-			VisualGoal:         "展示产品使用动作",
-			SourceType:         "visual_only",
-			Candidates: []EditPlanCandidate{{
-				ID:          "candidate-1",
-				SourceType:  "visual_only",
-				SourceInMs:  0,
-				SourceOutMs: 2400,
-			}},
-		}},
-	})
+	result, err := planner.PlanEdits(context.Background(), editPlannerTestInput())
 	if err != nil {
 		t.Fatalf("plan edits: %v", err)
 	}
-	if len(result.Clips) != 1 || result.Clips[0].CandidateID != "candidate-1" {
+	if len(result.Clips) != 1 || result.Clips[0].SlotID != "s001" || result.Clips[0].CandidateID != "m001" {
 		t.Fatalf("unexpected plan result %#v", result)
 	}
 	if !strings.Contains(logs.String(), `"request_bytes"`) || !strings.Contains(logs.String(), `"duration_ms"`) || !strings.Contains(logs.String(), `"response_model"`) {
@@ -81,11 +68,8 @@ func TestOpenAICompatibleEditPlannerRequestsCandidateBoundJSON(t *testing.T) {
 
 func TestOpenAICompatibleEditPlannerUsesConfiguredTokensAndDefaultTimeout(t *testing.T) {
 	planner := NewOpenAICompatibleEditPlanner(Config{MaxTokens: 8192})
-	if planner.maxTokens != 8192 {
-		t.Fatalf("expected configured max tokens, got %d", planner.maxTokens)
-	}
-	if planner.timeout != 300*time.Second {
-		t.Fatalf("expected 300 second default timeout, got %s", planner.timeout)
+	if planner.maxTokens != 8192 || planner.timeout != 300*time.Second {
+		t.Fatalf("unexpected planner config tokens=%d timeout=%s", planner.maxTokens, planner.timeout)
 	}
 }
 
@@ -103,19 +87,11 @@ func TestOpenAICompatibleEditPlannerOmitsMaxTokensWhenUnconfigured(t *testing.T)
 			t.Fatalf("max_tokens should be omitted when unconfigured: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"visual_beat_id\":\"visual-1\",\"candidate_id\":\"candidate-1\",\"start_ms\":0,\"end_ms\":1800,\"source_in_ms\":0,\"source_out_ms\":1800,\"label\":\"展示\",\"visual_goal\":\"展示产品使用动作\"}]}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"slot_id\":\"s001\",\"candidate_id\":\"m001\"}]}"}}]}`))
 	}))
 	defer server.Close()
 
-	planner := NewOpenAICompatibleEditPlanner(Config{
-		Provider: "openai_compatible",
-		BaseURL:  server.URL,
-		Model:    "planner-model",
-		Timeout:  time.Second,
-	})
-	if planner.maxTokens != 0 {
-		t.Fatalf("expected unconfigured max tokens to remain unset, got %d", planner.maxTokens)
-	}
+	planner := NewOpenAICompatibleEditPlanner(Config{Provider: "openai_compatible", BaseURL: server.URL, Model: "planner-model", Timeout: time.Second})
 	if _, err := planner.PlanEdits(context.Background(), editPlannerTestInput()); err != nil {
 		t.Fatalf("plan edits: %v", err)
 	}
@@ -123,18 +99,14 @@ func TestOpenAICompatibleEditPlannerOmitsMaxTokensWhenUnconfigured(t *testing.T)
 
 func TestOpenAICompatibleEditPlannerReportsEmptyStandardContentMetadata(t *testing.T) {
 	var logs bytes.Buffer
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"model":"response-model","choices":[{"finish_reason":"length","message":{"content":""}}]}`))
 	}))
 	defer server.Close()
 
-	planner := NewOpenAICompatibleEditPlanner(Config{
-		Provider: "openai_compatible",
-		BaseURL:  server.URL,
-		Model:    "planner-model",
-		Timeout:  time.Second,
-	}).WithLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
+	planner := NewOpenAICompatibleEditPlanner(Config{Provider: "openai_compatible", BaseURL: server.URL, Model: "planner-model", Timeout: time.Second}).
+		WithLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
 	_, err := planner.PlanEdits(context.Background(), editPlannerTestInput())
 	if err == nil || !strings.Contains(err.Error(), `choices=1, finish_reason="length"`) {
 		t.Fatalf("expected standard empty-response diagnostics, got %v", err)
@@ -155,126 +127,99 @@ func editPlannerTestInput() EditPlanInput {
 			NarrationSegmentID: "narration-1",
 			StartMs:            0,
 			EndMs:              1800,
+			DurationClass:      VisualDurationClassStandard,
 			NarrationText:      "骑行时固定裤脚，更安心。",
-			VisualGoal:         "展示产品使用动作",
-			SourceType:         "visual_only",
-			Candidates: []EditPlanCandidate{{
-				ID:          "candidate-1",
-				SourceType:  "visual_only",
-				SourceInMs:  0,
-				SourceOutMs: 2400,
+			Label:              "固定裤脚",
+			VisualGoal:         "手将束裤带环绕裤脚并粘贴固定",
+			SourceType:         TTSVisualSourceType,
+			Slots: []EditPlanSlot{{
+				ID: "s001", StartMs: 0, EndMs: 1800, DurationMs: 1800, Role: EditPlanSlotRolePrimary,
+				Candidates: []EditPlanCandidate{{ID: "m001", SourceType: TTSVisualSourceType, SourceInMs: 0, SourceOutMs: 2400}},
 			}},
 		}},
 	}
 }
 
 func TestValidateEditPlanResultAllowsRepeatedNarrationSegmentAcrossVisualBeats(t *testing.T) {
+	requirements := []EditPlanRequirement{
+		testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000),
+		testEditRequirement("visual-2", "narration-1", "s002", "m002", 1000, 2000),
+	}
 	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{VisualBeatID: "visual-1", CandidateID: "candidate-1", StartMs: 0, EndMs: 1000, SourceInMs: 0, SourceOutMs: 1000, Label: "开头", VisualGoal: "画面"},
-		{VisualBeatID: "visual-2", CandidateID: "candidate-2", StartMs: 1000, EndMs: 2000, SourceInMs: 0, SourceOutMs: 1000, Label: "收束", VisualGoal: "画面"},
-	}}, []EditPlanRequirement{
-		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1000}}},
-		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-1", StartMs: 1000, EndMs: 2000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-2", SourceOutMs: 1000}}},
-	})
+		{SlotID: "s001", CandidateID: "m001"},
+		{SlotID: "s002", CandidateID: "m002"},
+	}}, requirements)
 	if err != nil {
 		t.Fatalf("expected multiple visual beats for one narration segment to be valid: %v", err)
 	}
 }
 
-func TestValidateEditPlanResultRejectsRepeatedCandidateAcrossVisualBeats(t *testing.T) {
+func TestValidateEditPlanResultRejectsRepeatedMaterial(t *testing.T) {
+	requirements := []EditPlanRequirement{
+		testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000),
+		testEditRequirement("visual-2", "narration-2", "s002", "m001", 1000, 2000),
+	}
 	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{VisualBeatID: "visual-1", CandidateID: "candidate-shared", StartMs: 0, EndMs: 1000, SourceInMs: 0, SourceOutMs: 1000, Label: "第一段", VisualGoal: "画面一"},
-		{VisualBeatID: "visual-2", CandidateID: "candidate-shared", StartMs: 1000, EndMs: 2000, SourceInMs: 1000, SourceOutMs: 2000, Label: "第二段", VisualGoal: "画面二"},
-	}}, []EditPlanRequirement{
-		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面一", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-shared", SourceOutMs: 2400}}},
-		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "第二句", VisualGoal: "画面二", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-shared", SourceOutMs: 2400}}},
-	})
-	if err == nil || !strings.Contains(err.Error(), "reuses candidate") {
-		t.Fatalf("expected repeated candidate to be rejected, got %v", err)
+		{SlotID: "s001", CandidateID: "m001"},
+		{SlotID: "s002", CandidateID: "m001"},
+	}}, requirements)
+	if err == nil || !strings.Contains(err.Error(), "reuses material") {
+		t.Fatalf("expected repeated material to be rejected, got %v", err)
 	}
 }
 
-func TestValidateEditPlanResultRejectsOutOfOrderVisualBeats(t *testing.T) {
-	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{VisualBeatID: "visual-2", CandidateID: "candidate-2", StartMs: 0, EndMs: 1000, SourceInMs: 0, SourceOutMs: 1000, Label: "第二段", VisualGoal: "画面"},
-		{VisualBeatID: "visual-1", CandidateID: "candidate-1", StartMs: 1000, EndMs: 2000, SourceInMs: 0, SourceOutMs: 1000, Label: "第一段", VisualGoal: "画面"},
-	}}, []EditPlanRequirement{
-		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1000}}},
-		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "第二句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-2", SourceOutMs: 1000}}},
-	})
-	if err == nil {
-		t.Fatal("expected out-of-order visual beats to be rejected")
+func TestValidateEditPlanResultRejectsCandidateOutsideSlot(t *testing.T) {
+	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{{SlotID: "s001", CandidateID: "m999"}}}, editPlannerTestInput().Requirements)
+	if err == nil || !strings.Contains(err.Error(), "outside its allowed set") {
+		t.Fatalf("expected closed slot candidate validation, got %v", err)
 	}
 }
 
-func TestValidateEditPlanResultRejectsMismatchedSourceDuration(t *testing.T) {
-	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{{
-		VisualBeatID: "visual-1", CandidateID: "candidate-1", StartMs: 0, EndMs: 1000, SourceInMs: 0, SourceOutMs: 900, Label: "展示", VisualGoal: "画面",
-	}}}, []EditPlanRequirement{{
-		VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1200}},
-	}})
-	if err == nil {
-		t.Fatal("expected mismatched source duration to be rejected")
+func TestValidateEditPlanResultRejectsOutOfOrderSlots(t *testing.T) {
+	requirements := []EditPlanRequirement{
+		testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000),
+		testEditRequirement("visual-2", "narration-2", "s002", "m002", 1000, 2000),
+	}
+	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
+		{SlotID: "s002", CandidateID: "m002"},
+		{SlotID: "s001", CandidateID: "m001"},
+	}}, requirements)
+	if err == nil || !strings.Contains(err.Error(), "out of slot order") {
+		t.Fatalf("expected out-of-order slots to be rejected, got %v", err)
 	}
 }
 
-func TestValidateEditPlanResultRejectsNonContinuousVisualTimeline(t *testing.T) {
-	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{VisualBeatID: "visual-1", CandidateID: "candidate-1", StartMs: 0, EndMs: 1000, SourceInMs: 0, SourceOutMs: 1000, Label: "第一段", VisualGoal: "画面一"},
-		{VisualBeatID: "visual-2", CandidateID: "candidate-2", StartMs: 1100, EndMs: 2000, SourceInMs: 0, SourceOutMs: 900, Label: "第二段", VisualGoal: "画面二"},
-	}}, []EditPlanRequirement{
-		{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "第一句", VisualGoal: "画面一", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceOutMs: 1000}}},
-		{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1100, EndMs: 2000, NarrationText: "第二句", VisualGoal: "画面二", SourceType: "visual_only", Candidates: []EditPlanCandidate{{ID: "candidate-2", SourceOutMs: 900}}},
-	})
-	if err == nil {
-		t.Fatal("expected non-continuous visual timeline to be rejected")
+func TestValidateEditPlanResultAcceptsMultipleServerSlotsForOneBeat(t *testing.T) {
+	requirement := testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 3440)
+	requirement.Slots = []EditPlanSlot{
+		{ID: "s001", StartMs: 0, EndMs: 2640, DurationMs: 2640, Role: EditPlanSlotRolePrimary, Candidates: []EditPlanCandidate{{ID: "m001", SourceOutMs: 3000}}},
+		{ID: "s002", StartMs: 2640, EndMs: 3440, DurationMs: 800, Role: EditPlanSlotRoleSupport, Candidates: []EditPlanCandidate{{ID: "m002", SourceOutMs: 1200}}},
 	}
-}
-
-func TestValidateEditPlanResultAllowsMultipleNormalSpeedClipsForOneVisualBeat(t *testing.T) {
 	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{VisualBeatID: "visual-pocket", CandidateID: "candidate-detail", StartMs: 0, EndMs: 940, SourceInMs: 200, SourceOutMs: 1140, Label: "产品特写", VisualGoal: "展示束裤带小巧"},
-		{VisualBeatID: "visual-pocket", CandidateID: "candidate-pocket", StartMs: 940, EndMs: 3440, SourceInMs: 0, SourceOutMs: 2500, Label: "放入口袋", VisualGoal: "完整展示放入口袋动作"},
-	}}, []EditPlanRequirement{{
-		VisualBeatID: "visual-pocket", NarrationSegmentID: "narration-pocket", StartMs: 0, EndMs: 3440,
-		NarrationText: "小小一个，放口袋里完全没负担。", VisualGoal: "展示束裤带小巧，放入口袋", SourceType: "visual_only",
-		Candidates: []EditPlanCandidate{
-			{ID: "candidate-detail", SourceInMs: 0, SourceOutMs: 1800},
-			{ID: "candidate-pocket", SourceInMs: 0, SourceOutMs: 2500},
-		},
-	}})
+		{SlotID: "s001", CandidateID: "m001"},
+		{SlotID: "s002", CandidateID: "m002"},
+	}}, []EditPlanRequirement{requirement})
 	if err != nil {
-		t.Fatalf("expected multiple normal-speed clips for one visual beat to be valid: %v", err)
+		t.Fatalf("expected deterministic multi-slot beat to be valid: %v", err)
 	}
 }
 
-func TestValidateEditPlanResultRejectsTinyFillerClip(t *testing.T) {
-	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
-		{VisualBeatID: "visual-pocket", CandidateID: "candidate-pocket", StartMs: 0, EndMs: 3300, SourceInMs: 0, SourceOutMs: 3300, Label: "放入口袋", VisualGoal: "完整展示放入口袋动作"},
-		{VisualBeatID: "visual-pocket", CandidateID: "candidate-detail", StartMs: 3300, EndMs: 3440, SourceInMs: 0, SourceOutMs: 140, Label: "产品特写", VisualGoal: "展示束裤带小巧"},
-	}}, []EditPlanRequirement{{
-		VisualBeatID: "visual-pocket", NarrationSegmentID: "narration-pocket", StartMs: 0, EndMs: 3440,
-		NarrationText: "小小一个，放口袋里完全没负担。", VisualGoal: "展示束裤带小巧，放入口袋", SourceType: "visual_only",
-		Candidates: []EditPlanCandidate{
-			{ID: "candidate-detail", SourceInMs: 0, SourceOutMs: 1800},
-			{ID: "candidate-pocket", SourceInMs: 0, SourceOutMs: 3300},
-		},
-	}})
-	if err == nil || !strings.Contains(err.Error(), "shorter than 800ms") {
-		t.Fatalf("expected tiny filler clip to be rejected, got %v", err)
+func TestValidateEditPlanInputRejectsCandidateShorterThanSlot(t *testing.T) {
+	input := editPlannerTestInput()
+	input.Requirements[0].Slots[0].Candidates[0].SourceOutMs = 1000
+	err := validateEditPlanInput(input)
+	if err == nil || !strings.Contains(err.Error(), "cannot cover its duration") {
+		t.Fatalf("expected short candidate to be rejected, got %v", err)
 	}
 }
 
-func TestValidateEditPlanResultRejectsClipLongerThanThreePointFiveSeconds(t *testing.T) {
-	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{{
-		VisualBeatID: "visual-1", CandidateID: "candidate-1", StartMs: 0, EndMs: 3600,
-		SourceInMs: 0, SourceOutMs: 3600, Label: "过长镜头", VisualGoal: "展示产品",
-	}}}, []EditPlanRequirement{{
-		VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 3600,
-		NarrationText: "展示产品。", VisualGoal: "展示产品", SourceType: "visual_only",
-		Candidates: []EditPlanCandidate{{ID: "candidate-1", SourceInMs: 0, SourceOutMs: 10_000}},
-	}})
-	if err == nil || !strings.Contains(err.Error(), "longer than 3500ms") {
-		t.Fatalf("expected the single-shot duration cap to be enforced, got %v", err)
+func testEditRequirement(visualBeatID string, narrationID string, slotID string, candidateID string, startMs int, endMs int) EditPlanRequirement {
+	return EditPlanRequirement{
+		VisualBeatID: visualBeatID, NarrationSegmentID: narrationID, StartMs: startMs, EndMs: endMs,
+		DurationClass: VisualDurationClassStandard, NarrationText: "旁白", Label: "展示", VisualGoal: "展示产品", SourceType: TTSVisualSourceType,
+		Slots: []EditPlanSlot{{
+			ID: slotID, StartMs: startMs, EndMs: endMs, DurationMs: endMs - startMs, Role: EditPlanSlotRolePrimary,
+			Candidates: []EditPlanCandidate{{ID: candidateID, SourceInMs: 0, SourceOutMs: endMs - startMs}},
+		}},
 	}
 }

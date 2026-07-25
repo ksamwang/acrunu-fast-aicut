@@ -31,6 +31,7 @@ type ShotRequirement struct {
 	EndMs               int      `json:"end_ms"`
 	DurationClass       string   `json:"duration_class"`
 	NarrationText       string   `json:"narration_text"`
+	Label               string   `json:"label"`
 	SellingPoint        string   `json:"selling_point"`
 	VisualGoal          string   `json:"visual_goal"`
 	SourceType          string   `json:"source_type"`
@@ -198,17 +199,8 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 	return sets, nil
 }
 
-func minimumCandidateDuration(durationClass string) int {
-	switch normalizeVisualBeatDurationClass(durationClass) {
-	case VisualBeatDurationBrief:
-		return 1000
-	case VisualBeatDurationStandard:
-		return 1800
-	case VisualBeatDurationAction:
-		return 2800
-	default:
-		return modelgateway.MinimumEditPlanClipDurationMs
-	}
+func minimumCandidateDuration(_ string) int {
+	return modelgateway.MinimumEditPlanClipDurationMs
 }
 
 func BuildShotRequirements(visualBeats []VisualBeat, narrationSegments []NarrationSegment) ([]ShotRequirement, error) {
@@ -251,6 +243,7 @@ func BuildShotRequirements(visualBeats []VisualBeat, narrationSegments []Narrati
 			EndMs:               beat.EndMs,
 			DurationClass:       normalizeVisualBeatDurationClass(beat.DurationClass),
 			NarrationText:       strings.Join(narrationTexts, ""),
+			Label:               strings.TrimSpace(beat.Label),
 			SellingPoint:        strings.TrimSpace(beat.SellingPoint),
 			VisualGoal:          strings.TrimSpace(beat.VisualGoal),
 			SourceType:          sourceType,

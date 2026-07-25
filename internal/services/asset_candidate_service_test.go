@@ -90,6 +90,14 @@ func TestAssetCandidateServiceUsesVisualGoalWithoutSellingPointRelation(t *testi
 	}
 }
 
+func TestMinimumCandidateDurationKeepsShortSupportMaterial(t *testing.T) {
+	for _, durationClass := range []string{VisualBeatDurationBrief, VisualBeatDurationStandard, VisualBeatDurationAction} {
+		if got := minimumCandidateDuration(durationClass); got != modelgateway.MinimumEditPlanClipDurationMs {
+			t.Fatalf("duration class %q must retrieve from %dms, got %d", durationClass, modelgateway.MinimumEditPlanClipDurationMs, got)
+		}
+	}
+}
+
 func TestBuildShotRequirementsCombinesNarrationAcrossVisualBeat(t *testing.T) {
 	requirements, err := BuildShotRequirements([]VisualBeat{
 		{ID: "visual-1", NarrationSegmentID: "n-1", NarrativeBeatID: "business-action", StartMs: 0, EndMs: 3000, DurationClass: VisualBeatDurationAction, SellingPoint: "快拆收纳", VisualGoal: "完整展示快拆和收纳", SourceType: "visual_only"},

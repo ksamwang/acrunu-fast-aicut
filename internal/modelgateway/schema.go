@@ -7,7 +7,7 @@ import (
 
 const OutputSchemaVersion = "phase2.asset_analysis.v2"
 const ScriptGenerationOutputSchemaVersion = "workbench.script_generation.v2"
-const EditPlanOutputSchemaVersion = "workbench.edit_plan.v2"
+const EditPlanOutputSchemaVersion = "workbench.edit_plan.v3"
 
 var allowedShotSizes = map[string]struct{}{
 	"":                {},
@@ -158,16 +158,10 @@ func EditPlanOutputSchema() map[string]any {
 				"type": "array",
 				"items": map[string]any{
 					"type":     "object",
-					"required": []string{"visual_beat_id", "candidate_id", "start_ms", "end_ms", "source_in_ms", "source_out_ms", "label", "visual_goal"},
+					"required": []string{"slot_id", "candidate_id"},
 					"properties": map[string]any{
-						"visual_beat_id": map[string]any{"type": "string", "minLength": 1},
-						"candidate_id":   map[string]any{"type": "string", "minLength": 1},
-						"start_ms":       map[string]any{"type": "integer", "minimum": 0},
-						"end_ms":         map[string]any{"type": "integer", "minimum": 1},
-						"source_in_ms":   map[string]any{"type": "integer", "minimum": 0},
-						"source_out_ms":  map[string]any{"type": "integer", "minimum": 1},
-						"label":          map[string]any{"type": "string", "minLength": 1},
-						"visual_goal":    map[string]any{"type": "string", "minLength": 1},
+						"slot_id":      map[string]any{"type": "string", "minLength": 1},
+						"candidate_id": map[string]any{"type": "string", "minLength": 1},
 					},
 				},
 			},

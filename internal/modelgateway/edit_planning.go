@@ -13,33 +13,52 @@ import (
 )
 
 const (
-	MinimumEditPlanClipDurationMs = 800
-	MaximumEditPlanClipDurationMs = 3500
-	MaximumEditPlanClipsPerBeat   = 4
+	MinimumEditPlanClipDurationMs       = 800
+	MaximumEditPlanClipDurationMs       = 3500
+	MinimumActionEditPlanClipDurationMs = 2800
+	MaximumEditPlanClipsPerBeat         = 4
 )
 
 type EditPlanCandidate struct {
-	ID              string  `json:"id"`
-	SourceType      string  `json:"source_type"`
-	SourceInMs      int     `json:"source_in_ms"`
-	SourceOutMs     int     `json:"source_out_ms"`
-	SemanticSummary string  `json:"semantic_summary"`
-	SemanticScore   float64 `json:"semantic_score"`
+	ID               string  `json:"id"`
+	SourceType       string  `json:"source_type"`
+	SourceInMs       int     `json:"-"`
+	SourceOutMs      int     `json:"-"`
+	SemanticSummary  string  `json:"semantic_summary"`
+	SemanticScore    float64 `json:"semantic_score"`
+	AssetID          string  `json:"-"`
+	UseOriginalAudio bool    `json:"-"`
+}
+
+const (
+	EditPlanSlotRolePrimary       = "primary"
+	EditPlanSlotRoleActionPrimary = "action_primary"
+	EditPlanSlotRoleSupport       = "support"
+)
+
+type EditPlanSlot struct {
+	ID         string              `json:"id"`
+	StartMs    int                 `json:"-"`
+	EndMs      int                 `json:"-"`
+	DurationMs int                 `json:"duration_ms"`
+	Role       string              `json:"role"`
+	Candidates []EditPlanCandidate `json:"candidates"`
 }
 
 type EditPlanRequirement struct {
-	VisualBeatID        string              `json:"visual_beat_id"`
-	NarrationSegmentID  string              `json:"narration_segment_id"`
-	NarrationSegmentIDs []string            `json:"narration_segment_ids"`
-	NarrativeBeatID     string              `json:"narrative_beat_id,omitempty"`
-	StartMs             int                 `json:"start_ms"`
-	EndMs               int                 `json:"end_ms"`
-	DurationClass       string              `json:"duration_class"`
-	NarrationText       string              `json:"narration_text"`
-	SellingPoint        string              `json:"selling_point,omitempty"`
-	VisualGoal          string              `json:"visual_goal,omitempty"`
-	SourceType          string              `json:"source_type"`
-	Candidates          []EditPlanCandidate `json:"candidates"`
+	VisualBeatID        string         `json:"-"`
+	NarrationSegmentID  string         `json:"-"`
+	NarrationSegmentIDs []string       `json:"-"`
+	NarrativeBeatID     string         `json:"-"`
+	StartMs             int            `json:"-"`
+	EndMs               int            `json:"-"`
+	DurationClass       string         `json:"duration_class"`
+	NarrationText       string         `json:"narration_text"`
+	Label               string         `json:"label"`
+	SellingPoint        string         `json:"selling_point,omitempty"`
+	VisualGoal          string         `json:"visual_goal,omitempty"`
+	SourceType          string         `json:"source_type"`
+	Slots               []EditPlanSlot `json:"slots"`
 }
 
 type EditPlanInput struct {
@@ -49,14 +68,8 @@ type EditPlanInput struct {
 }
 
 type EditPlanClipChoice struct {
-	VisualBeatID string `json:"visual_beat_id"`
-	CandidateID  string `json:"candidate_id"`
-	StartMs      int    `json:"start_ms"`
-	EndMs        int    `json:"end_ms"`
-	SourceInMs   int    `json:"source_in_ms"`
-	SourceOutMs  int    `json:"source_out_ms"`
-	Label        string `json:"label"`
-	VisualGoal   string `json:"visual_goal"`
+	SlotID      string `json:"slot_id"`
+	CandidateID string `json:"candidate_id"`
 }
 
 type EditPlanResult struct {
@@ -285,89 +298,33 @@ func ValidateEditPlanResult(result EditPlanResult, requirements []EditPlanRequir
 	if len(requirements) == 0 {
 		return NewError(ErrorCodeInvalidResponse, "edit plan requirements are required", false, nil)
 	}
-	if len(result.Clips) < len(requirements) {
-		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("expected at least %d edit plan clips, got %d", len(requirements), len(result.Clips)), false, nil)
-	}
 	if err := validateEditPlanRequirements(requirements); err != nil {
 		return err
 	}
-	expectedStartMs := requirements[0].StartMs
-	requirementIndex := 0
-	clipCounts := make(map[string]int, len(requirements))
-	longestClipByVisualBeat := make(map[string]int, len(requirements))
+	slots := flattenEditPlanSlots(requirements)
+	if len(result.Clips) != len(slots) {
+		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("expected exactly %d edit plan selections, got %d", len(slots), len(result.Clips)), false, nil)
+	}
 	usedCandidateIDs := make(map[string]int, len(result.Clips))
 	for index := range result.Clips {
 		clip := &result.Clips[index]
-		clip.VisualBeatID = strings.TrimSpace(clip.VisualBeatID)
+		clip.SlotID = strings.TrimSpace(clip.SlotID)
 		clip.CandidateID = strings.TrimSpace(clip.CandidateID)
-		clip.Label = strings.TrimSpace(clip.Label)
-		clip.VisualGoal = strings.TrimSpace(clip.VisualGoal)
-		if clip.VisualBeatID == "" || clip.CandidateID == "" || clip.Label == "" || clip.VisualGoal == "" {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is incomplete", index+1), false, nil)
+		if clip.SlotID == "" || clip.CandidateID == "" {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan selection %d is incomplete", index+1), false, nil)
 		}
-		if clip.StartMs != expectedStartMs || clip.EndMs <= clip.StartMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d does not continue the timeline", index+1), false, nil)
+		slot := slots[index]
+		if clip.SlotID != slot.ID {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan selection %d is out of slot order: expected %q, got %q", index+1, slot.ID, clip.SlotID), false, nil)
 		}
-		if clip.SourceInMs < 0 || clip.SourceOutMs <= clip.SourceInMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is invalid", index+1), false, nil)
-		}
-		if requirementIndex >= len(requirements) {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d exceeds the visual timeline", index+1), false, nil)
-		}
-		requirement := requirements[requirementIndex]
-		if clip.VisualBeatID != requirement.VisualBeatID {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is out of visual beat order", index+1), false, nil)
-		}
-		if clip.EndMs > requirement.EndMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d crosses its visual beat boundary", index+1), false, nil)
-		}
-		clipDurationMs := clip.EndMs - clip.StartMs
-		if clipDurationMs < MinimumEditPlanClipDurationMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is shorter than %dms", index+1, MinimumEditPlanClipDurationMs), false, nil)
-		}
-		if clipDurationMs > MaximumEditPlanClipDurationMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d is longer than %dms", index+1, MaximumEditPlanClipDurationMs), false, nil)
-		}
-		if clip.SourceOutMs-clip.SourceInMs != clipDurationMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source duration does not match its timeline duration", index+1), false, nil)
-		}
-		candidate, ok := findEditPlanCandidate(requirement.Candidates, clip.CandidateID)
+		_, ok := findEditPlanCandidate(slot.Candidates, clip.CandidateID)
 		if !ok {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d selects a candidate outside the allowed set", index+1), false, nil)
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan slot %q selects material %q outside its allowed set", slot.ID, clip.CandidateID), false, nil)
 		}
 		if previousIndex, exists := usedCandidateIDs[clip.CandidateID]; exists {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d reuses candidate %q already selected by clip %d", index+1, clip.CandidateID, previousIndex+1), false, nil)
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan slot %q reuses material %q already selected by slot %q", slot.ID, clip.CandidateID, slots[previousIndex].ID), false, nil)
 		}
 		usedCandidateIDs[clip.CandidateID] = index
-		if clip.SourceInMs < candidate.SourceInMs || clip.SourceOutMs > candidate.SourceOutMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan clip %d source range is outside its candidate", index+1), false, nil)
-		}
-		clipCounts[clip.VisualBeatID]++
-		if clipDurationMs > longestClipByVisualBeat[clip.VisualBeatID] {
-			longestClipByVisualBeat[clip.VisualBeatID] = clipDurationMs
-		}
-		if clipCounts[clip.VisualBeatID] > MaximumEditPlanClipsPerBeat {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan visual beat %q has more than %d clips", clip.VisualBeatID, MaximumEditPlanClipsPerBeat), false, nil)
-		}
-		expectedStartMs = clip.EndMs
-		if expectedStartMs == requirement.EndMs {
-			requirementIndex++
-		}
-	}
-	if requirementIndex != len(requirements) || expectedStartMs != requirements[len(requirements)-1].EndMs {
-		return NewError(ErrorCodeInvalidResponse, "edit plan clips do not cover the visual timeline", false, nil)
-	}
-	for _, requirement := range requirements {
-		if requirement.DurationClass != VisualDurationClassAction {
-			continue
-		}
-		requiredDurationMs := actionVisualBeatMinimumMs
-		if durationMs := requirement.EndMs - requirement.StartMs; durationMs < requiredDurationMs {
-			requiredDurationMs = durationMs
-		}
-		if longestClipByVisualBeat[requirement.VisualBeatID] < requiredDurationMs {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan action beat %q must contain a complete clip of at least %dms", requirement.VisualBeatID, requiredDurationMs), false, nil)
-		}
 	}
 	return nil
 }
@@ -391,6 +348,7 @@ func validateEditPlanRequirements(requirements []EditPlanRequirement) error {
 	}
 	expectedStartMs := requirements[0].StartMs
 	seenVisualBeats := map[string]struct{}{}
+	seenSlots := map[string]struct{}{}
 	for index := range requirements {
 		requirement := &requirements[index]
 		requirement.VisualBeatID = strings.TrimSpace(requirement.VisualBeatID)
@@ -410,18 +368,69 @@ func validateEditPlanRequirements(requirements []EditPlanRequirement) error {
 		if _, exists := seenVisualBeats[requirement.VisualBeatID]; exists {
 			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan visual beat %q is repeated", requirement.VisualBeatID), false, nil)
 		}
-		if len(requirement.Candidates) == 0 {
-			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d has no candidates", index+1), false, nil)
+		if len(requirement.Slots) == 0 || len(requirement.Slots) > MaximumEditPlanClipsPerBeat {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d has an invalid slot count", index+1), false, nil)
 		}
-		for candidateIndex, candidate := range requirement.Candidates {
-			if strings.TrimSpace(candidate.ID) == "" || candidate.SourceInMs < 0 || candidate.SourceOutMs <= candidate.SourceInMs {
-				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d candidate %d is invalid", index+1, candidateIndex+1), false, nil)
+		expectedSlotStartMs := requirement.StartMs
+		hasActionPrimary := false
+		for slotIndex := range requirement.Slots {
+			slot := &requirement.Slots[slotIndex]
+			slot.ID = strings.TrimSpace(slot.ID)
+			slot.Role = strings.TrimSpace(slot.Role)
+			if slot.ID == "" || slot.StartMs != expectedSlotStartMs || slot.EndMs <= slot.StartMs || slot.EndMs > requirement.EndMs || slot.DurationMs != slot.EndMs-slot.StartMs {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d slot %d is invalid", index+1, slotIndex+1), false, nil)
 			}
+			if slot.DurationMs < MinimumEditPlanClipDurationMs || slot.DurationMs > MaximumEditPlanClipDurationMs {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q duration is outside %d-%dms", slot.ID, MinimumEditPlanClipDurationMs, MaximumEditPlanClipDurationMs), false, nil)
+			}
+			if slot.Role != EditPlanSlotRolePrimary && slot.Role != EditPlanSlotRoleActionPrimary && slot.Role != EditPlanSlotRoleSupport {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q role is invalid", slot.ID), false, nil)
+			}
+			if _, exists := seenSlots[slot.ID]; exists {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q is repeated", slot.ID), false, nil)
+			}
+			if len(slot.Candidates) == 0 {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q has no candidates", slot.ID), false, nil)
+			}
+			seenCandidates := map[string]struct{}{}
+			for candidateIndex, candidate := range slot.Candidates {
+				candidateID := strings.TrimSpace(candidate.ID)
+				if candidateID == "" || candidate.SourceInMs < 0 || candidate.SourceOutMs-candidate.SourceInMs < slot.DurationMs {
+					return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q candidate %d cannot cover its duration", slot.ID, candidateIndex+1), false, nil)
+				}
+				if _, exists := seenCandidates[candidateID]; exists {
+					return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q candidate %q is repeated", slot.ID, candidateID), false, nil)
+				}
+				seenCandidates[candidateID] = struct{}{}
+			}
+			if slot.Role == EditPlanSlotRoleActionPrimary {
+				hasActionPrimary = slot.DurationMs >= actionVisualBeatMinimumMs
+			}
+			seenSlots[slot.ID] = struct{}{}
+			expectedSlotStartMs = slot.EndMs
+		}
+		if expectedSlotStartMs != requirement.EndMs {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan requirement %d slots do not cover its timeline", index+1), false, nil)
+		}
+		if requirement.DurationClass == VisualDurationClassAction && !hasActionPrimary {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan action beat %q has no complete action slot", requirement.VisualBeatID), false, nil)
 		}
 		seenVisualBeats[requirement.VisualBeatID] = struct{}{}
 		expectedStartMs = requirement.EndMs
 	}
 	return nil
+}
+
+func flattenEditPlanSlots(requirements []EditPlanRequirement) []EditPlanSlot {
+	total := 0
+	for _, requirement := range requirements {
+		total += len(requirement.Slots)
+	}
+	result := make([]EditPlanSlot, 0, total)
+	for _, requirement := range requirements {
+		result = append(result, requirement.Slots...)
+	}
+	return result
 }
 
 func findEditPlanCandidate(candidates []EditPlanCandidate, candidateID string) (EditPlanCandidate, bool) {

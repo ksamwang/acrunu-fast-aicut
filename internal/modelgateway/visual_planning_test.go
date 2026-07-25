@@ -230,6 +230,19 @@ func TestValidateVisualPlanResultRejectsNonVisualOnlyMaterial(t *testing.T) {
 	}
 }
 
+func TestNormalizeVisualGoalForRetrievalRemovesNarrationOnlyPrefix(t *testing.T) {
+	tests := map[string]string{
+		"骑行结束后将束裤带折叠并放入口袋": "将束裤带折叠并放入口袋",
+		"出门前将束裤带固定在裤脚处":    "将束裤带固定在裤脚处",
+		"夜间骑行时展示束裤带反光效果":   "夜间骑行时展示束裤带反光效果",
+	}
+	for input, expected := range tests {
+		if got := normalizeVisualGoalForRetrieval(input); got != expected {
+			t.Fatalf("normalize %q: expected %q, got %q", input, expected, got)
+		}
+	}
+}
+
 func TestOpenAICompatibleEditPlannerPlansVisualBeats(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

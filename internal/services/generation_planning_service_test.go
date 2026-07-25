@@ -43,22 +43,18 @@ type deterministicEditPlanner struct {
 }
 
 func (p deterministicEditPlanner) PlanEdits(_ context.Context, input modelgateway.EditPlanInput) (modelgateway.EditPlanResult, error) {
-	result := modelgateway.EditPlanResult{Clips: make([]modelgateway.EditPlanClipChoice, 0, len(input.Requirements))}
+	result := modelgateway.EditPlanResult{}
 	for _, requirement := range input.Requirements {
-		candidateID := requirement.Candidates[0].ID
-		if p.invalidCandidate {
-			candidateID = "not-allowed"
+		for _, slot := range requirement.Slots {
+			candidateID := slot.Candidates[0].ID
+			if p.invalidCandidate {
+				candidateID = "not-allowed"
+			}
+			result.Clips = append(result.Clips, modelgateway.EditPlanClipChoice{
+				SlotID:      slot.ID,
+				CandidateID: candidateID,
+			})
 		}
-		result.Clips = append(result.Clips, modelgateway.EditPlanClipChoice{
-			VisualBeatID: requirement.VisualBeatID,
-			CandidateID:  candidateID,
-			StartMs:      requirement.StartMs,
-			EndMs:        requirement.EndMs,
-			SourceInMs:   requirement.Candidates[0].SourceInMs,
-			SourceOutMs:  requirement.Candidates[0].SourceInMs + (requirement.EndMs - requirement.StartMs),
-			Label:        "镜头展示",
-			VisualGoal:   "匹配旁白表达。",
-		})
 	}
 	return result, nil
 }
@@ -230,8 +226,8 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 		t.Fatalf("expected one candidate query per visual beat, got %d", len(store.inputs))
 	}
 	for _, candidateInput := range store.inputs {
-		if candidateInput.Limit != editPlannerCandidatesPerVisualBeat {
-			t.Fatalf("expected bounded candidate limit %d, got %#v", editPlannerCandidatesPerVisualBeat, candidateInput)
+		if candidateInput.Limit != maxCandidatesPerNarrationSegment {
+			t.Fatalf("expected retrieval candidate limit %d, got %#v", maxCandidatesPerNarrationSegment, candidateInput)
 		}
 	}
 	var artifacts struct {
@@ -331,7 +327,7 @@ func TestGenerationPlanningServiceRejectsPlannerCandidateOutsideClosedSet(t *tes
 		WithPlanner(deterministicEditPlanner{invalidCandidate: true})
 
 	_, err := planning.Generate(context.Background(), GenerateEditPlanInput{GenerationRunID: run.ID, ScriptVariantID: "script-1", VoiceoverID: "voiceover-1"})
-	if err == nil || !strings.Contains(err.Error(), "outside the allowed set") {
+	if err == nil || !strings.Contains(err.Error(), "outside its allowed set") {
 		t.Fatalf("expected closed candidate set validation error, got %v", err)
 	}
 	stored, err := runs.GetEditPlan(context.Background(), run.ID)
@@ -344,7 +340,7 @@ func TestGenerationPlanningServiceRejectsPlannerCandidateOutsideClosedSet(t *tes
 }
 
 func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
-	input := buildPlannerInput("束裤带", "魔术贴一粘即合。", []CandidateSet{{
+	input, err := buildPlannerInput("束裤带", "魔术贴一粘即合。", []CandidateSet{{
 		Requirement: ShotRequirement{
 			VisualBeatID:       "visual-1",
 			NarrationSegmentID: "narration-1",
@@ -357,6 +353,7 @@ func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
 		},
 		Candidates: []AssetCandidate{{
 			ID:              "candidate-1",
+			AssetID:         "asset-1",
 			SourceType:      "visual_only",
 			SourceInMs:      100,
 			SourceOutMs:     1600,
@@ -364,8 +361,11 @@ func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
 			SemanticScore:   0.92,
 		}},
 	}})
+	if err != nil {
+		t.Fatalf("build planner input: %v", err)
+	}
 
-	candidate := input.Requirements[0].Candidates[0]
+	candidate := input.Requirements[0].Slots[0].Candidates[0]
 	if input.Requirements[0].VisualBeatID != "visual-1" || candidate.SemanticSummary != "画面描述：手部将束裤带魔术贴快速粘合。" || candidate.SemanticScore != 0.92 {
 		t.Fatalf("candidate semantic evidence was not preserved %#v", candidate)
 	}
@@ -376,13 +376,14 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 	for index := 0; index < editPlannerCandidatesPerVisualBeat+1; index++ {
 		candidates = append(candidates, AssetCandidate{
 			ID:              fmt.Sprintf("candidate-%d", index+1),
+			AssetID:         fmt.Sprintf("asset-%d", index+1),
 			SourceType:      "visual_only",
 			SourceInMs:      0,
 			SourceOutMs:     2000,
 			SemanticSummary: strings.Repeat("镜", maximumPlannerCandidateSemanticSummaryRunes+20),
 		})
 	}
-	input := buildPlannerInput("束裤带", "固定裤脚。", []CandidateSet{{
+	input, err := buildPlannerInput("束裤带", "固定裤脚。", []CandidateSet{{
 		Requirement: ShotRequirement{
 			VisualBeatID:       "visual-1",
 			NarrationSegmentID: "narration-1",
@@ -394,8 +395,11 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 		},
 		Candidates: candidates,
 	}})
-	got := input.Requirements[0].Candidates
-	if len(got) != editPlannerCandidatesPerVisualBeat || got[len(got)-1].ID != "candidate-6" {
+	if err != nil {
+		t.Fatalf("build planner input: %v", err)
+	}
+	got := input.Requirements[0].Slots[0].Candidates
+	if len(got) != editPlannerCandidatesPerVisualBeat || got[len(got)-1].ID != "m006" {
 		t.Fatalf("expected first %d candidates, got %#v", editPlannerCandidatesPerVisualBeat, got)
 	}
 	if len([]rune(got[0].SemanticSummary)) != maximumPlannerCandidateSemanticSummaryRunes {
@@ -419,87 +423,152 @@ func TestPlannerCandidateSummaryKeepsActionBeforeTruncation(t *testing.T) {
 func TestMaterializeEditPlanAllowsMultipleClipsForVisualBeat(t *testing.T) {
 	sets := []CandidateSet{{
 		Requirement: ShotRequirement{
-			VisualBeatID: "visual-pocket", NarrationSegmentID: "narration-pocket", StartMs: 0, EndMs: 3440,
-			NarrationText: "小小一个，放口袋里完全没负担。", VisualGoal: "展示束裤带小巧，放入口袋", SourceType: "visual_only",
+			VisualBeatID: "visual-pocket", NarrationSegmentID: "narration-pocket", StartMs: 0, EndMs: 4000,
+			NarrationText: "小小一个，放口袋里完全没负担。", Label: "便携收纳", VisualGoal: "手将束裤带折叠后放入口袋", SourceType: "visual_only",
 		},
 		Candidates: []AssetCandidate{
-			{ID: "candidate-detail", AssetID: "asset-detail", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 1800},
+			{ID: "candidate-detail", AssetID: "asset-detail", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2500},
 			{ID: "candidate-pocket", AssetID: "asset-pocket", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2500},
 		},
 	}}
-	clips, err := materializeEditPlan(modelgateway.EditPlanResult{Clips: []modelgateway.EditPlanClipChoice{
-		{VisualBeatID: "visual-pocket", CandidateID: "candidate-detail", StartMs: 0, EndMs: 940, SourceInMs: 200, SourceOutMs: 1140, Label: "产品特写", VisualGoal: "展示束裤带小巧"},
-		{VisualBeatID: "visual-pocket", CandidateID: "candidate-pocket", StartMs: 940, EndMs: 3440, SourceInMs: 0, SourceOutMs: 2500, Label: "放入口袋", VisualGoal: "完整展示放入口袋动作"},
-	}}, sets)
+	input, err := buildPlannerInput("束裤带", "小小一个，放口袋里完全没负担。", sets)
 	if err != nil {
-		t.Fatalf("materialize multi-clip edit plan: %v", err)
+		t.Fatalf("build planner input: %v", err)
 	}
-	if len(clips) != 2 || clips[0].AssetID != "asset-detail" || clips[1].AssetID != "asset-pocket" || clips[1].StartMs != clips[0].EndMs {
+	clips, err := materializeEditPlan(modelgateway.EditPlanResult{Clips: []modelgateway.EditPlanClipChoice{
+		{SlotID: input.Requirements[0].Slots[0].ID, CandidateID: "m001"},
+		{SlotID: input.Requirements[0].Slots[1].ID, CandidateID: "m002"},
+	}}, input)
+	if err != nil {
+		t.Fatalf("materialize edit plan: %v", err)
+	}
+	if len(clips) != 2 || clips[0].AssetID != "asset-detail" || clips[1].AssetID != "asset-pocket" || clips[0].SourceOutMs != 2000 || clips[1].StartMs != 2000 {
 		t.Fatalf("unexpected materialized clips %#v", clips)
 	}
 }
 
-func TestValidateCandidateSetsRequiresEnoughUniqueAssets(t *testing.T) {
+func TestBuildPlannerInputRequiresEnoughUniqueAssets(t *testing.T) {
 	sets := []CandidateSet{
 		{
 			Requirement: ShotRequirement{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "展示外观。", VisualGoal: "展示外观", SourceType: "visual_only"},
-			Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-shared"}},
+			Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-shared", SourceOutMs: 2000}},
 		},
 		{
 			Requirement: ShotRequirement{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "展示使用。", VisualGoal: "展示使用", SourceType: "visual_only"},
-			Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-shared"}},
+			Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-shared", SourceOutMs: 2000}},
 		},
 	}
-	if err := validateCandidateSets(sets); err == nil || !strings.Contains(err.Error(), "cannot be assigned enough non-repeating materials") {
+	if _, err := buildPlannerInput("束裤带", "展示。", sets); err == nil || !strings.Contains(err.Error(), "no globally unique material assignment") {
 		t.Fatalf("expected insufficient unique candidate capacity, got %v", err)
 	}
 }
 
-func TestValidateCandidateSetsFindsGlobalUniqueAssignment(t *testing.T) {
+func TestBuildPlannerInputFindsGlobalUniqueAssignment(t *testing.T) {
 	sets := []CandidateSet{
 		{
 			Requirement: ShotRequirement{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "展示外观。", VisualGoal: "展示外观", SourceType: "visual_only"},
 			Candidates: []AssetCandidate{
-				{ID: "candidate-a", AssetID: "asset-a"},
-				{ID: "candidate-b", AssetID: "asset-b"},
+				{ID: "candidate-a", AssetID: "asset-a", SourceOutMs: 2000},
+				{ID: "candidate-b", AssetID: "asset-b", SourceOutMs: 2000},
 			},
 		},
 		{
 			Requirement: ShotRequirement{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "展示使用。", VisualGoal: "展示使用", SourceType: "visual_only"},
-			Candidates:  []AssetCandidate{{ID: "candidate-a", AssetID: "asset-a"}},
+			Candidates:  []AssetCandidate{{ID: "candidate-a", AssetID: "asset-a", SourceOutMs: 2000}},
 		},
 	}
-	if err := validateCandidateSets(sets); err != nil {
+	input, err := buildPlannerInput("束裤带", "展示。", sets)
+	if err != nil {
 		t.Fatalf("expected a global unique candidate assignment, got %v", err)
+	}
+	if input.Requirements[0].Slots[0].Candidates[0].ID != input.Requirements[1].Slots[0].Candidates[0].ID {
+		t.Fatalf("expected one asset to keep the same global alias, got %#v", input.Requirements)
 	}
 }
 
-func TestValidateCandidateSetsRequiresDistinctAssetsForLongVisualBeat(t *testing.T) {
+func TestBuildPlannerInputPreservesFeasibleMaterialBeyondTopSix(t *testing.T) {
+	sets := make([]CandidateSet, 0, 7)
+	for requirementIndex := 0; requirementIndex < 7; requirementIndex++ {
+		candidates := make([]AssetCandidate, 0, 7)
+		for candidateIndex := 0; candidateIndex < 7; candidateIndex++ {
+			candidates = append(candidates, AssetCandidate{
+				ID:          fmt.Sprintf("candidate-%d", candidateIndex+1),
+				AssetID:     fmt.Sprintf("asset-%d", candidateIndex+1),
+				SourceOutMs: 2000,
+			})
+		}
+		sets = append(sets, CandidateSet{
+			Requirement: ShotRequirement{
+				VisualBeatID: fmt.Sprintf("visual-%d", requirementIndex+1), NarrationSegmentID: fmt.Sprintf("narration-%d", requirementIndex+1),
+				StartMs: requirementIndex * 1000, EndMs: (requirementIndex + 1) * 1000,
+				NarrationText: "展示产品。", VisualGoal: "展示产品", SourceType: "visual_only",
+			},
+			Candidates: candidates,
+		})
+	}
+	input, err := buildPlannerInput("束裤带", "展示产品。", sets)
+	if err != nil {
+		t.Fatalf("expected top-12 matching to preserve a global assignment: %v", err)
+	}
+	foundSeventhMaterial := false
+	for _, requirement := range input.Requirements {
+		if len(requirement.Slots[0].Candidates) > editPlannerCandidatesPerVisualBeat {
+			t.Fatalf("planner slot exceeds candidate limit: %#v", requirement.Slots[0])
+		}
+		for _, candidate := range requirement.Slots[0].Candidates {
+			if candidate.ID == "m007" {
+				foundSeventhMaterial = true
+			}
+		}
+	}
+	if !foundSeventhMaterial {
+		t.Fatal("expected the globally required seventh material to survive per-slot trimming")
+	}
+}
+
+func TestBuildPlannerInputRequiresDistinctAssetsForLongVisualBeat(t *testing.T) {
 	sets := []CandidateSet{{
 		Requirement: ShotRequirement{VisualBeatID: "visual-long", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 4000, NarrationText: "完整展示动作。", VisualGoal: "完整展示动作", SourceType: "visual_only"},
-		Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-1"}},
+		Candidates:  []AssetCandidate{{ID: "candidate-1", AssetID: "asset-1", SourceOutMs: 5000}},
 	}}
-	if err := validateCandidateSets(sets); err == nil || !strings.Contains(err.Error(), "requires 2 unique materials") {
+	if _, err := buildPlannerInput("束裤带", "完整展示动作。", sets); err == nil || !strings.Contains(err.Error(), "no globally unique material assignment") {
 		t.Fatalf("expected long visual beat to require two assets, got %v", err)
 	}
 }
 
-func TestMaterializeEditPlanRejectsDifferentCandidatesForSameAsset(t *testing.T) {
-	sets := []CandidateSet{{
-		Requirement: ShotRequirement{
-			VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1600,
-			NarrationText: "展示产品。", VisualGoal: "展示产品", SourceType: "visual_only",
-		},
-		Candidates: []AssetCandidate{
-			{ID: "candidate-a", AssetID: "asset-shared", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2000},
-			{ID: "candidate-b", AssetID: "asset-shared", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2000},
-		},
-	}}
-	_, err := materializeEditPlan(modelgateway.EditPlanResult{Clips: []modelgateway.EditPlanClipChoice{
-		{VisualBeatID: "visual-1", CandidateID: "candidate-a", StartMs: 0, EndMs: 800, SourceInMs: 0, SourceOutMs: 800, Label: "第一段", VisualGoal: "展示产品"},
-		{VisualBeatID: "visual-1", CandidateID: "candidate-b", StartMs: 800, EndMs: 1600, SourceInMs: 800, SourceOutMs: 1600, Label: "第二段", VisualGoal: "展示产品"},
-	}}, sets)
-	if err == nil || !strings.Contains(err.Error(), "reuses asset") {
-		t.Fatalf("expected candidates from the same asset to be rejected, got %v", err)
+func TestBuildDeterministicSlotsAvoidsActionDeadZone(t *testing.T) {
+	if padding := visualBeatTimelinePadding(modelgateway.VisualDurationClassAction, 3180); padding != 0 {
+		t.Fatalf("expected complete 3180ms action narration to need no artificial padding, padding=%d", padding)
+	}
+	if padding := visualBeatTimelinePadding(modelgateway.VisualDurationClassAction, 3190); padding != 0 {
+		t.Fatalf("expected complete 3190ms action narration to need no artificial padding, padding=%d", padding)
+	}
+	if padding := visualBeatTimelinePadding(modelgateway.VisualDurationClassAction, 2700); padding != 100 {
+		t.Fatalf("expected a short action to be padded only to 2800ms, padding=%d", padding)
+	}
+	if padding := visualBeatTimelinePadding(modelgateway.VisualDurationClassAction, 3540); padding != 60 {
+		t.Fatalf("expected a native dead-zone action to normalize to 3600ms, padding=%d", padding)
+	}
+
+	nextSlotID := 1
+	slots, err := buildDeterministicEditPlanSlots(ShotRequirement{
+		StartMs: 0, EndMs: 3500, DurationClass: VisualBeatDurationAction,
+	}, &nextSlotID)
+	if err != nil {
+		t.Fatalf("build action slots: %v", err)
+	}
+	if len(slots) != 1 || slots[0].DurationMs != 3500 || slots[0].Role != modelgateway.EditPlanSlotRoleActionPrimary {
+		t.Fatalf("expected one complete action slot, got %#v", slots)
+	}
+
+	nextSlotID = 1
+	slots, err = buildDeterministicEditPlanSlots(ShotRequirement{
+		StartMs: 0, EndMs: 4070, DurationClass: VisualBeatDurationAction,
+	}, &nextSlotID)
+	if err != nil {
+		t.Fatalf("build split action slots: %v", err)
+	}
+	if len(slots) != 2 || slots[0].DurationMs != 3270 || slots[1].DurationMs != 800 {
+		t.Fatalf("expected deterministic 3270ms + 800ms slots, got %#v", slots)
 	}
 }
