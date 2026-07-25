@@ -40,8 +40,8 @@
 如果本地 Agent 不走系统 PATH，可通过环境变量指定：
 
 ```powershell
-$env:FFMPEG_PATH="E:\tools\ffmpeg\bin\ffmpeg.exe"
-$env:FFPROBE_PATH="E:\tools\ffmpeg\bin\ffprobe.exe"
+$env:FFMPEG_PATH="C:\Tools\ffmpeg\bin\ffmpeg.exe"
+$env:FFPROBE_PATH="C:\Tools\ffmpeg\bin\ffprobe.exe"
 ```
 
 ## 环境变量
@@ -66,8 +66,8 @@ WORKER_CONCURRENCY=4
 LOCAL_AGENT_ADDR=127.0.0.1:58721
 VITE_API_PROXY_TARGET=http://video.example.com:10100
 
-DATABASE_URL=postgres://<db-user>:<db-password>@192.168.1.10:5432/aicut?sslmode=disable
-REDIS_ADDR=192.168.1.10:6379
+DATABASE_URL=postgres://<db-user>:<db-password>@db.example.internal:5432/<db-name>?sslmode=disable
+REDIS_ADDR=redis.example.internal:6379
 QUEUE_BACKEND=redis
 
 STORAGE_BACKEND=local
@@ -205,26 +205,29 @@ git add .
 git commit -m "更新说明"
 ```
 
-然后在 VSCode 本机 PowerShell 里执行：
+然后在本机 PowerShell 中显式指定部署目标：
 
 ```powershell
-.\scripts\deploy-server.ps1
+.\scripts\deploy-server.ps1 `
+  -HostName "server.example.com" `
+  -UserName "deploy" `
+  -RemoteDir "/opt/acrunu-fast-aicut"
 ```
 
-脚本默认配置：
+部署参数说明：
 
-- 服务器：`192.168.1.10`
-- 用户：`deploy`
-- 远程目录：`/opt/acrunu-fast-aicut`
+- `HostName`：服务器域名或 IP
+- `UserName`：SSH 用户
+- `RemoteDir`：服务器上的项目目录
 - 重建服务：`api`、`worker`、`web`
 
-正式 Web 入口：
+示例 Web 入口：
 
 ```text
 http://video.example.com:10100
 ```
 
-域名必须显式携带 `10100`。`http://video.example.com` 会访问不可用的 `80` 端口，DNS 无法代替客户端指定端口。
+未使用 `80/443` 端口时，访问地址必须显式携带 Web 服务端口。DNS 只负责域名解析，不能代替客户端指定端口。
 
 前端使用独立 Docker 镜像构建，并由 `web` 容器内的 Nginx 提供静态页面，同时将同源 `/api` 和 `/storage` 请求转发到 Docker 网络中的 `api:8080`。服务器宿主机不需要安装或配置 Nginx。API 的宿主机端口默认仅绑定回环地址：
 
@@ -241,13 +244,13 @@ WEB_BIND_ADDR=0.0.0.0
 WEB_PORT=10100
 ```
 
-当前服务器使用私网地址 `192.168.1.10`，域名 `video.example.com` 指向公网网关。因此还需要在公网网关配置 TCP 端口映射：
+服务器位于 NAT 网关后时，需要在公网网关配置 TCP 端口映射。例如：
 
 ```text
 公网 203.0.113.10:10100 -> 192.168.1.10:10100
 ```
 
-如果网关不支持 NAT 回环，局域网设备直接访问公网域名可能失败。应在局域网 DNS 中将 `video.example.com` 解析为 `192.168.1.10`，或仅在测试设备的 hosts 中配置该映射；公网设备仍使用公网 DNS 记录。
+如果网关不支持 NAT 回环，局域网设备直接访问公网域名可能失败。可以使用内外网分离 DNS，让局域网将业务域名解析到服务器私网地址，公网仍使用正常 DNS 记录。
 
 部署后验证：
 
@@ -276,7 +279,7 @@ CosyVoice 首次启动会下载模型并加载到 GPU，健康检查最多允许
 `-RunMigrations` 会先在服务器上构建 `aicut-migrator:latest`，再启动一个临时 Docker 容器运行 `goose`，不要求本机或服务器系统安装 `goose`。该容器复用 `aicut-postgres` 的网络命名空间，并连接：
 
 ```text
-postgres://<db-user>:<db-password>@localhost:5432/aicut?sslmode=disable
+postgres://<db-user>:<db-password>@localhost:5432/<db-name>?sslmode=disable
 ```
 
 首次执行时服务器可能需要拉取 `golang:1.25-bookworm` 镜像并构建迁移镜像，耗时会稍长。
@@ -304,7 +307,7 @@ go install github.com/pressly/goose/v3/cmd/goose@latest
 执行迁移：
 
 ```powershell
-$env:DATABASE_URL="postgres://<db-user>:<db-password>@192.168.1.10:5432/aicut?sslmode=disable"
+$env:DATABASE_URL="postgres://<db-user>:<db-password>@db.example.internal:5432/<db-name>?sslmode=disable"
 goose -dir ./migrations postgres $env:DATABASE_URL up
 ```
 
@@ -313,7 +316,7 @@ goose -dir ./migrations postgres $env:DATABASE_URL up
 后端测试：
 
 ```powershell
-& 'C:\Program Files\Go\bin\go.exe' test ./...
+go test ./...
 ```
 
 前端构建：
