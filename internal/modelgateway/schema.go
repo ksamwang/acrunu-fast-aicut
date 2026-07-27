@@ -47,6 +47,7 @@ var lowValueSceneDescriptionPhrases = []string{
 }
 
 var lowValueActionDescriptionPhrases = []string{
+	"无明显操作",
 	"持续展示",
 	"静态展示",
 	"未见明显操作",
@@ -165,6 +166,15 @@ func analyzeAssetResultIssues(result AnalyzeAssetResult) []string {
 	if !result.PeoplePresence && containsAnyPhrase(sceneDescription+" "+actionDescription, humanEvidencePhrases) {
 		issues = append(issues, "people_presence must be true when a person or human hand is described")
 	}
+	return issues
+}
+
+// Quality issues trigger one corrective provider request, but do not discard an
+// otherwise valid analysis when the provider repeats a generic phrase.
+func analyzeAssetResultRepairIssues(result AnalyzeAssetResult) []string {
+	issues := append([]string(nil), analyzeAssetResultIssues(result)...)
+	sceneDescription := strings.TrimSpace(result.SceneDescription)
+	actionDescription := strings.TrimSpace(result.ActionDescription)
 	if phrase := firstContainedPhrase(sceneDescription, lowValueSceneDescriptionPhrases); phrase != "" {
 		issues = append(issues, fmt.Sprintf("scene_description contains low-value presentation phrase %q", phrase))
 	}

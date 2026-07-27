@@ -14,15 +14,19 @@ import (
 )
 
 type stubAnalyzer struct {
-	result modelgateway.AnalyzeAssetResult
-	err    error
+	result   modelgateway.AnalyzeAssetResult
+	err      error
+	captured *modelgateway.AnalyzeAssetInput
 }
 
 type stubAssetQueue struct {
 	enqueuedAnalyze []queue.AssetAnalyzePayload
 }
 
-func (s stubAnalyzer) AnalyzeAsset(_ context.Context, _ modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
+func (s stubAnalyzer) AnalyzeAsset(_ context.Context, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
+	if s.captured != nil {
+		*s.captured = input
+	}
 	if s.err != nil {
 		return modelgateway.AnalyzeAssetResult{}, s.err
 	}
@@ -148,7 +152,9 @@ func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 		t.Fatalf("create asset failed: %v", err)
 	}
 
+	var analyzerInput modelgateway.AnalyzeAssetInput
 	processing := NewAssetProcessingService("", service, nil, nil, stubAnalyzer{
+		captured: &analyzerInput,
 		result: modelgateway.AnalyzeAssetResult{
 			UsabilityStatus:  "usable",
 			SceneDescription: "product demo shot",
@@ -177,6 +183,9 @@ func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 	}
 	if updated.AnalyzedAt == nil {
 		t.Fatalf("expected analyzed_at to be set")
+	}
+	if analyzerInput.ProductName != product.Name {
+		t.Fatalf("expected analyzer input to include product name %q, got %q", product.Name, analyzerInput.ProductName)
 	}
 }
 

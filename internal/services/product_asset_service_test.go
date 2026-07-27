@@ -669,16 +669,23 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	if preview.OpenSemanticDescription == "" {
 		t.Fatalf("expected open semantic description")
 	}
-	for _, expected := range []string{"P1", "easy installation", manualAction, "indoor studio"} {
+	for _, expected := range []string{"P1", asset.SceneDescription, manualAction} {
 		if !strings.Contains(preview.OpenSemanticDescription, expected) {
 			t.Fatalf("expected semantic text to contain %q, got %s", expected, preview.OpenSemanticDescription)
 		}
 	}
+	for _, excluded := range []string{
+		"easy installation", "indoor studio", "关联卖点：", "素材类型：", "景别：", "运镜：",
+		"主体：", "场景标签：", "质量标签：", "画面人物：", "人物露脸：", "光线：", "是否有人声：",
+	} {
+		if strings.Contains(preview.OpenSemanticDescription, excluded) {
+			t.Fatalf("expected compact retrieval text to exclude %q, got %s", excluded, preview.OpenSemanticDescription)
+		}
+	}
 	sceneIndex := strings.Index(preview.OpenSemanticDescription, "画面描述：")
 	actionIndex := strings.Index(preview.OpenSemanticDescription, "动作：")
-	sellingPointIndex := strings.Index(preview.OpenSemanticDescription, "关联卖点：")
-	if sceneIndex < 0 || actionIndex <= sceneIndex || sellingPointIndex <= actionIndex {
-		t.Fatalf("expected product scene and action before secondary semantics, got %s", preview.OpenSemanticDescription)
+	if sceneIndex < 0 || actionIndex <= sceneIndex {
+		t.Fatalf("expected product scene and action in retrieval order, got %s", preview.OpenSemanticDescription)
 	}
 	if len(preview.EmbeddingTargets) != 2 {
 		t.Fatalf("expected shot + speech_segment targets, got %d", len(preview.EmbeddingTargets))
@@ -695,8 +702,46 @@ func TestBuildAssetSemanticPreviewInMemory(t *testing.T) {
 	if preview.EmbeddingTargets[0].Metadata["visible_product"] != true {
 		t.Fatalf("expected visible product metadata, got %#v", preview.EmbeddingTargets[0].Metadata)
 	}
+	if sellingPoints, ok := preview.EmbeddingTargets[0].Metadata["selling_point_texts"].([]string); !ok || len(sellingPoints) != 1 {
+		t.Fatalf("expected selling points to remain available as metadata, got %#v", preview.EmbeddingTargets[0].Metadata)
+	}
 	if preview.EmbeddingTargets[1].ObjectType != "speech_segment" {
 		t.Fatalf("expected second target to be speech_segment, got %#v", preview.EmbeddingTargets[1])
+	}
+}
+
+func TestBuildOpenSemanticDescriptionKeepsOnlyDiscriminativeShotEvidence(t *testing.T) {
+	asset := Asset{
+		SourceType:        "visual_only",
+		SceneDescription:  "杜邦车包安装在车把上，顶部袋口打开",
+		ActionDescription: "手拉开顶部拉链，袋口由闭合变为打开",
+		ShotSize:          "close_up",
+		CameraMovement:    "static",
+		Subjects:          []string{"人物", "自行车"},
+		SceneTags:         []string{"杜邦车包", "拉开顶部拉链", "户外", "自然光"},
+		QualityTags:       []string{"画面清晰", "背景虚化"},
+		LikelyHasSpeech:   true,
+		ReviewerNotes:     "适合产品功能说明",
+		ModelLabels: map[string]any{
+			"scene_context":      "蓝天绿树公园",
+			"visible_product":    false,
+			"product_position":   "车把前方",
+			"people_presence":    true,
+			"face_visible":       false,
+			"lighting_condition": "自然光",
+		},
+	}
+
+	text := buildOpenSemanticDescription(asset, "杜邦车包")
+	for _, expected := range []string{"产品：杜邦车包", asset.SceneDescription, asset.ActionDescription, "检索标签：拉开顶部拉链"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected compact semantic text to contain %q, got %s", expected, text)
+		}
+	}
+	for _, excluded := range []string{"蓝天", "绿树", "公园", "自然光", "背景虚化", "人物", "自行车", "有人声", "close_up", "static", "适合产品功能说明"} {
+		if strings.Contains(text, excluded) {
+			t.Fatalf("expected compact semantic text to exclude %q, got %s", excluded, text)
+		}
 	}
 }
 

@@ -140,6 +140,76 @@ func TestOpenAICompatibleAnalyzerRepairsLowValueAnalysisOnce(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleAnalyzerKeepsValidResultWhenRepairStillUsesGenericWording(t *testing.T) {
+	tempDir := t.TempDir()
+	framePath := filepath.Join(tempDir, "frame.jpg")
+	if err := os.WriteFile(framePath, []byte("jpeg"), 0644); err != nil {
+		t.Fatalf("write frame failed: %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": `{"scene_description":"杜邦车包安装在车把上，包体清晰可见","shot_size":"close_up","camera_movement":"static","visual_tags":["杜邦车包","车把安装"],"quality_tags":["画面清晰"],"visible_product":true,"product_position":"车把前方","scene_context":"户外","action_description":"无明显操作，持续展示车把安装状态","people_presence":false,"face_visible":false,"lighting_condition":"自然光"}`}}},
+		})
+	}))
+	defer server.Close()
+
+	analyzer := NewOpenAICompatibleAnalyzer(Config{BaseURL: server.URL, Model: "vlm-test"})
+	result, err := analyzer.AnalyzeAsset(t.Context(), AnalyzeAssetInput{
+		AssetID: "asset-1",
+		FrameSnapshots: []FrameReference{
+			{FrameIndex: 0, TimestampMs: 0, StorageKey: framePath},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected valid repaired result to be retained, got %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected exactly one repair request, got %d", requests)
+	}
+	if warnings, ok := result.ModelResult["quality_warnings"].([]string); !ok || len(warnings) == 0 {
+		t.Fatalf("expected remaining quality warnings in model metadata, got %#v", result.ModelResult)
+	}
+}
+
+func TestOpenAICompatibleAnalyzerNormalizesContradictoryProductVisibility(t *testing.T) {
+	tempDir := t.TempDir()
+	framePath := filepath.Join(tempDir, "frame.jpg")
+	if err := os.WriteFile(framePath, []byte("jpeg"), 0644); err != nil {
+		t.Fatalf("write frame failed: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": `{"scene_description":"杜邦车包安装在车把前方","shot_size":"close_up","camera_movement":"static","visual_tags":["杜邦车包","车把安装"],"quality_tags":[],"visible_product":false,"product_position":"车把前方","scene_context":"户外","action_description":"车把安装状态","people_presence":false,"face_visible":false,"lighting_condition":"自然光"}`}}},
+		})
+	}))
+	defer server.Close()
+
+	analyzer := NewOpenAICompatibleAnalyzer(Config{BaseURL: server.URL, Model: "vlm-test"})
+	result, err := analyzer.AnalyzeAsset(t.Context(), AnalyzeAssetInput{
+		AssetID:     "asset-1",
+		SourceType:  "visual_only",
+		ProductName: "杜邦车包",
+		FrameSnapshots: []FrameReference{
+			{FrameIndex: 0, TimestampMs: 0, StorageKey: framePath},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AnalyzeAsset failed: %v", err)
+	}
+	if !result.VisibleProduct {
+		t.Fatalf("expected product visibility to be normalized, got %#v", result)
+	}
+	if normalized, _ := result.ModelResult["visible_product_normalized"].(bool); !normalized {
+		t.Fatalf("expected normalization metadata, got %#v", result.ModelResult)
+	}
+}
+
 func TestDecodeAnalyzeAssetResultNormalizesStringBooleans(t *testing.T) {
 	result, err := decodeAnalyzeAssetResult(`{
 		"scene_description":"车内产品亮灯展示",

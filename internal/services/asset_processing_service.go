@@ -178,10 +178,15 @@ func (s *AssetProcessingService) handleAssetAnalyze(ctx context.Context, payload
 			StorageKey:  frame.StorageKey,
 		})
 	}
+	productName := ""
+	if product, err := s.productAssetService.GetProduct(asset.ProductID); err == nil {
+		productName = product.Name
+	}
 
 	result, err := s.analyzer.AnalyzeAsset(ctx, modelgateway.AnalyzeAssetInput{
 		AssetID:        asset.ID,
 		SourceType:     asset.SourceType,
+		ProductName:    productName,
 		DurationMs:     asset.DurationMs,
 		Width:          asset.Width,
 		Height:         asset.Height,

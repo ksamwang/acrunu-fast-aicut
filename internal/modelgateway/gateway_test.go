@@ -67,24 +67,27 @@ func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
 	for _, expected := range []string{
 		"retrieval summaries, not exhaustive inventories",
 		"target product identity is authoritative",
+		"exact supplied product name",
 		"Internally distinguish product identity",
 		"visible state",
 		"temporal action",
 		"visible evidence",
-		"what this clip can visually support",
+		"compact semantic index",
+		"automatic editor's visual_goal",
 		"initial state -> visible operation -> visible result",
-		"无明显操作，展示",
-		"Do not write filler",
+		"Inspect every ordered frame",
+		"write only the concrete visible product state",
+		"visual_tags must contain only 3 to 6 retrieval terms",
 		"directly demonstrated by the ordered frames",
 		"people_presence must be true whenever any human body part is visible",
-		"normally no more than 50 Chinese characters",
+		"normally no more than 40 Chinese characters",
 	} {
 		if !strings.Contains(visualBundle.Prompts[0].User, expected) {
 			t.Fatalf("expected product-centered description rule %q, got %s", expected, visualBundle.Prompts[0].User)
 		}
 	}
-	if strings.Contains(visualBundle.Prompts[0].User, "explicitly describe a static product display") {
-		t.Fatalf("expected phase2-v5 prompt to remove the static-display fallback, got %s", visualBundle.Prompts[0].User)
+	if strings.Contains(visualBundle.Prompts[0].User, "无明显操作，展示") {
+		t.Fatalf("expected phase2-v6 prompt to remove generic no-operation output, got %s", visualBundle.Prompts[0].User)
 	}
 
 	talkingHeadBundle := BuildPromptBundle(AnalyzeAssetInput{
@@ -112,7 +115,7 @@ func TestValidateAnalyzeAssetResultRejectsInvalidValues(t *testing.T) {
 	}
 }
 
-func TestValidateAnalyzeAssetResultRejectsGenericAndContradictoryDescriptions(t *testing.T) {
+func TestValidateAnalyzeAssetResultRejectsContradictoryHumanMetadata(t *testing.T) {
 	result := AnalyzeAssetResult{
 		SceneDescription:  "人物佩戴杜邦车包，包体完整清晰可见",
 		ShotSize:          "medium_close_up",
@@ -131,9 +134,33 @@ func TestValidateAnalyzeAssetResultRejectsGenericAndContradictoryDescriptions(t 
 	if err == nil {
 		t.Fatalf("expected low-value and contradictory result to be rejected")
 	}
-	for _, expected := range []string{"people_presence must be true", "清晰可见", "持续展示"} {
-		if !strings.Contains(err.Error(), expected) {
-			t.Fatalf("expected validation error to include %q, got %v", expected, err)
+	if !strings.Contains(err.Error(), "people_presence must be true") {
+		t.Fatalf("expected validation error to include human metadata contradiction, got %v", err)
+	}
+}
+
+func TestAnalyzeAssetResultGenericPhrasesAreRepairIssuesNotValidationErrors(t *testing.T) {
+	result := AnalyzeAssetResult{
+		SceneDescription:  "杜邦车包固定在车把上，包体清晰可见",
+		ShotSize:          "close_up",
+		CameraMovement:    "static",
+		VisualTags:        []string{"杜邦车包", "车把安装"},
+		VisibleProduct:    true,
+		ProductPosition:   "车把前方",
+		SceneContext:      "户外",
+		ActionDescription: "无明显操作，持续展示车把安装状态",
+		PeoplePresence:    false,
+		FaceVisible:       false,
+		LightingCondition: "自然光",
+	}
+
+	if err := ValidateAnalyzeAssetResult(result); err != nil {
+		t.Fatalf("expected generic wording not to discard valid analysis, got %v", err)
+	}
+	issues := strings.Join(analyzeAssetResultRepairIssues(result), " ")
+	for _, expected := range []string{"清晰可见", "无明显操作"} {
+		if !strings.Contains(issues, expected) {
+			t.Fatalf("expected repair issues to include %q, got %s", expected, issues)
 		}
 	}
 }
@@ -147,7 +174,7 @@ func TestValidateAnalyzeAssetResultAcceptsConcreteStaticRetrievalDescription(t *
 		VisibleProduct:    true,
 		ProductPosition:   "人物腰侧",
 		SceneContext:      "户外骑行场景",
-		ActionDescription: "无明显操作，展示杜邦车包斜挎佩戴效果",
+		ActionDescription: "斜挎贴合腰侧的佩戴状态",
 		PeoplePresence:    true,
 		FaceVisible:       false,
 		LightingCondition: "自然光",

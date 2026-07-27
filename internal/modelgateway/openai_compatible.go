@@ -53,7 +53,7 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 	if err != nil {
 		return AnalyzeAssetResult{}, err
 	}
-	issues := analyzeAssetResultIssues(result)
+	issues := analyzeAssetResultRepairIssues(result)
 	if len(issues) == 0 {
 		result.ModelResult["repair_attempted"] = false
 		return result, nil
@@ -67,6 +67,9 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 	}
 	repaired.ModelResult["repair_attempted"] = true
 	repaired.ModelResult["repair_reasons"] = append([]string(nil), issues...)
+	if remainingIssues := analyzeAssetResultRepairIssues(repaired); len(remainingIssues) > 0 {
+		repaired.ModelResult["quality_warnings"] = append([]string(nil), remainingIssues...)
+	}
 	return repaired, nil
 }
 
@@ -186,7 +189,51 @@ func (a *OpenAICompatibleAnalyzer) requestAnalyzeAsset(ctx context.Context, inpu
 	result.ModelResult["frame_count"] = len(input.FrameSnapshots)
 	result.ModelResult["frame_sampling"] = "uniform_trim_range"
 	result.ModelResult["has_product_reference_image"] = input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != ""
-	return result, nil
+	return normalizeAnalyzeAssetResultForInput(result, input), nil
+}
+
+func normalizeAnalyzeAssetResultForInput(result AnalyzeAssetResult, input AnalyzeAssetInput) AnalyzeAssetResult {
+	if result.VisibleProduct || strings.TrimSpace(input.ProductName) == "" {
+		return result
+	}
+	if !hasConcreteProductPosition(result.ProductPosition) || !analysisMentionsProduct(result, input.ProductName) {
+		return result
+	}
+	if result.ModelResult == nil {
+		result.ModelResult = map[string]any{}
+	}
+	result.VisibleProduct = true
+	result.ModelResult["visible_product_normalized"] = true
+	return result
+}
+
+func analysisMentionsProduct(result AnalyzeAssetResult, productName string) bool {
+	productName = normalizeAnalysisDescription(productName)
+	if productName == "" {
+		return false
+	}
+	evidence := normalizeAnalysisDescription(strings.Join([]string{
+		result.SceneDescription,
+		result.ActionDescription,
+		strings.Join(result.VisualTags, " "),
+	}, " "))
+	return strings.Contains(evidence, productName)
+}
+
+func hasConcreteProductPosition(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" || normalized == "-" {
+		return false
+	}
+	for _, absentValue := range []string{
+		"not_visible", "not visible", "none", "unknown",
+		"不可见", "未出现", "没有出现", "未检测到", "未知", "不确定",
+	} {
+		if normalized == absentValue {
+			return false
+		}
+	}
+	return true
 }
 
 func analyzeAssetResultOutput(result AnalyzeAssetResult) map[string]any {

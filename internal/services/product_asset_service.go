@@ -601,7 +601,7 @@ func (s *ProductAssetService) BuildAssetSemanticPreview(assetID string) (AssetSe
 		return AssetSemanticPreview{}, err
 	}
 	sellingPointTexts := semanticSellingPointTexts(sellingPoints)
-	openDescription := buildOpenSemanticDescription(asset, productName, sellingPointTexts)
+	openDescription := buildOpenSemanticDescription(asset, productName)
 	metadata := buildShotEmbeddingMetadata(asset, productName, sellingPointTexts)
 	targets := []EmbeddingTarget{
 		{
@@ -2135,8 +2135,8 @@ func mustJSON(value any, fallback any) []byte {
 	return encoded
 }
 
-func buildOpenSemanticDescription(asset Asset, productName string, sellingPointTexts []string) string {
-	parts := make([]string, 0, 18)
+func buildOpenSemanticDescription(asset Asset, productName string) string {
+	parts := make([]string, 0, 4)
 	if productName != "" {
 		parts = append(parts, "产品："+productName)
 	}
@@ -2146,60 +2146,57 @@ func buildOpenSemanticDescription(asset Asset, productName string, sellingPointT
 	if asset.ActionDescription != "" {
 		parts = append(parts, "动作："+asset.ActionDescription)
 	}
-	if len(sellingPointTexts) > 0 {
-		parts = append(parts, "关联卖点："+strings.Join(sellingPointTexts, "、"))
-	}
-	parts = append(parts, "素材类型："+sourceTypeDisplay(asset.SourceType))
-	if asset.ShotSize != "" {
-		parts = append(parts, "景别："+shotSizeDisplay(asset.ShotSize))
-	}
-	if asset.CameraMovement != "" {
-		parts = append(parts, "运镜："+cameraMovementDisplay(asset.CameraMovement))
-	}
-	if len(asset.Subjects) > 0 {
-		parts = append(parts, "主体："+strings.Join(asset.Subjects, "、"))
-	}
-	if len(asset.SceneTags) > 0 {
-		parts = append(parts, "场景标签："+strings.Join(asset.SceneTags, "、"))
-	}
-	if len(asset.QualityTags) > 0 {
-		parts = append(parts, "质量标签："+strings.Join(asset.QualityTags, "、"))
-	}
-	if sceneContext := stringValueFromMap(asset.ModelLabels, "scene_context"); sceneContext != "" {
-		parts = append(parts, "场景："+sceneContext)
-	}
-	if visibleProduct, ok := boolValueFromMap(asset.ModelLabels, "visible_product"); ok {
-		parts = append(parts, "目标产品可见："+boolDisplay(visibleProduct))
-	}
-	if productPosition := stringValueFromMap(asset.ModelLabels, "product_position"); productPosition != "" {
-		parts = append(parts, "产品位置："+productPosition)
-	}
-	if peoplePresence, ok := boolValueFromMap(asset.ModelLabels, "people_presence"); ok {
-		parts = append(parts, "画面人物："+boolDisplay(peoplePresence))
-	}
-	if faceVisible, ok := boolValueFromMap(asset.ModelLabels, "face_visible"); ok {
-		parts = append(parts, "人物露脸："+boolDisplay(faceVisible))
-	}
-	if lightingCondition := stringValueFromMap(asset.ModelLabels, "lighting_condition"); lightingCondition != "" {
-		parts = append(parts, "光线："+lightingCondition)
-	}
-	parts = append(parts, "是否有人声："+boolDisplay(asset.LikelyHasSpeech))
-	if curated, ok := asset.Metadata["is_curated"].(bool); ok && curated {
-		parts = append(parts, "精选素材：是")
-	}
-	if businessTags := stringSliceValueFromMap(asset.Metadata, "business_tags"); len(businessTags) > 0 {
-		parts = append(parts, "业务标签："+strings.Join(businessTags, "、"))
-	}
-	if roles := stringSliceValueFromMap(asset.Metadata, "narrative_roles"); len(roles) > 0 {
-		parts = append(parts, "叙事角色："+strings.Join(roles, "、"))
-	}
-	if usageNotes := stringValueFromMap(asset.Metadata, "usage_notes"); usageNotes != "" {
-		parts = append(parts, "使用建议："+usageNotes)
-	}
-	if asset.ReviewerNotes != "" {
-		parts = append(parts, "复核备注："+asset.ReviewerNotes)
+	if tags := compactShotRetrievalTags(asset, productName); len(tags) > 0 {
+		parts = append(parts, "检索标签："+strings.Join(tags, "、"))
 	}
 	return strings.Join(parts, "；")
+}
+
+func compactShotRetrievalTags(asset Asset, productName string) []string {
+	evidence := normalizeSemanticText(asset.SceneDescription + " " + asset.ActionDescription)
+	product := normalizeSemanticText(productName)
+	seen := map[string]struct{}{}
+	tags := make([]string, 0, 4)
+	for _, value := range asset.SceneTags {
+		tag := strings.TrimSpace(value)
+		normalized := normalizeSemanticText(tag)
+		if normalized == "" || normalized == product || len([]rune(normalized)) < 2 {
+			continue
+		}
+		if _, exists := seen[normalized]; exists || isShotRetrievalNoiseTag(normalized) {
+			continue
+		}
+		if evidence == "" || !strings.Contains(evidence, normalized) {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		tags = append(tags, tag)
+		if len(tags) == 4 {
+			break
+		}
+	}
+	return tags
+}
+
+func normalizeSemanticText(value string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\r', '\n', ',', '，', '。', '.', '、', ';', '；', ':', '：':
+			return -1
+		default:
+			return r
+		}
+	}, strings.TrimSpace(value))
+}
+
+func isShotRetrievalNoiseTag(value string) bool {
+	switch value {
+	case "户外", "室内", "公园", "草地", "蓝天", "绿树", "自然光", "背景虚化",
+		"人物", "男人", "女人", "手部", "画面清晰", "清晰", "固定机位":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildShotEmbeddingMetadata(asset Asset, productName string, sellingPointTexts []string) map[string]any {
