@@ -18,7 +18,7 @@ type PromptBundle struct {
 	Prompts []PromptSpec   `json:"prompts"`
 }
 
-const PromptVersion = "phase2-v4"
+const PromptVersion = "phase2-v5"
 const ScriptGenerationPromptVersion = "workbench-script-v2"
 const EditPlanPromptVersion = "workbench-edit-plan-v5"
 const VisualPlanPromptVersion = "workbench-visual-plan-v7"
@@ -52,7 +52,18 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 	}
 	targetProductRules := ""
 	if productContext != "" || referenceContext != "" {
-		targetProductRules = " Product grounding contract: The target product identity is authoritative and is defined only by the supplied product name and reference image. Never infer, rename, narrow, or expand the product category from its shape, folded state, viewing angle, installation state, carrier object, or surrounding scene. Internally distinguish product identity (what it is), visible state (for example folded, stretched, attached, worn, held, or stationary), and temporal action (what visibly changes across the ordered frames). When the target product is visible, refer to it using the supplied product identity and make it the subject of scene_description and action_description. scene_description must state the primary product state, attachment relationship, and visible result; include only context needed to understand product use, and do not inventory background, clothing, colors, or unrelated objects. action_description must state one primary product-related operation, visible state change, and visible result supported by the chronological frames. If no product-related temporal change occurs, explicitly describe a static product display instead of inventing an operation or purpose. Do not infer product purpose from appearance alone. Avoid generic wording that merely says a person holds or displays a product; state exactly what is visibly operated, changed, fixed, stretched, attached, removed, or shown. Before returning JSON, verify that the product identity still matches the supplied product name and reference image, every action is supported by chronological frame evidence, and every retained detail improves retrieval. Do not confuse the target product with carrier or background objects. visible_product means the target product is visible in the video frames. product_position must describe the target product's position or attachment relationship; use not_visible when it is absent. visual_tags must preserve the supplied product identity and describe visible states rather than inventing another product category."
+		targetProductRules = " " + strings.Join([]string{
+			"Product grounding contract: The target product identity is authoritative and is defined only by the supplied product name and reference image.",
+			"Never infer, rename, narrow, or expand the product category from its shape, folded state, viewing angle, installation state, carrier object, or surrounding scene.",
+			"Internally distinguish product identity (what it is), visible state (how it appears or is attached), temporal action (what visibly changes), and visible evidence (what use or result this clip directly demonstrates).",
+			"When the target product is visible, use the supplied product identity and make it the subject of scene_description and action_description.",
+			"scene_description is the retrieval description of what this clip can visually support. Lead with the most distinctive visible evidence, operation result, or usage state, then add only the attachment relationship or context needed to understand it. Prefer evidence such as wearing/carrying, handlebar attachment, opening or closing, inserting or removing an object, tightening an elastic cord or strap, water spraying the surface, or showing capacity. Do not let a common location such as fixed on the handlebar hide a more distinctive event.",
+			"action_description must describe one primary chronological action as initial state -> visible operation -> visible result. Select the dominant operation when the frames contain unrelated actions; do not combine multiple operations merely to inventory the clip.",
+			"If there is no meaningful product-related change, write a concrete no-operation retrieval statement in the form 无明显操作，展示<specific visible usage state or effect>. Do not write filler such as 持续展示, 静态展示, 清晰可见, 完整展示, 保持展示状态, 未见变化, or 未见拆装.",
+			"You may name a usage or effect that is directly demonstrated by the ordered frames, such as 斜挎携带, 车把安装, 拉链开合, 放入或取出物品, 弹力固定, or 防泼水展示. Do not claim hidden specifications, certification, absolute waterproofing, durability, or another effect that the frames cannot establish.",
+			"Before returning JSON, verify that the identity matches the supplied product, the first/middle/last frames support the described transition, and both descriptions contain evidence useful for retrieval rather than generic presentation language.",
+			"Do not confuse the target product with carrier or background objects. visible_product means the target product is visible in the video frames. product_position must describe the target product's position or attachment relationship; use not_visible when it is absent. visual_tags must preserve the product identity and prioritize the distinctive action, state, and result.",
+		}, " ")
 	}
 
 	return PromptBundle{
@@ -69,7 +80,8 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 					"Judge shot_size by the target subject or target product, not by the surrounding environment or carrier object. " +
 					"camera_movement enum: static, pan, tilt, push_in, pull_out, tracking, orbit, zoom, handheld, mixed, unknown. " +
 					"Judge camera movement only from camera motion, not subject motion. If the camera is fixed while a person or product moves, return static. Use unknown when the sampled frames are insufficient to infer movement reliably. Do not use slow_push_in; speed is not part of this field. " +
-					"scene_description and action_description are retrieval summaries, not exhaustive inventories. Use one focused Chinese sentence for each, normally no more than 50 Chinese characters. scene_description summarizes the primary retrievable visual and product state. action_description summarizes the primary visible action and its result from the chronological frame sequence. Do not repeat the same sentence in both fields. " +
+					"scene_description and action_description are retrieval summaries, not exhaustive inventories. Use one focused Chinese sentence for each, normally no more than 50 Chinese characters. Do not repeat the same sentence in both fields. Avoid generic presentation wording when a more distinctive visible action, usage state, or result exists. " +
+					"people_presence must be true whenever any human body part is visible, including only a hand, arm, torso, leg, or back; it is false only when no human body part appears. face_visible cannot be true when people_presence is false. " +
 					"Use concise Chinese values for descriptions/tags where possible. " + contextLine + productContext + referenceContext + targetProductRules,
 			},
 		},

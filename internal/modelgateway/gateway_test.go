@@ -70,14 +70,21 @@ func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
 		"Internally distinguish product identity",
 		"visible state",
 		"temporal action",
-		"explicitly describe a static product display",
-		"Do not infer product purpose from appearance alone",
-		"every action is supported by chronological frame evidence",
+		"visible evidence",
+		"what this clip can visually support",
+		"initial state -> visible operation -> visible result",
+		"无明显操作，展示",
+		"Do not write filler",
+		"directly demonstrated by the ordered frames",
+		"people_presence must be true whenever any human body part is visible",
 		"normally no more than 50 Chinese characters",
 	} {
 		if !strings.Contains(visualBundle.Prompts[0].User, expected) {
 			t.Fatalf("expected product-centered description rule %q, got %s", expected, visualBundle.Prompts[0].User)
 		}
+	}
+	if strings.Contains(visualBundle.Prompts[0].User, "explicitly describe a static product display") {
+		t.Fatalf("expected phase2-v5 prompt to remove the static-display fallback, got %s", visualBundle.Prompts[0].User)
 	}
 
 	talkingHeadBundle := BuildPromptBundle(AnalyzeAssetInput{
@@ -102,6 +109,51 @@ func TestValidateAnalyzeAssetResultRejectsInvalidValues(t *testing.T) {
 	var gatewayErr *Error
 	if !errors.As(err, &gatewayErr) || gatewayErr.Code != ErrorCodeInvalidResponse {
 		t.Fatalf("expected invalid response error, got %v", err)
+	}
+}
+
+func TestValidateAnalyzeAssetResultRejectsGenericAndContradictoryDescriptions(t *testing.T) {
+	result := AnalyzeAssetResult{
+		SceneDescription:  "人物佩戴杜邦车包，包体完整清晰可见",
+		ShotSize:          "medium_close_up",
+		CameraMovement:    "static",
+		VisualTags:        []string{"杜邦车包", "斜挎"},
+		VisibleProduct:    true,
+		ProductPosition:   "人物腰侧",
+		SceneContext:      "户外",
+		ActionDescription: "视频持续展示人物佩戴的杜邦车包，未见位置变化",
+		PeoplePresence:    false,
+		FaceVisible:       false,
+		LightingCondition: "自然光",
+	}
+
+	err := ValidateAnalyzeAssetResult(result)
+	if err == nil {
+		t.Fatalf("expected low-value and contradictory result to be rejected")
+	}
+	for _, expected := range []string{"people_presence must be true", "清晰可见", "持续展示"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("expected validation error to include %q, got %v", expected, err)
+		}
+	}
+}
+
+func TestValidateAnalyzeAssetResultAcceptsConcreteStaticRetrievalDescription(t *testing.T) {
+	err := ValidateAnalyzeAssetResult(AnalyzeAssetResult{
+		SceneDescription:  "杜邦车包斜挎在人物腰侧，展示贴身携带效果",
+		ShotSize:          "medium_close_up",
+		CameraMovement:    "static",
+		VisualTags:        []string{"杜邦车包", "斜挎携带"},
+		VisibleProduct:    true,
+		ProductPosition:   "人物腰侧",
+		SceneContext:      "户外骑行场景",
+		ActionDescription: "无明显操作，展示杜邦车包斜挎佩戴效果",
+		PeoplePresence:    true,
+		FaceVisible:       false,
+		LightingCondition: "自然光",
+	})
+	if err != nil {
+		t.Fatalf("expected concrete static retrieval description to pass, got %v", err)
 	}
 }
 

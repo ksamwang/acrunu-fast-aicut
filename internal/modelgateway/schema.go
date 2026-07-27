@@ -34,6 +34,50 @@ var allowedCameraMovements = map[string]struct{}{
 	"slow_push_in": {}, // Legacy value kept for previously stored/provider results.
 }
 
+var lowValueSceneDescriptionPhrases = []string{
+	"清晰可见",
+	"完整可见",
+	"完整展示",
+	"持续展示",
+	"静态展示",
+	"保持展示状态",
+	"保持固定可见",
+	"展示整体外观",
+	"产品完整展示",
+}
+
+var lowValueActionDescriptionPhrases = []string{
+	"持续展示",
+	"静态展示",
+	"未见明显操作",
+	"未见操作",
+	"未见拆装",
+	"未见开合",
+	"未见状态变化",
+	"未发生明显操作",
+	"未发生明显变化",
+	"未发生操作变化",
+	"保持静止",
+	"状态无明显变化",
+	"全程保持固定展示",
+	"全程保持固定安装",
+}
+
+var humanEvidencePhrases = []string{
+	"人物",
+	"骑行者",
+	"佩戴者",
+	"双手",
+	"手部",
+	"手指",
+	"手持",
+	"手将",
+	"手从",
+	"手扶",
+	"手托",
+	"人手",
+}
+
 func AnalyzeAssetOutputSchema() map[string]any {
 	return map[string]any{
 		"version": OutputSchemaVersion,
@@ -85,25 +129,76 @@ func AnalyzeAssetOutputSchema() map[string]any {
 }
 
 func ValidateAnalyzeAssetResult(result AnalyzeAssetResult) error {
+	issues := analyzeAssetResultIssues(result)
+	if len(issues) == 0 {
+		return nil
+	}
+	return NewError(ErrorCodeInvalidResponse, "invalid asset analysis: "+strings.Join(issues, "; "), false, nil)
+}
+
+func analyzeAssetResultIssues(result AnalyzeAssetResult) []string {
+	issues := make([]string, 0, 6)
 	if _, ok := allowedShotSizes[result.ShotSize]; !ok {
-		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("invalid shot_size: %s", result.ShotSize), false, nil)
+		issues = append(issues, fmt.Sprintf("invalid shot_size: %s", result.ShotSize))
 	}
 	if _, ok := allowedCameraMovements[result.CameraMovement]; !ok {
-		return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("invalid camera_movement: %s", result.CameraMovement), false, nil)
+		issues = append(issues, fmt.Sprintf("invalid camera_movement: %s", result.CameraMovement))
 	}
-	if strings.TrimSpace(result.SceneDescription) == "" {
-		return NewError(ErrorCodeInvalidResponse, "scene_description is required", false, nil)
+
+	sceneDescription := strings.TrimSpace(result.SceneDescription)
+	actionDescription := strings.TrimSpace(result.ActionDescription)
+	if sceneDescription == "" {
+		issues = append(issues, "scene_description is required")
 	}
 	if len(result.VisualTags) == 0 {
-		return NewError(ErrorCodeInvalidResponse, "visual_tags is required", false, nil)
+		issues = append(issues, "visual_tags is required")
 	}
 	if strings.TrimSpace(result.SceneContext) == "" {
-		return NewError(ErrorCodeInvalidResponse, "scene_context is required", false, nil)
+		issues = append(issues, "scene_context is required")
 	}
-	if strings.TrimSpace(result.ActionDescription) == "" {
-		return NewError(ErrorCodeInvalidResponse, "action_description is required", false, nil)
+	if actionDescription == "" {
+		issues = append(issues, "action_description is required")
 	}
-	return nil
+	if result.FaceVisible && !result.PeoplePresence {
+		issues = append(issues, "face_visible cannot be true when people_presence is false")
+	}
+	if !result.PeoplePresence && containsAnyPhrase(sceneDescription+" "+actionDescription, humanEvidencePhrases) {
+		issues = append(issues, "people_presence must be true when a person or human hand is described")
+	}
+	if phrase := firstContainedPhrase(sceneDescription, lowValueSceneDescriptionPhrases); phrase != "" {
+		issues = append(issues, fmt.Sprintf("scene_description contains low-value presentation phrase %q", phrase))
+	}
+	if phrase := firstContainedPhrase(actionDescription, lowValueActionDescriptionPhrases); phrase != "" {
+		issues = append(issues, fmt.Sprintf("action_description contains low-value presentation phrase %q", phrase))
+	}
+	if normalizeAnalysisDescription(sceneDescription) != "" && normalizeAnalysisDescription(sceneDescription) == normalizeAnalysisDescription(actionDescription) {
+		issues = append(issues, "scene_description and action_description must provide different retrieval evidence")
+	}
+	return issues
+}
+
+func containsAnyPhrase(text string, phrases []string) bool {
+	return firstContainedPhrase(text, phrases) != ""
+}
+
+func firstContainedPhrase(text string, phrases []string) string {
+	for _, phrase := range phrases {
+		if strings.Contains(text, phrase) {
+			return phrase
+		}
+	}
+	return ""
+}
+
+func normalizeAnalysisDescription(text string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\r', '\n', ',', '，', '。', '.', '、', ';', '；', ':', '：':
+			return -1
+		default:
+			return r
+		}
+	}, strings.TrimSpace(text))
 }
 
 func ScriptGenerationOutputSchema() map[string]any {

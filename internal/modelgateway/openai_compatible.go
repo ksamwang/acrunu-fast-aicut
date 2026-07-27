@@ -49,17 +49,47 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 	}
 
 	promptBundle := BuildPromptBundle(input)
+	result, err := a.requestAnalyzeAsset(ctx, input, promptBundle, "")
+	if err != nil {
+		return AnalyzeAssetResult{}, err
+	}
+	issues := analyzeAssetResultIssues(result)
+	if len(issues) == 0 {
+		result.ModelResult["repair_attempted"] = false
+		return result, nil
+	}
+
+	previousJSON, _ := json.Marshal(analyzeAssetResultOutput(result))
+	repairInstruction := "The previous JSON was rejected. Re-read the ordered video frames and return a corrected JSON object that fixes every rejection reason. Do not repeat generic presentation wording and do not invent evidence. Rejection reasons: " + strings.Join(issues, " | ") + ". Previous JSON: " + string(previousJSON)
+	repaired, err := a.requestAnalyzeAsset(ctx, input, promptBundle, repairInstruction)
+	if err != nil {
+		return AnalyzeAssetResult{}, err
+	}
+	repaired.ModelResult["repair_attempted"] = true
+	repaired.ModelResult["repair_reasons"] = append([]string(nil), issues...)
+	return repaired, nil
+}
+
+func (a *OpenAICompatibleAnalyzer) requestAnalyzeAsset(ctx context.Context, input AnalyzeAssetInput, promptBundle PromptBundle, repairInstruction string) (AnalyzeAssetResult, error) {
+	userPrompt := promptBundle.Prompts[0].User
+	if strings.TrimSpace(repairInstruction) != "" {
+		userPrompt += "\n\n" + repairInstruction
+	}
 	userContent := []map[string]any{
 		{
 			"type": "text",
-			"text": promptBundle.Prompts[0].User,
+			"text": userPrompt,
 		},
 	}
-	for _, frame := range input.FrameSnapshots {
+	for index, frame := range input.FrameSnapshots {
 		dataURL, err := imageDataURL(frame.StorageKey)
 		if err != nil {
 			return AnalyzeAssetResult{}, NewError(ErrorCodeConfiguration, fmt.Sprintf("read frame failed: %v", err), false, err)
 		}
+		userContent = append(userContent, map[string]any{
+			"type": "text",
+			"text": fmt.Sprintf("Video frame %d/%d, frame_index=%d, timestamp_ms=%d. This is a chronological video frame, not the product reference image.", index+1, len(input.FrameSnapshots), frame.FrameIndex, frame.TimestampMs),
+		})
 		userContent = append(userContent, map[string]any{
 			"type": "image_url",
 			"image_url": map[string]any{
@@ -157,6 +187,23 @@ func (a *OpenAICompatibleAnalyzer) AnalyzeAsset(ctx context.Context, input Analy
 	result.ModelResult["frame_sampling"] = "uniform_trim_range"
 	result.ModelResult["has_product_reference_image"] = input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != ""
 	return result, nil
+}
+
+func analyzeAssetResultOutput(result AnalyzeAssetResult) map[string]any {
+	return map[string]any{
+		"scene_description":  result.SceneDescription,
+		"shot_size":          result.ShotSize,
+		"camera_movement":    result.CameraMovement,
+		"visual_tags":        result.VisualTags,
+		"quality_tags":       result.QualityTags,
+		"visible_product":    result.VisibleProduct,
+		"product_position":   result.ProductPosition,
+		"scene_context":      result.SceneContext,
+		"action_description": result.ActionDescription,
+		"people_presence":    result.PeoplePresence,
+		"face_visible":       result.FaceVisible,
+		"lighting_condition": result.LightingCondition,
+	}
 }
 
 func decodeAnalyzeAssetResult(content string) (AnalyzeAssetResult, error) {

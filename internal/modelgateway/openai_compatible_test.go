@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +35,16 @@ func TestOpenAICompatibleAnalyzerRequestsJSONOutput(t *testing.T) {
 		}
 		if req["max_tokens"].(float64) < 8192 {
 			t.Fatalf("expected high max_tokens, got %#v", req["max_tokens"])
+		}
+		messages, _ := req["messages"].([]any)
+		userMessage, _ := messages[1].(map[string]any)
+		content, _ := userMessage["content"].([]any)
+		if len(content) != 3 {
+			t.Fatalf("expected prompt, frame marker, and image, got %#v", content)
+		}
+		frameMarker, _ := content[1].(map[string]any)
+		if marker, _ := frameMarker["text"].(string); !strings.Contains(marker, "Video frame 1/1") || !strings.Contains(marker, "timestamp_ms=100") {
+			t.Fatalf("expected explicit frame index and timestamp marker, got %#v", frameMarker)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -69,6 +80,63 @@ func TestOpenAICompatibleAnalyzerRequestsJSONOutput(t *testing.T) {
 	}
 	if result.SceneDescription == "" || len(result.VisualTags) == 0 || !result.VisibleProduct {
 		t.Fatalf("unexpected result %#v", result)
+	}
+}
+
+func TestOpenAICompatibleAnalyzerRepairsLowValueAnalysisOnce(t *testing.T) {
+	tempDir := t.TempDir()
+	framePath := filepath.Join(tempDir, "frame.jpg")
+	if err := os.WriteFile(framePath, []byte("jpeg"), 0644); err != nil {
+		t.Fatalf("write frame failed: %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request failed: %v", err)
+		}
+		messages, _ := req["messages"].([]any)
+		userMessage, _ := messages[1].(map[string]any)
+		content, _ := userMessage["content"].([]any)
+		promptBlock, _ := content[0].(map[string]any)
+		prompt, _ := promptBlock["text"].(string)
+
+		response := `{"scene_description":"杜邦车包固定在车把上，包体完整清晰可见","shot_size":"close_up","camera_movement":"static","visual_tags":["杜邦车包","车把安装"],"quality_tags":["画面清晰"],"visible_product":true,"product_position":"车把中央","scene_context":"户外","action_description":"视频持续展示已固定的杜邦车包，未见拆装或状态变化","people_presence":false,"face_visible":false,"lighting_condition":"自然光"}`
+		if requests == 2 {
+			if !strings.Contains(prompt, "The previous JSON was rejected") || !strings.Contains(prompt, "持续展示") {
+				t.Fatalf("expected targeted repair instruction, got %s", prompt)
+			}
+			response = `{"scene_description":"杜邦车包安装在车把上，水流冲淋包体表面","shot_size":"close_up","camera_movement":"static","visual_tags":["杜邦车包","水流冲淋","防泼水展示"],"quality_tags":["画面清晰"],"visible_product":true,"product_position":"车把中央","scene_context":"户外","action_description":"水流持续冲淋车包表面，展示防泼水效果","people_presence":false,"face_visible":false,"lighting_condition":"自然光"}`
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": response}}},
+		})
+	}))
+	defer server.Close()
+
+	analyzer := NewOpenAICompatibleAnalyzer(Config{BaseURL: server.URL, Model: "vlm-test"})
+	result, err := analyzer.AnalyzeAsset(t.Context(), AnalyzeAssetInput{
+		AssetID:    "asset-1",
+		SourceType: "visual_only",
+		FrameSnapshots: []FrameReference{
+			{FrameIndex: 0, TimestampMs: 0, StorageKey: framePath},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AnalyzeAsset failed: %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected one repair request, got %d requests", requests)
+	}
+	if result.SceneDescription != "杜邦车包安装在车把上，水流冲淋包体表面" {
+		t.Fatalf("expected repaired description, got %#v", result)
+	}
+	if attempted, _ := result.ModelResult["repair_attempted"].(bool); !attempted {
+		t.Fatalf("expected repair metadata, got %#v", result.ModelResult)
 	}
 }
 
