@@ -24,7 +24,7 @@ func TestBuildScriptGenerationPromptUsesInformationFeedContract(t *testing.T) {
 	}
 	prompt := bundle.Prompts[0].System + " " + bundle.Prompts[0].User
 	for _, expected := range []string{
-		"information-feed", "performance-marketing", "135", "172", "target_duration_seconds",
+		"information-feed", "performance-marketing", "128", "172", "target_duration_seconds",
 		"available_visual_evidence", "semantic search query", "One clause should express one visible action or state",
 	} {
 		if !strings.Contains(prompt, expected) {
@@ -140,7 +140,7 @@ func TestValidateScriptGenerationResultRejectsUnsupportedAndMissingSellingPoints
 
 func TestScriptDurationRules(t *testing.T) {
 	minimum, maximum := ScriptSpokenCharacterRange(30)
-	if minimum != 135 || maximum != 172 {
+	if minimum != 128 || maximum != 172 {
 		t.Fatalf("unexpected 30 second range %d-%d", minimum, maximum)
 	}
 	if duration := EstimateScriptDurationMs("骑车前收紧裤脚，骑行更利落。"); duration < 8000 {

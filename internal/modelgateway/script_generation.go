@@ -19,6 +19,8 @@ const (
 	TTSVisualSourceType              = "visual_only"
 	DefaultScriptTargetDuration      = 30
 	scriptSpokenCharactersPerSecond  = 5.0
+	scriptMinimumCharacterRatio      = 0.85
+	scriptMaximumCharacterRatio      = 1.15
 )
 
 var allowedScriptSourceTypes = map[string]struct{}{
@@ -360,7 +362,7 @@ func ScriptSpokenCharacterRange(targetDurationSeconds int) (int, int) {
 		return 0, 0
 	}
 	target := float64(targetDurationSeconds) * scriptSpokenCharactersPerSecond
-	return int(math.Ceil(target * 0.9)), int(math.Floor(target * 1.15))
+	return int(math.Ceil(target * scriptMinimumCharacterRatio)), int(math.Floor(target * scriptMaximumCharacterRatio))
 }
 
 func CountScriptSpokenCharacters(text string) int {
