@@ -102,11 +102,6 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 	if err != nil {
 		return nil, err
 	}
-	_, maximumSellingPoints := modelgateway.ScriptSellingPointCountRange(input.TargetDurationSeconds)
-	if len(sellingPoints) > input.VariantCount*maximumSellingPoints {
-		return nil, fmt.Errorf("%w: selected selling points exceed the capacity of %d scripts at %d seconds", ErrScriptGenerationInput, input.VariantCount, input.TargetDurationSeconds)
-	}
-
 	generator := s.generator
 	if generator == nil {
 		if err := EnsureLegacyOpenAICompatibleProvider(ctx, s.systemConfigService, s.modelProviderService); err != nil {

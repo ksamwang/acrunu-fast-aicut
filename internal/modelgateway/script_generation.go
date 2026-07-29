@@ -20,14 +20,11 @@ const (
 	TTSVisualSourceType                  = "visual_only"
 	DefaultScriptTargetDuration          = 30
 	scriptSpokenCharactersPerSecond      = 5.0
-	scriptRecommendedCharactersPerSecond = 4.5
-	scriptMinimumCharacterRatio          = 0.9
-	scriptMaximumCharacterRatio          = 1.1
-	scriptMinimumDurationRatio           = 0.9
-	scriptMaximumDurationRatio           = 1.12
+	scriptRecommendedCharactersPerSecond = 3.7
+	scriptMinimumCharacterRatio          = 0.85
+	scriptMaximumCharacterRatio          = 1.15
 	scriptMinimumAcceptedDurationRatio   = 0.7
 	scriptMaximumAcceptedDurationRatio   = 1.4
-	maximumScriptClauseCharacters        = 42
 )
 
 var allowedScriptSourceTypes = map[string]struct{}{
@@ -334,7 +331,6 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 	seenIndexes := map[int]struct{}{}
 	seenAngles := map[string]struct{}{}
 	seenHooks := map[string]struct{}{}
-	_, maximumSellingPoints := ScriptSellingPointCountRange(targetDuration)
 	for index := range result.Variants {
 		variant := &result.Variants[index]
 		variant.Angle = strings.TrimSpace(variant.Angle)
@@ -358,8 +354,8 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 			seenAngles[normalizedAngle] = struct{}{}
 		}
 		issues = append(issues, validateScriptNarration(index+1, &variant.Hook, &variant.ScriptText, targetDuration, seenHooks)...)
-		if len(variant.SelectedSellingPoints) < 1 || len(variant.SelectedSellingPoints) > maximumSellingPoints {
-			issues = append(issues, fmt.Sprintf("copy variant %d must select 1 to %d selling points", index+1, maximumSellingPoints))
+		if len(variant.SelectedSellingPoints) < 1 {
+			issues = append(issues, fmt.Sprintf("copy variant %d must select at least one selling point", index+1))
 		}
 		for _, sellingPoint := range variant.SelectedSellingPoints {
 			if _, exists := allowedSellingPoints[sellingPoint]; !exists {
@@ -394,7 +390,6 @@ func validateScriptVisualIntentResultIssues(result ScriptVisualIntentResult, cop
 	if len(result.Plans) != len(copies.Variants) {
 		issues = append(issues, fmt.Sprintf("expected %d visual plans, got %d", len(copies.Variants), len(result.Plans)))
 	}
-	minimumBeats, maximumBeats := ScriptBeatCountRange(targetDuration)
 	copyByIndex := make(map[int]ScriptCopyVariant, len(copies.Variants))
 	for _, copyVariant := range copies.Variants {
 		copyByIndex[copyVariant.VariantIndex] = copyVariant
@@ -416,6 +411,7 @@ func validateScriptVisualIntentResultIssues(result ScriptVisualIntentResult, cop
 		if plan.EditingIntent == "" {
 			issues = append(issues, fmt.Sprintf("visual plan %d editing_intent is required", planIndex+1))
 		}
+		minimumBeats, maximumBeats := ScriptVisualBeatCountRange(targetDuration, len(copyVariant.SelectedSellingPoints))
 		if len(plan.Beats) < minimumBeats || len(plan.Beats) > maximumBeats {
 			issues = append(issues, fmt.Sprintf("visual plan %d must contain %d to %d beats", planIndex+1, minimumBeats, maximumBeats))
 		}
@@ -499,7 +495,7 @@ func validateScriptGenerationResultIssues(result ScriptGenerationResult, input S
 	if len(result.Variants) != input.VariantCount {
 		issues = append(issues, fmt.Sprintf("expected %d script variants, got %d", input.VariantCount, len(result.Variants)))
 	}
-	minimumBeats, maximumBeats := ScriptBeatCountRange(targetDuration)
+	minimumBeats, maximumBeats := ScriptVisualBeatCountRange(targetDuration, len(input.SellingPoints))
 	seenHooks := map[string]struct{}{}
 	allowedSellingPoints := scriptSellingPointSet(input.SellingPoints)
 	coveredSellingPoints := make(map[string]struct{}, len(input.SellingPoints))
@@ -547,11 +543,6 @@ func validateScriptGenerationResultIssues(result ScriptGenerationResult, input S
 	return issues
 }
 
-var informationFeedClichePhrases = []string{
-	"今天给大家推荐", "实用神器", "不容错过", "赶紧入手", "闭眼入",
-	"快来试试吧", "赶快试试吧", "值得拥有",
-}
-
 var scriptProductionDirectionPhrases = []string{
 	"画面里", "镜头中", "镜头里", "转到暗光", "转到夜间", "双手回到车把",
 	"袋口回到闭合状态", "最后拉上拉链", "最后合上拉链", "不用靠描述", "直接看清",
@@ -589,36 +580,15 @@ func validateScriptNarration(index int, hook *string, scriptText *string, target
 }
 
 func validateScriptCopyQualityIssues(result ScriptCopyResult, input ScriptGenerationInput) []string {
-	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
-	if !ok {
-		return nil
-	}
+	_ = input
 	issues := make([]string, 0)
-	minimumDurationMs, maximumDurationMs := ScriptEstimatedDurationRangeMs(targetDuration)
-	minimumClauses, maximumClauses := ScriptClauseCountRange(targetDuration)
 	for index, variant := range result.Variants {
 		scriptText := strings.TrimSpace(variant.ScriptText)
 		if scriptText == "" {
 			continue
 		}
-		estimatedDurationMs := EstimateScriptDurationMs(scriptText)
-		if estimatedDurationMs < minimumDurationMs || estimatedDurationMs > maximumDurationMs {
-			issues = append(issues, fmt.Sprintf("variant %d estimated duration is %.1fs; target %ds prefers %.1fs to %.1fs", index+1, float64(estimatedDurationMs)/1000, targetDuration, float64(minimumDurationMs)/1000, float64(maximumDurationMs)/1000))
-		}
-		if phrase := firstScriptPhrase(scriptText, informationFeedClichePhrases); phrase != "" {
-			issues = append(issues, fmt.Sprintf("variant %d contains generic advertising phrase %q", index+1, phrase))
-		}
 		if phrase := firstScriptPhrase(scriptText, scriptProductionDirectionPhrases); phrase != "" {
 			issues = append(issues, fmt.Sprintf("variant %d contains production-direction phrase %q", index+1, phrase))
-		}
-		clauses := scriptSemanticClauses(scriptText)
-		if len(clauses) < minimumClauses || len(clauses) > maximumClauses {
-			issues = append(issues, fmt.Sprintf("variant %d has %d semantic clauses; target %ds prefers %d to %d", index+1, len(clauses), targetDuration, minimumClauses, maximumClauses))
-		}
-		for clauseIndex, clause := range clauses {
-			if CountScriptSpokenCharacters(clause) > maximumScriptClauseCharacters {
-				issues = append(issues, fmt.Sprintf("variant %d clause %d is too dense; split it with natural punctuation", index+1, clauseIndex+1))
-			}
 		}
 	}
 	return issues
@@ -683,15 +653,6 @@ func ScriptSpokenCharacterRange(targetDurationSeconds int) (int, int) {
 	return int(math.Ceil(target * scriptMinimumCharacterRatio)), int(math.Floor(target * scriptMaximumCharacterRatio))
 }
 
-func ScriptEstimatedDurationRangeMs(targetDurationSeconds int) (int, int) {
-	targetDurationSeconds, ok := NormalizeScriptTargetDuration(targetDurationSeconds)
-	if !ok {
-		return 0, 0
-	}
-	targetMs := float64(targetDurationSeconds * 1000)
-	return int(math.Ceil(targetMs * scriptMinimumDurationRatio)), int(math.Floor(targetMs * scriptMaximumDurationRatio))
-}
-
 func ScriptAcceptedDurationRangeMs(targetDurationSeconds int) (int, int) {
 	targetDurationSeconds, ok := NormalizeScriptTargetDuration(targetDurationSeconds)
 	if !ok {
@@ -741,52 +702,12 @@ func ScriptBeatCountRange(targetDurationSeconds int) (int, int) {
 	}
 }
 
-func ScriptClauseCountRange(targetDurationSeconds int) (int, int) {
-	switch targetDurationSeconds {
-	case 15:
-		return 3, 7
-	case 20:
-		return 4, 8
-	case 45:
-		return 8, 14
-	case 60:
-		return 10, 18
-	default:
-		return 6, 10
+func ScriptVisualBeatCountRange(targetDurationSeconds int, selectedSellingPointCount int) (int, int) {
+	minimum, maximum := ScriptBeatCountRange(targetDurationSeconds)
+	if selectedSellingPointCount > maximum {
+		maximum = selectedSellingPointCount
 	}
-}
-
-func ScriptSellingPointCountRange(targetDurationSeconds int) (int, int) {
-	switch targetDurationSeconds {
-	case 15:
-		return 1, 2
-	case 20:
-		return 1, 3
-	case 45:
-		return 1, 5
-	case 60:
-		return 1, 6
-	default:
-		return 1, 4
-	}
-}
-
-func scriptSemanticClauses(text string) []string {
-	parts := strings.FieldsFunc(text, func(value rune) bool {
-		switch value {
-		case '。', '！', '？', '.', '!', '?', '；', ';', '，', ',', '、', '：', ':':
-			return true
-		default:
-			return false
-		}
-	})
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if strings.TrimSpace(part) != "" {
-			result = append(result, part)
-		}
-	}
-	return result
+	return minimum, maximum
 }
 
 func firstScriptPhrase(text string, phrases []string) string {

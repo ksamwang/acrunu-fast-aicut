@@ -19,16 +19,21 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 		AvailableVisualEvidence: []string{"动作：双手压紧魔术贴完成固定"},
 		SellingPoints:           []ScriptGenerationSellingPoint{{Name: "魔术贴固定"}},
 	})
-	if bundle.Version != "workbench-script-v5" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
+	if bundle.Version != "workbench-script-v6" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
 		t.Fatalf("unexpected copy prompt bundle %#v", bundle)
 	}
 	prompt := bundle.Prompts[0].System + " " + bundle.Prompts[0].User
 	for _, expected := range []string{
-		"效果广告文案", "selected_selling_points", "estimated_duration_range_seconds",
-		"recommended_spoken_character_range", "122", "148", "常用小物分区放",
+		"商品信息流口播", "selected_selling_points", "recommended_spoken_character_range",
+		"95", "127", "还在找好用的骑行车头包", "闭眼入、一包两用、不用慌", "不限制每条卖点数量",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected copy prompt to contain %q, got %s", expected, prompt)
+		}
+	}
+	for _, forbidden := range []string{"maximum_selling_points_per_variant", "semantic_clause_range", "不要把一条文案写成完整功能清单"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("copy prompt must not contain legacy restriction %q: %s", forbidden, prompt)
 		}
 	}
 	if strings.Contains(prompt, "available_visual_evidence") || strings.Contains(prompt, "双手压紧魔术贴") {
@@ -134,7 +139,7 @@ func TestOpenAICompatibleScriptGeneratorUsesSeparatedCopyAndVisualRequests(t *te
 	}
 }
 
-func TestOpenAICompatibleScriptGeneratorAcceptsRepairOutsidePreferredDuration(t *testing.T) {
+func TestOpenAICompatibleScriptGeneratorAcceptsNaturalDurationWithoutRepair(t *testing.T) {
 	requests := 0
 	copyRequests := 0
 	copyResult := reasonableNearTargetCopyResult()
@@ -190,8 +195,8 @@ func TestOpenAICompatibleScriptGeneratorAcceptsRepairOutsidePreferredDuration(t 
 	if err != nil {
 		t.Fatalf("near-target copy must survive the quality repair: %v", err)
 	}
-	if requests != 3 || copyRequests != 2 {
-		t.Fatalf("expected copy, non-blocking copy repair, and visual requests; got requests=%d copy=%d", requests, copyRequests)
+	if requests != 2 || copyRequests != 1 {
+		t.Fatalf("expected one copy and one visual request without duration repair; got requests=%d copy=%d", requests, copyRequests)
 	}
 	if len(result.Variants) != 1 || result.Variants[0].ScriptText != copyResult.Variants[0].ScriptText {
 		t.Fatalf("unexpected generated result %#v", result)
@@ -229,7 +234,7 @@ func TestScriptCopyQualityIssuesDetectProductionDirections(t *testing.T) {
 	}
 }
 
-func TestValidateScriptCopyResultAcceptsReasonableDurationOutsidePreferredRange(t *testing.T) {
+func TestValidateScriptCopyResultAcceptsNaturalDurationWithoutQualityRepair(t *testing.T) {
 	result := reasonableNearTargetCopyResult()
 	input := ScriptGenerationInput{
 		VariantCount:          1,
@@ -237,16 +242,59 @@ func TestValidateScriptCopyResultAcceptsReasonableDurationOutsidePreferredRange(
 		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
 	}
 	estimatedDurationMs := EstimateScriptDurationMs(result.Variants[0].ScriptText)
-	preferredMinimumMs, _ := ScriptEstimatedDurationRangeMs(30)
 	acceptedMinimumMs, acceptedMaximumMs := ScriptAcceptedDurationRangeMs(30)
-	if estimatedDurationMs >= preferredMinimumMs || estimatedDurationMs < acceptedMinimumMs || estimatedDurationMs > acceptedMaximumMs {
-		t.Fatalf("test copy duration %dms is not between the accepted and preferred boundaries", estimatedDurationMs)
+	if estimatedDurationMs < acceptedMinimumMs || estimatedDurationMs > acceptedMaximumMs {
+		t.Fatalf("test copy duration %dms is outside the accepted boundaries", estimatedDurationMs)
 	}
 	if err := ValidateScriptCopyResult(result, input); err != nil {
 		t.Fatalf("reasonable near-target copy must not fail generation: %v", err)
 	}
-	if issues := validateScriptCopyQualityIssues(result, input); len(issues) == 0 || !strings.Contains(strings.Join(issues, "; "), "prefers") {
-		t.Fatalf("expected a non-blocking duration quality issue, got %#v", issues)
+	if issues := validateScriptCopyQualityIssues(result, input); len(issues) != 0 {
+		t.Fatalf("natural duration must not trigger a rewrite, got %#v", issues)
+	}
+}
+
+func TestDenseProductPitchSupportsAllSellingPointsAndVisualBeats(t *testing.T) {
+	input, copies := denseHandlebarBagCopyFixture()
+	if err := ValidateScriptCopyResult(copies, input); err != nil {
+		t.Fatalf("dense product pitch must pass copy validation: %v", err)
+	}
+	if issues := validateScriptCopyQualityIssues(copies, input); len(issues) != 0 {
+		t.Fatalf("dense product pitch must not trigger a quality rewrite: %#v", issues)
+	}
+	minimumBeats, maximumBeats := ScriptVisualBeatCountRange(30, len(copies.Variants[0].SelectedSellingPoints))
+	if minimumBeats != 4 || maximumBeats != 9 {
+		t.Fatalf("unexpected dense pitch beat range %d-%d", minimumBeats, maximumBeats)
+	}
+	prompt := BuildScriptVisualIntentPrompt(input, copies).Prompts[0].User
+	if !strings.Contains(prompt, "beat_count_ranges") || !strings.Contains(prompt, `"maximum":9`) {
+		t.Fatalf("visual prompt must allow one beat per selected selling point: %s", prompt)
+	}
+
+	visuals := ScriptVisualIntentResult{Plans: []ScriptVisualIntentPlan{{
+		VariantIndex:  1,
+		EditingIntent: "按防水、容量、固定、携带和夜间安全依次呈现产品卖点。",
+		Beats: []ScriptGenerationBeat{
+			{Label: "防水面料", SellingPoint: "防水面料", VisualGoal: "水珠落在车头包防水面料表面", SourceType: TTSVisualSourceType},
+			{Label: "压胶拉链", SellingPoint: "压胶拉链", VisualGoal: "拉动车头包压胶拉链闭合袋口", SourceType: TTSVisualSourceType},
+			{Label: "两升容量", SellingPoint: "2升大容量", VisualGoal: "多件骑行用品装入车头包主仓", SourceType: TTSVisualSourceType},
+			{Label: "内部隔层", SellingPoint: "隔层设计", VisualGoal: "打开车头包展示内部收纳隔层", SourceType: TTSVisualSourceType},
+			{Label: "三点固定", SellingPoint: "三点固定", VisualGoal: "三条绑带将车头包固定在车把上", SourceType: TTSVisualSourceType},
+			{Label: "魔术贴", SellingPoint: "魔术贴安装", VisualGoal: "双手压紧车头包魔术贴绑带", SourceType: TTSVisualSourceType},
+			{Label: "肩背携带", SellingPoint: "肩背设计", VisualGoal: "人物将车头包斜挎在身体侧面", SourceType: TTSVisualSourceType},
+			{Label: "弹力外挂", SellingPoint: "侧边弹力绳", VisualGoal: "骑行物品固定在车头包侧边弹力绳", SourceType: TTSVisualSourceType},
+			{Label: "夜间反光", SellingPoint: "反光标", VisualGoal: "车灯照射车头包反光标产生反光", SourceType: TTSVisualSourceType},
+		},
+	}}}
+	if err := ValidateScriptVisualIntentResult(visuals, copies, input); err != nil {
+		t.Fatalf("dense visual intent must pass validation: %v", err)
+	}
+	result, err := mergeScriptGenerationResult(copies, visuals)
+	if err != nil {
+		t.Fatalf("merge dense product pitch: %v", err)
+	}
+	if err := ValidateScriptGenerationResult(result, input); err != nil {
+		t.Fatalf("dense product pitch must pass final validation: %v", err)
 	}
 }
 
@@ -277,12 +325,8 @@ func TestValidateScriptGenerationResultRejectsUnsupportedAndMissingSellingPoints
 
 func TestScriptDurationRules(t *testing.T) {
 	minimum, maximum := ScriptSpokenCharacterRange(30)
-	if minimum != 122 || maximum != 148 {
+	if minimum != 95 || maximum != 127 {
 		t.Fatalf("unexpected 30 second drafting range %d-%d", minimum, maximum)
-	}
-	minimumDuration, maximumDuration := ScriptEstimatedDurationRangeMs(30)
-	if minimumDuration != 27000 || maximumDuration != 33600 {
-		t.Fatalf("unexpected 30 second duration range %d-%d", minimumDuration, maximumDuration)
 	}
 	acceptedMinimum, acceptedMaximum := ScriptAcceptedDurationRangeMs(30)
 	if acceptedMinimum != 21000 || acceptedMaximum != 42000 {
@@ -317,6 +361,29 @@ func reasonableNearTargetCopyResult() ScriptCopyResult {
 		Hook:                  hook,
 		ScriptText:            strings.Join(clauses, "，"),
 	}}}
+}
+
+func denseHandlebarBagCopyFixture() (ScriptGenerationInput, ScriptCopyResult) {
+	names := []string{
+		"防水面料", "压胶拉链", "2升大容量", "隔层设计", "三点固定",
+		"魔术贴安装", "肩背设计", "侧边弹力绳", "反光标",
+	}
+	sellingPoints := make([]ScriptGenerationSellingPoint, 0, len(names))
+	for _, name := range names {
+		sellingPoints = append(sellingPoints, ScriptGenerationSellingPoint{Name: name})
+	}
+	return ScriptGenerationInput{
+			ProductName:           "杜邦车包",
+			VariantCount:          1,
+			TargetDurationSeconds: 30,
+			SellingPoints:         sellingPoints,
+		}, ScriptCopyResult{Variants: []ScriptCopyVariant{{
+			VariantIndex:          1,
+			Angle:                 "卖点直给",
+			SelectedSellingPoints: names,
+			Hook:                  "还在找好用的骑行车头包？",
+			ScriptText:            "还在找好用的骑行车头包？这款真的闭眼入！防水面料搭配压胶拉链，突发小雨不用慌。2升大容量，内带隔层。三点固定加魔术贴安装，牢牢固定不晃荡。自带肩带，骑完车直接变身斜挎包，一包两用。侧边弹力绳可外挂物品，反光标夜间骑行更安全！",
+		}}}
 }
 
 func validScriptVisualIntentResult() ScriptVisualIntentResult {

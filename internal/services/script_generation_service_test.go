@@ -93,12 +93,12 @@ func TestScriptGenerationServiceRejectsUnsupportedTargetDuration(t *testing.T) {
 	}
 }
 
-func TestScriptGenerationServiceRejectsSellingPointsBeyondBeatCapacity(t *testing.T) {
+func TestScriptGenerationServiceAllowsSellingPointsBeyondLegacyCapacity(t *testing.T) {
 	products := NewProductAssetService()
 	product := products.CreateProduct(CreateProductInput{Name: "束裤带"})
-	service := NewScriptGenerationService(products, NewSystemConfigService(), NewModelProviderService(), config.Config{}).WithGenerator(
-		&recordingScriptGenerator{result: validScriptGenerationResult("卖点一", "卖点二")},
-	)
+	generationReached := errors.New("generation reached")
+	generator := &recordingScriptGenerator{err: generationReached}
+	service := NewScriptGenerationService(products, NewSystemConfigService(), NewModelProviderService(), config.Config{}).WithGenerator(generator)
 
 	_, err := service.Generate(context.Background(), WorkbenchScriptGenerationInput{
 		ProductID: product.ID,
@@ -108,8 +108,8 @@ func TestScriptGenerationServiceRejectsSellingPointsBeyondBeatCapacity(t *testin
 		VariantCount:          1,
 		TargetDurationSeconds: 15,
 	})
-	if !errors.Is(err, ErrScriptGenerationInput) || !strings.Contains(err.Error(), "exceed the capacity") {
-		t.Fatalf("expected selling point capacity error, got %v", err)
+	if !errors.Is(err, generationReached) || len(generator.input.SellingPoints) != 6 {
+		t.Fatalf("expected all selling points to reach the generator, input=%#v err=%v", generator.input, err)
 	}
 }
 
