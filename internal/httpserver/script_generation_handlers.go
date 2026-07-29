@@ -10,10 +10,11 @@ import (
 )
 
 type generateWorkbenchScriptsRequest struct {
-	ProductID           string   `json:"product_id"`
-	SellingPointIDs     []string `json:"selling_point_ids"`
-	CustomSellingPoints []string `json:"custom_selling_points"`
-	VariantCount        int      `json:"variant_count"`
+	ProductID             string   `json:"product_id"`
+	SellingPointIDs       []string `json:"selling_point_ids"`
+	CustomSellingPoints   []string `json:"custom_selling_points"`
+	VariantCount          int      `json:"variant_count"`
+	TargetDurationSeconds int      `json:"target_duration_seconds"`
 }
 
 func (s *Server) handleGenerateWorkbenchScripts(c *gin.Context) {
@@ -23,10 +24,11 @@ func (s *Server) handleGenerateWorkbenchScripts(c *gin.Context) {
 		return
 	}
 	variants, err := s.scriptGenerationService.Generate(c.Request.Context(), services.WorkbenchScriptGenerationInput{
-		ProductID:           request.ProductID,
-		SellingPointIDs:     request.SellingPointIDs,
-		CustomSellingPoints: request.CustomSellingPoints,
-		VariantCount:        request.VariantCount,
+		ProductID:             request.ProductID,
+		SellingPointIDs:       request.SellingPointIDs,
+		CustomSellingPoints:   request.CustomSellingPoints,
+		VariantCount:          request.VariantCount,
+		TargetDurationSeconds: request.TargetDurationSeconds,
 	})
 	if err != nil {
 		handleScriptGenerationError(c, err)

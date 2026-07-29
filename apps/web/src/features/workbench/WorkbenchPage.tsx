@@ -4,7 +4,7 @@ import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, FileUp, List
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import { createUUID } from "../../shared/lib/uuid";
-import type { ScriptGenerationJob, ScriptGenerationJobInput, ScriptGenerationJobMode, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
+import type { ScriptGenerationJob, ScriptGenerationJobInput, ScriptGenerationJobMode, ScriptTargetDuration, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 import type { BGMSelection, BGMTrack } from "../../shared/types/bgm";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import type { VoiceAudition } from "../../shared/types/voice";
@@ -41,7 +41,19 @@ const sourceTypeLabels = {
 };
 
 function estimateDuration(text: string) {
-  return Math.max(8000, Math.round((text.replace(/\s/g, "").length / 4.2) * 1000));
+  let spokenCharacters = 0;
+  let pauseMs = 0;
+  for (const character of text) {
+    if (!/[\p{White_Space}\p{Punctuation}\p{Symbol}]/u.test(character)) {
+      spokenCharacters += 1;
+    }
+    if (/[。！？.!?；;]/u.test(character)) {
+      pauseMs += 260;
+    } else if (/[，,、：:]/u.test(character)) {
+      pauseMs += 140;
+    }
+  }
+  return Math.max(8000, Math.round((spokenCharacters / 5) * 1000) + pauseMs);
 }
 
 function activeSellingPoints(points: SellingPoint[]) {
@@ -54,6 +66,7 @@ function workbenchDraftRevision(draft: WorkbenchDraft) {
     selling_point_ids: draft.selling_point_ids,
     custom_selling_points: draft.custom_selling_points,
     variant_count: draft.variant_count,
+    target_duration_seconds: draft.target_duration_seconds,
     variants: draft.variants.map((variant) => ({
       id: variant.id,
       order: variant.order,
@@ -132,6 +145,7 @@ function applyScriptGenerationResult(
     selling_point_ids: strategy === "replace" ? [...job.input.selling_point_ids] : draft.selling_point_ids,
     custom_selling_points: strategy === "replace" ? [...job.input.custom_selling_points] : draft.custom_selling_points,
     variant_count: strategy === "replace" && job.mode === "replace_all" ? job.input.variant_count : draft.variant_count,
+    target_duration_seconds: strategy === "replace" ? (job.input.target_duration_seconds ?? 30) : draft.target_duration_seconds,
     variants,
     active_variant_id: activeVariantID,
     script_generation: {
@@ -492,7 +506,8 @@ export function WorkbenchPage({ token }: { token: string }) {
       product_id: current.product_id,
       selling_point_ids: current.selling_point_ids,
       custom_selling_points: current.custom_selling_points,
-      variant_count: mode === "replace_variant" ? 1 : current.variant_count
+      variant_count: mode === "replace_variant" ? 1 : current.variant_count,
+      target_duration_seconds: current.target_duration_seconds
     };
     const baseRevision = workbenchDraftRevision(current);
     setCreatingScriptGeneration({ mode, target_variant_id: targetVariantID });
@@ -825,6 +840,15 @@ export function WorkbenchPage({ token }: { token: string }) {
             precision={0}
             value={draft.variant_count}
             onChange={(value) => setDraft((current) => ({ ...current, variant_count: Number(value ?? 1) }))}
+          />
+        </div>
+        <div className="workbench-field workbench-duration-field">
+          <Typography.Text className="workbench-field-label">时长</Typography.Text>
+          <Select<ScriptTargetDuration>
+            data-testid="workbench-target-duration"
+            value={draft.target_duration_seconds}
+            options={[15, 20, 30, 45, 60].map((seconds) => ({ value: seconds as ScriptTargetDuration, label: `${seconds} 秒` }))}
+            onChange={(targetDuration) => setDraft((current) => ({ ...current, target_duration_seconds: targetDuration }))}
           />
         </div>
         <div className="workbench-field workbench-ratio-field">

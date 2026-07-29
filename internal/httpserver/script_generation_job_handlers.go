@@ -11,13 +11,14 @@ import (
 )
 
 type createScriptGenerationJobRequest struct {
-	ProductID           string   `json:"product_id"`
-	SellingPointIDs     []string `json:"selling_point_ids"`
-	CustomSellingPoints []string `json:"custom_selling_points"`
-	VariantCount        int      `json:"variant_count"`
-	Mode                string   `json:"mode"`
-	TargetVariantID     string   `json:"target_variant_id"`
-	BaseRevision        string   `json:"base_revision"`
+	ProductID             string   `json:"product_id"`
+	SellingPointIDs       []string `json:"selling_point_ids"`
+	CustomSellingPoints   []string `json:"custom_selling_points"`
+	VariantCount          int      `json:"variant_count"`
+	TargetDurationSeconds int      `json:"target_duration_seconds"`
+	Mode                  string   `json:"mode"`
+	TargetVariantID       string   `json:"target_variant_id"`
+	BaseRevision          string   `json:"base_revision"`
 }
 
 type resolveScriptGenerationJobRequest struct {
@@ -41,10 +42,11 @@ func (s *Server) handleCreateScriptGenerationJob(c *gin.Context) {
 		TargetVariantID: request.TargetVariantID,
 		BaseRevision:    request.BaseRevision,
 		GenerationInput: services.WorkbenchScriptGenerationInput{
-			ProductID:           request.ProductID,
-			SellingPointIDs:     request.SellingPointIDs,
-			CustomSellingPoints: request.CustomSellingPoints,
-			VariantCount:        request.VariantCount,
+			ProductID:             request.ProductID,
+			SellingPointIDs:       request.SellingPointIDs,
+			CustomSellingPoints:   request.CustomSellingPoints,
+			VariantCount:          request.VariantCount,
+			TargetDurationSeconds: request.TargetDurationSeconds,
 		},
 	})
 	if err != nil {

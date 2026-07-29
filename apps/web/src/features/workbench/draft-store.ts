@@ -1,4 +1,4 @@
-import type { ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
+import type { ScriptTargetDuration, ScriptVariant, WorkbenchDraft } from "../../shared/types/generation";
 
 const draftStorageKey = "aicut.workbench.draft.v1";
 const legacyDraftStorageKey = "aicut.workbench.prototype.draft.v1";
@@ -11,6 +11,7 @@ const emptyDraft: WorkbenchDraft = {
   output_ratio: "9:16",
   subtitle_preset_id: "",
   variant_count: 3,
+  target_duration_seconds: 30,
   variants: [],
   active_variant_id: ""
 };
@@ -36,6 +37,7 @@ export function loadWorkbenchDraft(): WorkbenchDraft {
   const hasCurrentDraft = window.localStorage.getItem(draftStorageKey) !== null;
   const sourceKey = hasCurrentDraft ? draftStorageKey : legacyDraftStorageKey;
   const draft = { ...emptyDraft, ...readJSON<Partial<WorkbenchDraft>>(sourceKey, emptyDraft) };
+  draft.target_duration_seconds = normalizeTargetDuration(draft.target_duration_seconds);
   draft.variants = (draft.variants ?? []).map(normalizeVariant);
   if (!draft.script_generation?.job_id || !draft.script_generation.base_revision) {
     delete draft.script_generation;
@@ -44,6 +46,10 @@ export function loadWorkbenchDraft(): WorkbenchDraft {
     writeJSON(draftStorageKey, draft);
   }
   return draft;
+}
+
+function normalizeTargetDuration(value: number): ScriptTargetDuration {
+  return value === 15 || value === 20 || value === 30 || value === 45 || value === 60 ? value : 30;
 }
 
 function normalizeVariant(variant: ScriptVariant): ScriptVariant {

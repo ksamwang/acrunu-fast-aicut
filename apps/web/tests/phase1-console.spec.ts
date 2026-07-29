@@ -463,7 +463,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
             product_id: body.product_id,
             selling_point_ids: body.selling_point_ids,
             custom_selling_points: body.custom_selling_points,
-            variant_count: body.variant_count
+            variant_count: body.variant_count,
+            target_duration_seconds: body.target_duration_seconds
           },
           result_variants: [{
             id: `script-generated-${scriptGenerationSequence}`,
@@ -1327,7 +1328,9 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByText("尚未生成文案")).toBeVisible();
 
   await expect(page.getByTestId("workbench-generate")).toBeEnabled();
+  await expect(page.getByTestId("workbench-target-duration")).toContainText("30 秒");
   await page.getByTestId("workbench-generate").click();
+  expect(scriptGenerationJob?.input.target_duration_seconds).toBe(30);
   await expect(page.getByTestId("workbench-generation-job")).toContainText("正在后台生成文案");
   await page.getByRole("menuitem", { name: "成品库" }).click();
   await page.reload();

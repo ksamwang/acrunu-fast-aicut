@@ -17,6 +17,8 @@ const (
 	maxWorkbenchSellingPointInputs  = 24
 	maxWorkbenchCustomSellingPoints = 12
 	maxWorkbenchSellingPointRunes   = 120
+	maxScriptVisualEvidenceItems    = 48
+	maxScriptVisualEvidenceRunes    = 140
 )
 
 var (
@@ -25,10 +27,11 @@ var (
 )
 
 type WorkbenchScriptGenerationInput struct {
-	ProductID           string   `json:"product_id"`
-	SellingPointIDs     []string `json:"selling_point_ids"`
-	CustomSellingPoints []string `json:"custom_selling_points"`
-	VariantCount        int      `json:"variant_count"`
+	ProductID             string   `json:"product_id"`
+	SellingPointIDs       []string `json:"selling_point_ids"`
+	CustomSellingPoints   []string `json:"custom_selling_points"`
+	VariantCount          int      `json:"variant_count"`
+	TargetDurationSeconds int      `json:"target_duration_seconds"`
 }
 
 type GeneratedScriptBeat struct {
@@ -99,6 +102,10 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 	if err != nil {
 		return nil, err
 	}
+	_, maximumBeats := modelgateway.ScriptBeatCountRange(input.TargetDurationSeconds)
+	if len(sellingPoints) > input.VariantCount*maximumBeats {
+		return nil, fmt.Errorf("%w: selected selling points exceed the capacity of %d scripts at %d seconds", ErrScriptGenerationInput, input.VariantCount, input.TargetDurationSeconds)
+	}
 
 	generator := s.generator
 	if generator == nil {
@@ -112,17 +119,20 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 		generator = modelgateway.NewScriptGenerator(cfg)
 	}
 
-	result, err := generator.GenerateScripts(ctx, modelgateway.ScriptGenerationInput{
-		ProductName:        product.Name,
-		ProductDescription: product.Description,
-		ProductCategory:    product.Category,
-		SellingPoints:      sellingPoints,
-		VariantCount:       input.VariantCount,
-	})
+	generationInput := modelgateway.ScriptGenerationInput{
+		ProductName:             product.Name,
+		ProductDescription:      product.Description,
+		ProductCategory:         product.Category,
+		SellingPoints:           sellingPoints,
+		AvailableVisualEvidence: s.availableScriptVisualEvidence(product.ID),
+		VariantCount:            input.VariantCount,
+		TargetDurationSeconds:   input.TargetDurationSeconds,
+	}
+	result, err := generator.GenerateScripts(ctx, generationInput)
 	if err != nil {
 		return nil, err
 	}
-	if err := modelgateway.ValidateScriptGenerationResult(result, input.VariantCount); err != nil {
+	if err := modelgateway.ValidateScriptGenerationResult(result, generationInput); err != nil {
 		return nil, err
 	}
 	if err := validateGeneratedSellingPointCoverage(result, expectedSellingPointNames); err != nil {
@@ -147,7 +157,7 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 			Order:               index + 1,
 			Hook:                variant.Hook,
 			ScriptText:          variant.ScriptText,
-			EstimatedDurationMs: estimateScriptDuration(variant.ScriptText),
+			EstimatedDurationMs: modelgateway.EstimateScriptDurationMs(variant.ScriptText),
 			EditingIntent:       variant.EditingIntent,
 			Beats:               beats,
 			Status:              "draft",
@@ -165,6 +175,11 @@ func normalizeWorkbenchScriptGenerationInput(input WorkbenchScriptGenerationInpu
 	if input.VariantCount < 1 || input.VariantCount > maxWorkbenchScriptVariants {
 		return WorkbenchScriptGenerationInput{}, fmt.Errorf("%w: variant_count must be between 1 and %d", ErrScriptGenerationInput, maxWorkbenchScriptVariants)
 	}
+	targetDuration, ok := modelgateway.NormalizeScriptTargetDuration(input.TargetDurationSeconds)
+	if !ok {
+		return WorkbenchScriptGenerationInput{}, fmt.Errorf("%w: target_duration_seconds must be one of 15, 20, 30, 45, or 60", ErrScriptGenerationInput)
+	}
+	input.TargetDurationSeconds = targetDuration
 	input.SellingPointIDs = normalizeScriptGenerationIDs(input.SellingPointIDs)
 	if len(input.SellingPointIDs) > maxWorkbenchSellingPointInputs {
 		return WorkbenchScriptGenerationInput{}, fmt.Errorf("%w: too many selling points", ErrScriptGenerationInput)
@@ -282,7 +297,47 @@ func validateGeneratedSellingPointCoverage(result modelgateway.ScriptGenerationR
 	return nil
 }
 
-func estimateScriptDuration(text string) int {
-	characterCount := len([]rune(strings.ReplaceAll(text, " ", "")))
-	return max(8000, int(float64(characterCount)/4.2*1000))
+func (s *ScriptGenerationService) availableScriptVisualEvidence(productID string) []string {
+	assets := s.productAssetService.ListAssets(AssetFilters{
+		ProductID:        productID,
+		SourceType:       modelgateway.TTSVisualSourceType,
+		Status:           "ready",
+		ExcludeDiscarded: true,
+	})
+	result := make([]string, 0, min(len(assets), maxScriptVisualEvidenceItems))
+	seen := map[string]struct{}{}
+	for _, asset := range assets {
+		if asset.AnalysisStatus != "ready" || (asset.UsabilityStatus != "usable" && asset.UsabilityStatus != "needs_review") {
+			continue
+		}
+		parts := make([]string, 0, 2)
+		if value := strings.TrimSpace(asset.SceneDescription); value != "" {
+			parts = append(parts, "画面："+value)
+		}
+		if value := strings.TrimSpace(asset.ActionDescription); value != "" {
+			parts = append(parts, "动作："+value)
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		text := truncateScriptEvidence(strings.Join(parts, "；"), maxScriptVisualEvidenceRunes)
+		key := strings.ToLower(strings.TrimSpace(text))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, text)
+		if len(result) == maxScriptVisualEvidenceItems {
+			break
+		}
+	}
+	return result
+}
+
+func truncateScriptEvidence(value string, limit int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= limit {
+		return string(runes)
+	}
+	return string(runes[:limit])
 }

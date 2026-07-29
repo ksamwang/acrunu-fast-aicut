@@ -15,6 +15,7 @@ type GenerateWorkbenchScriptsInput = {
   selling_point_ids: string[];
   custom_selling_points: string[];
   variant_count: number;
+  target_duration_seconds: ScriptGenerationJobInput["target_duration_seconds"];
 };
 
 export function generateWorkbenchScripts(input: GenerateWorkbenchScriptsInput, token: string) {

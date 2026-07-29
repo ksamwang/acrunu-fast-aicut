@@ -46,6 +46,7 @@ export type EditPlanBeat = {
 
 export type ScriptVariantStatus = "draft" | "confirmed";
 export type ScriptVariantOrigin = "generated" | "imported";
+export type ScriptTargetDuration = 15 | 20 | 30 | 45 | 60;
 
 export type ScriptVariant = {
   id: string;
@@ -70,6 +71,7 @@ export type ScriptGenerationJobInput = {
   selling_point_ids: string[];
   custom_selling_points: string[];
   variant_count: number;
+  target_duration_seconds: ScriptTargetDuration;
 };
 
 export type ScriptGenerationJob = {
@@ -104,6 +106,7 @@ export type WorkbenchDraft = {
   output_ratio: "9:16" | "3:4";
   subtitle_preset_id: string;
   variant_count: number;
+  target_duration_seconds: ScriptTargetDuration;
   variants: ScriptVariant[];
   active_variant_id: string;
   script_generation?: ScriptGenerationJobReference;

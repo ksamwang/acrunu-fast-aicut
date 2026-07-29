@@ -19,13 +19,14 @@ type scriptGenerationHandlerGenerator struct{}
 func (scriptGenerationHandlerGenerator) GenerateScripts(_ context.Context, input modelgateway.ScriptGenerationInput) (modelgateway.ScriptGenerationResult, error) {
 	point := input.SellingPoints[0].Name
 	return modelgateway.ScriptGenerationResult{Variants: []modelgateway.ScriptGenerationVariant{{
-		Hook:          "解决骑行小麻烦",
-		ScriptText:    "骑行时，裤脚总会蹭到链条。轻轻一贴，固定更稳，出发更安心。",
-		EditingIntent: "从骑行痛点切入，再展示固定动作和结果。",
+		Hook:          "骑车时裤脚总往链条上蹭",
+		ScriptText:    "骑车时裤脚总往链条上蹭，不仅容易沾上油污，还可能卷进齿盘。出门前把束裤带绕在脚踝上，调整到合适松紧，再把魔术贴压紧，裤脚马上被收住。弹力材质贴合腿部，蹬车时不会明显束缚；大面积魔术贴固定牢靠，骑行过程中不容易松开。晚上经过车灯照射时，反光条更加醒目，夜间骑行也更安心。骑完撕下来卷好放进口袋，一条小绑带，就把整洁、安全和收纳都照顾到了。",
+		EditingIntent: "采用痛点解决角度，从骑行痛点切入，再展示固定动作和使用结果。",
 		Beats: []modelgateway.ScriptGenerationBeat{
-			{Label: "开头", SellingPoint: point, VisualGoal: "展示裤脚靠近链条。", SourceType: "visual_only"},
-			{Label: "展示", SellingPoint: point, VisualGoal: "展示贴合固定动作。", SourceType: "visual_only"},
-			{Label: "收束", SellingPoint: point, VisualGoal: "展示骑行状态。", SourceType: "visual_only"},
+			{Label: "痛点", SellingPoint: point, VisualGoal: "骑行时裤脚靠近自行车链条", SourceType: "visual_only"},
+			{Label: "固定", SellingPoint: point, VisualGoal: "双手将束裤带绕过脚踝并压紧魔术贴", SourceType: "visual_only"},
+			{Label: "贴合", SellingPoint: point, VisualGoal: "束裤带贴合脚踝并固定收紧裤脚", SourceType: "visual_only"},
+			{Label: "结果", SellingPoint: point, VisualGoal: "骑行过程中束裤带保持固定状态", SourceType: "visual_only"},
 		},
 	}}}, nil
 }
@@ -66,7 +67,7 @@ func TestGenerateWorkbenchScriptsHandlerUsesConfiguredService(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(response.Data) != 1 || response.Data[0].ID == "" || response.Data[0].Status != "draft" || len(response.Data[0].Beats) != 3 {
+	if len(response.Data) != 1 || response.Data[0].ID == "" || response.Data[0].Status != "draft" || len(response.Data[0].Beats) != 4 {
 		t.Fatalf("unexpected response %#v", response.Data)
 	}
 }
