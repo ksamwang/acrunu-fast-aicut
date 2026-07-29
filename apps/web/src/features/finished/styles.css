@@ -64,12 +64,67 @@
   color: var(--finished-muted);
 }
 
+.finished-date-groups {
+  padding: 6px 16px 20px;
+}
+
+.finished-date-group + .finished-date-group {
+  margin-top: 8px;
+}
+
+.finished-date-group-header {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  background: #f5f8f8;
+  color: var(--finished-ink);
+}
+
+.finished-date-group-title {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.finished-date-group-title svg {
+  color: var(--finished-teal);
+}
+
+.finished-date-group-count {
+  flex: none;
+  color: var(--finished-muted);
+  font-size: 12px;
+}
+
+.finished-date-group-line {
+  width: 100%;
+  min-width: 24px;
+  height: 1px;
+  background: var(--finished-border);
+}
+
+.finished-date-group-header > .ant-checkbox-wrapper {
+  flex: none;
+  color: #49616b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .finished-waterfall {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
   align-items: stretch;
-  padding: 16px;
+  padding: 8px 0 10px;
 }
 
 .finished-work-card {
@@ -1005,7 +1060,12 @@
   .finished-waterfall {
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
     gap: 12px;
-    padding: 12px;
+    padding: 7px 0 9px;
+  }
+
+  .finished-date-groups {
+    padding-right: 12px;
+    padding-left: 12px;
   }
 }
 

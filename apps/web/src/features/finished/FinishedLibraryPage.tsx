@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Dropdown, Empty, Input, message, Modal, Progress, Segmented, Select, Tag } from "antd";
 import type { MenuProps } from "antd";
-import { CheckSquare2, CircleAlert, Download, LoaderCircle, Play, RotateCcw, Trash2, UserRound, X } from "lucide-react";
+import { CalendarDays, CheckSquare2, CircleAlert, Download, LoaderCircle, Play, RotateCcw, Trash2, UserRound, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import type { FinishedWork } from "../../shared/types/generation";
@@ -14,6 +14,12 @@ import { createFinishedWorkDownload } from "./api";
 import "./styles.css";
 
 type StatusFilter = "all" | "generating" | "completed";
+
+type FinishedWorkDateGroup = {
+  key: string;
+  label: string;
+  works: FinishedWork[];
+};
 
 function readFinishedWorkID() {
   const match = window.location.hash.match(/^#\/finished\/([^/?#]+)/);
@@ -54,6 +60,61 @@ function formatCardDate(value?: string) {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${month}-${day} ${hours}:${minutes}`;
+}
+
+function localDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localCalendarDay(date: Date) {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDateGroupLabel(date: Date, now: Date) {
+  const daysAgo = Math.round((localCalendarDay(now) - localCalendarDay(date)) / 86_400_000);
+  const monthAndDay = `${date.getMonth() + 1}月${date.getDate()}日`;
+  if (daysAgo === 0) {
+    return `今天 · ${monthAndDay}`;
+  }
+  if (daysAgo === 1) {
+    return `昨天 · ${monthAndDay}`;
+  }
+  const weekday = new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(date);
+  const dateLabel = date.getFullYear() === now.getFullYear()
+    ? monthAndDay
+    : `${date.getFullYear()}年${monthAndDay}`;
+  return `${dateLabel} · ${weekday}`;
+}
+
+function groupFinishedWorksByDate(works: FinishedWork[]): FinishedWorkDateGroup[] {
+  const now = new Date();
+  const sortedWorks = [...works].sort((left, right) => {
+    const leftTime = new Date(left.created_at).getTime();
+    const rightTime = new Date(right.created_at).getTime();
+    const safeLeftTime = Number.isNaN(leftTime) ? Number.NEGATIVE_INFINITY : leftTime;
+    const safeRightTime = Number.isNaN(rightTime) ? Number.NEGATIVE_INFINITY : rightTime;
+    return safeRightTime - safeLeftTime || right.id.localeCompare(left.id);
+  });
+  const groups = new Map<string, FinishedWorkDateGroup>();
+  sortedWorks.forEach((work) => {
+    const date = new Date(work.created_at);
+    const valid = !Number.isNaN(date.getTime());
+    const key = valid ? localDateKey(date) : "unknown";
+    const existing = groups.get(key);
+    if (existing) {
+      existing.works.push(work);
+      return;
+    }
+    groups.set(key, {
+      key,
+      label: valid ? formatDateGroupLabel(date, now) : "日期未知",
+      works: [work]
+    });
+  });
+  return Array.from(groups.values());
 }
 
 export function FinishedLibraryPage({ token }: { token: string }) {
@@ -115,6 +176,8 @@ export function FinishedLibraryPage({ token }: { token: string }) {
     });
   }, [keyword, productID, statusFilter, works]);
 
+  const dateGroups = useMemo(() => groupFinishedWorksByDate(filteredWorks), [filteredWorks]);
+
   const selectedWork = selectedWorkID ? works.find((work) => work.id === selectedWorkID) : undefined;
   const selectableWorks = filteredWorks.filter((work) => work.status !== "generating");
   const canDownloadWorks = (workIDs: string[]) => {
@@ -163,6 +226,18 @@ export function FinishedLibraryPage({ token }: { token: string }) {
       } else {
         selectableWorks.forEach((work) => next.add(work.id));
       }
+      return next;
+    });
+  };
+
+  const toggleDateGroupSelection = (workIDs: string[]) => {
+    if (workIDs.length === 0) {
+      return;
+    }
+    setSelectedWorkIDs((current) => {
+      const next = new Set(current);
+      const allSelected = workIDs.every((workID) => current.has(workID));
+      workIDs.forEach((workID) => allSelected ? next.delete(workID) : next.add(workID));
       return next;
     });
   };
@@ -512,75 +587,100 @@ export function FinishedLibraryPage({ token }: { token: string }) {
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDescription(statusFilter)} />
           </div>
         ) : (
-          <div className="finished-waterfall">
-            {filteredWorks.map((work) => {
-              const isGenerating = work.status === "generating";
-              const isFailed = work.status === "failed";
-              const selectable = work.status !== "generating";
-              const selected = selectedWorkIDs.has(work.id);
+          <div className="finished-date-groups">
+            {dateGroups.map((group) => {
+              const selectableGroupWorkIDs = group.works.filter((work) => work.status !== "generating").map((work) => work.id);
+              const selectedGroupCount = selectableGroupWorkIDs.filter((workID) => selectedWorkIDs.has(workID)).length;
+              const allGroupSelected = selectableGroupWorkIDs.length > 0 && selectedGroupCount === selectableGroupWorkIDs.length;
               return (
-                <Dropdown
-                  key={work.id}
-                  menu={selectionMode ? batchContextMenu(work) : workContextMenu(work)}
-                  trigger={["contextMenu"]}
-                  disabled={selectionMode && !selectable}
-                >
-                  <article
-                    className={`finished-work-card${isGenerating ? " is-generating" : ""}${isFailed ? " is-failed" : ""}${selectionMode ? " is-selection-mode" : ""}${selected ? " is-selected" : ""}`}
-                    data-status={work.status}
-                    data-testid={`finished-work-${work.id}`}
-                    onContextMenu={() => {
-                      if (selectionMode && selectable && !selected) {
-                        setSelectedWorkIDs(new Set([work.id]));
-                      }
-                    }}
-                  >
+                <section className="finished-date-group" data-testid={`finished-date-group-${group.key}`} key={group.key}>
+                  <header className="finished-date-group-header">
+                    <h2 className="finished-date-group-title"><CalendarDays size={15} />{group.label}</h2>
+                    <span className="finished-date-group-count">{group.works.length} 条</span>
+                    <span className="finished-date-group-line" />
                     {selectionMode ? (
-                      <span className="finished-work-selector" onClick={(event) => event.stopPropagation()}>
-                        <Checkbox checked={selected} disabled={!selectable} aria-label={`选择 ${work.title}`} onChange={() => selectable && toggleWorkSelection(work.id)} />
-                      </span>
+                      <Checkbox
+                        checked={allGroupSelected}
+                        indeterminate={selectedGroupCount > 0 && !allGroupSelected}
+                        disabled={selectableGroupWorkIDs.length === 0 || retryingSelected || downloading || deletingSelected}
+                        aria-label={`选择 ${group.label} 的成品`}
+                        onChange={() => toggleDateGroupSelection(selectableGroupWorkIDs)}
+                      >选择该日</Checkbox>
                     ) : null}
-                    <button
-                      type="button"
-                      className={`finished-work-media${isGenerating ? " is-generating" : ""}`}
-                      aria-label={selectionMode ? `${selected ? "取消选择" : "选择"} ${work.title}` : `查看 ${work.title}`}
-                      onClick={() => selectionMode ? (selectable && toggleWorkSelection(work.id)) : writeFinishedWorkID(work.id)}
-                    >
-                      <FinishedWorkVisual work={work} compact />
-                      <span className="finished-work-overlay-top">
-                        <span className="finished-work-overlay-labels">
-                          <Tag className="finished-work-product">{work.product_name}</Tag>
-                          <span className="finished-work-creator"><UserRound size={12} />创建人：{work.created_by_name || "未知用户"}</span>
-                        </span>
-                        <Tag className="finished-work-status" color={isGenerating ? "processing" : isFailed ? "error" : "green"}>
-                          {isGenerating ? "生成中" : isFailed ? "生成失败" : "已完成"}
-                        </Tag>
-                      </span>
-                      {isGenerating ? (
-                        <span className="finished-work-generation-state">
-                          <LoaderCircle size={22} />
-                          <span>{work.stage_label}</span>
-                        </span>
-                      ) : isFailed ? (
-                        <span className="finished-work-generation-state is-failed">
-                          <CircleAlert size={22} />
-                          <span>{work.error_message || "生成失败"}</span>
-                        </span>
-                      ) : (
-                        <span className="finished-work-play"><Play size={18} fill="currentColor" /></span>
-                      )}
-                      <span className="finished-work-overlay-bottom">
-                        <span className="finished-work-overlay-title">{work.title}</span>
-                        <span className="finished-work-overlay-script">{work.script_text}</span>
-                        <span className="finished-work-overlay-meta">
-                          <span>{formatDuration(work.duration_ms)}</span>
-                          <span>{isGenerating ? `${work.progress}% · ${work.stage_label}` : isFailed ? "生成失败" : `完成 ${formatCardDate(work.completed_at ?? work.created_at)}`}</span>
-                        </span>
-                        {isGenerating ? <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#4fc1b2" /> : null}
-                      </span>
-                    </button>
-                  </article>
-                </Dropdown>
+                  </header>
+                  <div className="finished-waterfall">
+                    {group.works.map((work) => {
+                      const isGenerating = work.status === "generating";
+                      const isFailed = work.status === "failed";
+                      const selectable = work.status !== "generating";
+                      const selected = selectedWorkIDs.has(work.id);
+                      return (
+                        <Dropdown
+                          key={work.id}
+                          menu={selectionMode ? batchContextMenu(work) : workContextMenu(work)}
+                          trigger={["contextMenu"]}
+                          disabled={selectionMode && !selectable}
+                        >
+                          <article
+                            className={`finished-work-card${isGenerating ? " is-generating" : ""}${isFailed ? " is-failed" : ""}${selectionMode ? " is-selection-mode" : ""}${selected ? " is-selected" : ""}`}
+                            data-status={work.status}
+                            data-testid={`finished-work-${work.id}`}
+                            onContextMenu={() => {
+                              if (selectionMode && selectable && !selected) {
+                                setSelectedWorkIDs(new Set([work.id]));
+                              }
+                            }}
+                          >
+                            {selectionMode ? (
+                              <span className="finished-work-selector" onClick={(event) => event.stopPropagation()}>
+                                <Checkbox checked={selected} disabled={!selectable} aria-label={`选择 ${work.title}`} onChange={() => selectable && toggleWorkSelection(work.id)} />
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className={`finished-work-media${isGenerating ? " is-generating" : ""}`}
+                              aria-label={selectionMode ? `${selected ? "取消选择" : "选择"} ${work.title}` : `查看 ${work.title}`}
+                              onClick={() => selectionMode ? (selectable && toggleWorkSelection(work.id)) : writeFinishedWorkID(work.id)}
+                            >
+                              <FinishedWorkVisual work={work} compact />
+                              <span className="finished-work-overlay-top">
+                                <span className="finished-work-overlay-labels">
+                                  <Tag className="finished-work-product">{work.product_name}</Tag>
+                                  <span className="finished-work-creator"><UserRound size={12} />创建人：{work.created_by_name || "未知用户"}</span>
+                                </span>
+                                <Tag className="finished-work-status" color={isGenerating ? "processing" : isFailed ? "error" : "green"}>
+                                  {isGenerating ? "生成中" : isFailed ? "生成失败" : "已完成"}
+                                </Tag>
+                              </span>
+                              {isGenerating ? (
+                                <span className="finished-work-generation-state">
+                                  <LoaderCircle size={22} />
+                                  <span>{work.stage_label}</span>
+                                </span>
+                              ) : isFailed ? (
+                                <span className="finished-work-generation-state is-failed">
+                                  <CircleAlert size={22} />
+                                  <span>{work.error_message || "生成失败"}</span>
+                                </span>
+                              ) : (
+                                <span className="finished-work-play"><Play size={18} fill="currentColor" /></span>
+                              )}
+                              <span className="finished-work-overlay-bottom">
+                                <span className="finished-work-overlay-title">{work.title}</span>
+                                <span className="finished-work-overlay-script">{work.script_text}</span>
+                                <span className="finished-work-overlay-meta">
+                                  <span>{formatDuration(work.duration_ms)}</span>
+                                  <span>{isGenerating ? `${work.progress}% · ${work.stage_label}` : isFailed ? "生成失败" : `完成 ${formatCardDate(work.completed_at ?? work.created_at)}`}</span>
+                                </span>
+                                {isGenerating ? <Progress percent={work.progress} showInfo={false} size="small" strokeColor="#4fc1b2" /> : null}
+                              </span>
+                            </button>
+                          </article>
+                        </Dropdown>
+                      );
+                    })}
+                  </div>
+                </section>
               );
             })}
           </div>
