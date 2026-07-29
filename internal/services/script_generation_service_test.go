@@ -154,8 +154,8 @@ func TestScriptGenerationServiceRejectsMissingSellingPointCoverage(t *testing.T)
 
 func validScriptGenerationResult(firstSellingPoint string, secondSellingPoint string) modelgateway.ScriptGenerationResult {
 	return modelgateway.ScriptGenerationResult{Variants: []modelgateway.ScriptGenerationVariant{{
-		Hook:          "骑车时裤脚总往链条上蹭",
-		ScriptText:    "骑车时裤脚总往链条上蹭，不仅容易沾上油污，还可能卷进齿盘。出门前把束裤带绕在脚踝上，调整到合适松紧，再把魔术贴压紧，裤脚马上被收住。弹力材质贴合腿部，蹬车时不会明显束缚；大面积魔术贴固定牢靠，骑行过程中不容易松开。晚上经过车灯照射时，反光条更加醒目，夜间骑行也更安心。骑完撕下来卷好放进口袋，一条小绑带，就把整洁、安全和收纳都照顾到了。",
+		Hook:          "骑车时宽松长裤的裤脚总往链条上蹭",
+		ScriptText:    "骑车时宽松长裤的裤脚总往链条上蹭，沾上难洗的黑色油污还可能突然卷进齿盘。出门前用这条高弹束裤带把裤脚稳稳收好，弹力贴合腿部却不会明显束缚。魔术贴压紧后不容易松开，蹬车时裤脚始终利落。夜间经过车灯照射，反光条会更加醒目。骑完卷好放进口袋，一条小绑带就把整洁和安心都照顾到了。",
 		EditingIntent: "采用痛点解决角度，从裤脚蹭链条切入，依次展示固定、贴合、反光和收纳结果。",
 		Beats: []modelgateway.ScriptGenerationBeat{
 			{Label: "痛点", SellingPoint: firstSellingPoint, VisualGoal: "骑行时裤脚靠近自行车链条", SourceType: "visual_only"},

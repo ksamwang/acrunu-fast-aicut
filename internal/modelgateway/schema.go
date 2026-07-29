@@ -7,6 +7,8 @@ import (
 
 const OutputSchemaVersion = "phase2.asset_analysis.v2"
 const ScriptGenerationOutputSchemaVersion = "workbench.script_generation.v2"
+const ScriptCopyOutputSchemaVersion = "workbench.script_copy.v1"
+const ScriptVisualIntentOutputSchemaVersion = "workbench.script_visual_intent.v1"
 const EditPlanOutputSchemaVersion = "workbench.edit_plan.v3"
 
 var allowedShotSizes = map[string]struct{}{
@@ -227,6 +229,71 @@ func ScriptGenerationOutputSchema() map[string]any {
 					"properties": map[string]any{
 						"hook":           map[string]any{"type": "string", "minLength": 1},
 						"script_text":    map[string]any{"type": "string", "minLength": 1},
+						"editing_intent": map[string]any{"type": "string", "minLength": 1},
+						"beats": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type":     "object",
+								"required": []string{"label", "selling_point", "visual_goal", "source_type"},
+								"properties": map[string]any{
+									"label":         map[string]any{"type": "string", "minLength": 1},
+									"selling_point": map[string]any{"type": "string", "minLength": 1},
+									"visual_goal":   map[string]any{"type": "string", "minLength": 1},
+									"source_type": map[string]any{
+										"type": "string",
+										"enum": []string{TTSVisualSourceType},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func ScriptCopyOutputSchema() map[string]any {
+	return map[string]any{
+		"version": ScriptCopyOutputSchemaVersion,
+		"type":    "object",
+		"required": []string{
+			"variants",
+		},
+		"properties": map[string]any{
+			"variants": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"variant_index", "angle", "selected_selling_points", "hook", "script_text"},
+					"properties": map[string]any{
+						"variant_index":           map[string]any{"type": "integer", "minimum": 1},
+						"angle":                   map[string]any{"type": "string", "minLength": 1},
+						"selected_selling_points": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1}},
+						"hook":                    map[string]any{"type": "string", "minLength": 1},
+						"script_text":             map[string]any{"type": "string", "minLength": 1},
+					},
+				},
+			},
+		},
+	}
+}
+
+func ScriptVisualIntentOutputSchema() map[string]any {
+	return map[string]any{
+		"version": ScriptVisualIntentOutputSchemaVersion,
+		"type":    "object",
+		"required": []string{
+			"plans",
+		},
+		"properties": map[string]any{
+			"plans": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"variant_index", "editing_intent", "beats"},
+					"properties": map[string]any{
+						"variant_index":  map[string]any{"type": "integer", "minimum": 1},
 						"editing_intent": map[string]any{"type": "string", "minLength": 1},
 						"beats": map[string]any{
 							"type": "array",

@@ -102,8 +102,8 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 	if err != nil {
 		return nil, err
 	}
-	_, maximumBeats := modelgateway.ScriptBeatCountRange(input.TargetDurationSeconds)
-	if len(sellingPoints) > input.VariantCount*maximumBeats {
+	_, maximumSellingPoints := modelgateway.ScriptSellingPointCountRange(input.TargetDurationSeconds)
+	if len(sellingPoints) > input.VariantCount*maximumSellingPoints {
 		return nil, fmt.Errorf("%w: selected selling points exceed the capacity of %d scripts at %d seconds", ErrScriptGenerationInput, input.VariantCount, input.TargetDurationSeconds)
 	}
 
