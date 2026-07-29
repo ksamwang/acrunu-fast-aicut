@@ -25,6 +25,8 @@ const (
 	scriptMaximumCharacterRatio          = 1.1
 	scriptMinimumDurationRatio           = 0.9
 	scriptMaximumDurationRatio           = 1.12
+	scriptMinimumAcceptedDurationRatio   = 0.7
+	scriptMaximumAcceptedDurationRatio   = 1.4
 	maximumScriptClauseCharacters        = 42
 )
 
@@ -165,17 +167,27 @@ func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, i
 	if err != nil {
 		return ScriptGenerationResult{}, err
 	}
-	if validationErr := ValidateScriptCopyResult(copies, input); validationErr != nil {
+	initialValidationErr := ValidateScriptCopyResult(copies, input)
+	initialQualityIssues := validateScriptCopyQualityIssues(copies, input)
+	if initialValidationErr != nil || len(initialQualityIssues) > 0 {
 		previousJSON, _ := json.Marshal(copies)
-		repairInstruction := "上一次文案 JSON 未通过服务端校验。请完整重写一次并修复列出的全部问题，仍然只输出广告口播，不得增加镜头、beats、visual_goal、素材解说或制作指令。校验错误：" + validationErr.Error() + "。上一次 JSON：" + string(previousJSON)
+		repairIssues := append([]string{}, initialQualityIssues...)
+		if initialValidationErr != nil {
+			repairIssues = append(repairIssues, initialValidationErr.Error())
+		}
+		repairInstruction := "上一次文案 JSON 需要优化。请完整重写一次并修复列出的全部问题，仍然只输出广告口播，不得增加镜头、beats、visual_goal、素材解说或制作指令。需要修复：" + strings.Join(repairIssues, "；") + "。上一次 JSON：" + string(previousJSON)
 		repaired, repairErr := g.requestScriptCopies(ctx, copyPrompt, repairInstruction, 0.2)
 		if repairErr != nil {
-			return ScriptGenerationResult{}, repairErr
+			if initialValidationErr != nil {
+				return ScriptGenerationResult{}, repairErr
+			}
+		} else if repairedValidationErr := ValidateScriptCopyResult(repaired, input); repairedValidationErr != nil {
+			if initialValidationErr != nil {
+				return ScriptGenerationResult{}, repairedValidationErr
+			}
+		} else if initialValidationErr != nil || len(validateScriptCopyQualityIssues(repaired, input)) <= len(initialQualityIssues) {
+			copies = repaired
 		}
-		if repairErr := ValidateScriptCopyResult(repaired, input); repairErr != nil {
-			return ScriptGenerationResult{}, repairErr
-		}
-		copies = repaired
 	}
 	sort.Slice(copies.Variants, func(i, j int) bool {
 		return copies.Variants[i].VariantIndex < copies.Variants[j].VariantIndex
@@ -558,26 +570,10 @@ func validateScriptNarration(index int, hook *string, scriptText *string, target
 	if *hook == "" || *scriptText == "" {
 		return append(issues, fmt.Sprintf("variant %d hook and script_text are required", index))
 	}
-	minimumDurationMs, maximumDurationMs := ScriptEstimatedDurationRangeMs(targetDuration)
+	minimumDurationMs, maximumDurationMs := ScriptAcceptedDurationRangeMs(targetDuration)
 	estimatedDurationMs := EstimateScriptDurationMs(*scriptText)
 	if estimatedDurationMs < minimumDurationMs || estimatedDurationMs > maximumDurationMs {
-		issues = append(issues, fmt.Sprintf("variant %d estimated duration is %.1fs; target %ds requires %.1fs to %.1fs", index, float64(estimatedDurationMs)/1000, targetDuration, float64(minimumDurationMs)/1000, float64(maximumDurationMs)/1000))
-	}
-	if phrase := firstScriptPhrase(*scriptText, informationFeedClichePhrases); phrase != "" {
-		issues = append(issues, fmt.Sprintf("variant %d contains generic advertising phrase %q", index, phrase))
-	}
-	if phrase := firstScriptPhrase(*scriptText, scriptProductionDirectionPhrases); phrase != "" {
-		issues = append(issues, fmt.Sprintf("variant %d contains production-direction phrase %q", index, phrase))
-	}
-	clauses := scriptSemanticClauses(*scriptText)
-	minimumClauses, maximumClauses := ScriptClauseCountRange(targetDuration)
-	if len(clauses) < minimumClauses || len(clauses) > maximumClauses {
-		issues = append(issues, fmt.Sprintf("variant %d has %d semantic clauses; target %ds requires %d to %d", index, len(clauses), targetDuration, minimumClauses, maximumClauses))
-	}
-	for clauseIndex, clause := range clauses {
-		if CountScriptSpokenCharacters(clause) > maximumScriptClauseCharacters {
-			issues = append(issues, fmt.Sprintf("variant %d clause %d is too dense; split it with natural punctuation", index, clauseIndex+1))
-		}
+		issues = append(issues, fmt.Sprintf("variant %d estimated duration is %.1fs; target %ds accepts %.1fs to %.1fs", index, float64(estimatedDurationMs)/1000, targetDuration, float64(minimumDurationMs)/1000, float64(maximumDurationMs)/1000))
 	}
 	normalizedHook := normalizeScriptComparisonText(*hook)
 	if normalizedHook != "" {
@@ -587,6 +583,42 @@ func validateScriptNarration(index int, hook *string, scriptText *string, target
 		seenHooks[normalizedHook] = struct{}{}
 		if !strings.HasPrefix(normalizeScriptComparisonText(*scriptText), normalizedHook) {
 			issues = append(issues, fmt.Sprintf("variant %d hook must be the opening words of script_text", index))
+		}
+	}
+	return issues
+}
+
+func validateScriptCopyQualityIssues(result ScriptCopyResult, input ScriptGenerationInput) []string {
+	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
+	if !ok {
+		return nil
+	}
+	issues := make([]string, 0)
+	minimumDurationMs, maximumDurationMs := ScriptEstimatedDurationRangeMs(targetDuration)
+	minimumClauses, maximumClauses := ScriptClauseCountRange(targetDuration)
+	for index, variant := range result.Variants {
+		scriptText := strings.TrimSpace(variant.ScriptText)
+		if scriptText == "" {
+			continue
+		}
+		estimatedDurationMs := EstimateScriptDurationMs(scriptText)
+		if estimatedDurationMs < minimumDurationMs || estimatedDurationMs > maximumDurationMs {
+			issues = append(issues, fmt.Sprintf("variant %d estimated duration is %.1fs; target %ds prefers %.1fs to %.1fs", index+1, float64(estimatedDurationMs)/1000, targetDuration, float64(minimumDurationMs)/1000, float64(maximumDurationMs)/1000))
+		}
+		if phrase := firstScriptPhrase(scriptText, informationFeedClichePhrases); phrase != "" {
+			issues = append(issues, fmt.Sprintf("variant %d contains generic advertising phrase %q", index+1, phrase))
+		}
+		if phrase := firstScriptPhrase(scriptText, scriptProductionDirectionPhrases); phrase != "" {
+			issues = append(issues, fmt.Sprintf("variant %d contains production-direction phrase %q", index+1, phrase))
+		}
+		clauses := scriptSemanticClauses(scriptText)
+		if len(clauses) < minimumClauses || len(clauses) > maximumClauses {
+			issues = append(issues, fmt.Sprintf("variant %d has %d semantic clauses; target %ds prefers %d to %d", index+1, len(clauses), targetDuration, minimumClauses, maximumClauses))
+		}
+		for clauseIndex, clause := range clauses {
+			if CountScriptSpokenCharacters(clause) > maximumScriptClauseCharacters {
+				issues = append(issues, fmt.Sprintf("variant %d clause %d is too dense; split it with natural punctuation", index+1, clauseIndex+1))
+			}
 		}
 	}
 	return issues
@@ -658,6 +690,15 @@ func ScriptEstimatedDurationRangeMs(targetDurationSeconds int) (int, int) {
 	}
 	targetMs := float64(targetDurationSeconds * 1000)
 	return int(math.Ceil(targetMs * scriptMinimumDurationRatio)), int(math.Floor(targetMs * scriptMaximumDurationRatio))
+}
+
+func ScriptAcceptedDurationRangeMs(targetDurationSeconds int) (int, int) {
+	targetDurationSeconds, ok := NormalizeScriptTargetDuration(targetDurationSeconds)
+	if !ok {
+		return 0, 0
+	}
+	targetMs := float64(targetDurationSeconds * 1000)
+	return int(math.Ceil(targetMs * scriptMinimumAcceptedDurationRatio)), int(math.Floor(targetMs * scriptMaximumAcceptedDurationRatio))
 }
 
 func CountScriptSpokenCharacters(text string) int {

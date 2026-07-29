@@ -19,7 +19,7 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 		AvailableVisualEvidence: []string{"动作：双手压紧魔术贴完成固定"},
 		SellingPoints:           []ScriptGenerationSellingPoint{{Name: "魔术贴固定"}},
 	})
-	if bundle.Version != "workbench-script-v4" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
+	if bundle.Version != "workbench-script-v5" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
 		t.Fatalf("unexpected copy prompt bundle %#v", bundle)
 	}
 	prompt := bundle.Prompts[0].System + " " + bundle.Prompts[0].User
@@ -97,7 +97,7 @@ func TestOpenAICompatibleScriptGeneratorUsesSeparatedCopyAndVisualRequests(t *te
 			result := validScriptCopyResult()
 			if copyRequests == 1 {
 				result.Variants[0].ScriptText = result.Variants[0].Hook + "，束裤带一贴就稳。"
-			} else if !strings.Contains(userMessage, "未通过服务端校验") {
+			} else if !strings.Contains(userMessage, "需要优化") {
 				t.Fatalf("expected copy repair instruction, got %s", userMessage)
 			}
 			content, _ = json.Marshal(result)
@@ -134,6 +134,70 @@ func TestOpenAICompatibleScriptGeneratorUsesSeparatedCopyAndVisualRequests(t *te
 	}
 }
 
+func TestOpenAICompatibleScriptGeneratorAcceptsRepairOutsidePreferredDuration(t *testing.T) {
+	requests := 0
+	copyRequests := 0
+	copyResult := reasonableNearTargetCopyResult()
+	visualResult := ScriptVisualIntentResult{Plans: []ScriptVisualIntentPlan{{
+		VariantIndex:  1,
+		EditingIntent: "从裤脚风险切入，依次呈现收紧、固定和骑行结果。",
+		Beats: []ScriptGenerationBeat{
+			{Label: "裤脚风险", SellingPoint: "避免蹭链条", VisualGoal: "骑行时裤脚靠近自行车链条", SourceType: TTSVisualSourceType},
+			{Label: "收紧裤脚", SellingPoint: "避免蹭链条", VisualGoal: "束裤带环绕脚踝并收紧裤脚", SourceType: TTSVisualSourceType},
+			{Label: "压紧固定", SellingPoint: "避免蹭链条", VisualGoal: "双手压紧束裤带魔术贴完成固定", SourceType: TTSVisualSourceType},
+			{Label: "骑行结果", SellingPoint: "避免蹭链条", VisualGoal: "束裤带固定裤脚后的骑行状态", SourceType: TTSVisualSourceType},
+		},
+	}}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
+		}
+		var request map[string]any
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		messages, _ := request["messages"].([]any)
+		userMessage := stringifyChatMessage(messages[1])
+		var content []byte
+		if strings.Contains(userMessage, "approved_copy_variants") {
+			content, _ = json.Marshal(visualResult)
+		} else {
+			copyRequests++
+			content, _ = json.Marshal(copyResult)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": string(content)}}},
+		})
+	}))
+	defer server.Close()
+
+	generator := NewOpenAICompatibleScriptGenerator(Config{
+		Provider: "openai_compatible",
+		BaseURL:  server.URL,
+		APIKey:   "script-key",
+		Model:    "script-model",
+		Timeout:  time.Second,
+	})
+	result, err := generator.GenerateScripts(context.Background(), ScriptGenerationInput{
+		ProductName:           "束裤带",
+		VariantCount:          1,
+		TargetDurationSeconds: 30,
+		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
+	})
+	if err != nil {
+		t.Fatalf("near-target copy must survive the quality repair: %v", err)
+	}
+	if requests != 3 || copyRequests != 2 {
+		t.Fatalf("expected copy, non-blocking copy repair, and visual requests; got requests=%d copy=%d", requests, copyRequests)
+	}
+	if len(result.Variants) != 1 || result.Variants[0].ScriptText != copyResult.Variants[0].ScriptText {
+		t.Fatalf("unexpected generated result %#v", result)
+	}
+}
+
 func TestValidateScriptGenerationResultRejectsNonVisualOnlySourceType(t *testing.T) {
 	result := validGatewayScriptResult()
 	result.Variants[0].Beats[0].SourceType = "talking_head"
@@ -143,25 +207,46 @@ func TestValidateScriptGenerationResultRejectsNonVisualOnlySourceType(t *testing
 	}
 }
 
-func TestValidateScriptGenerationResultRejectsShortAndGenericCopy(t *testing.T) {
+func TestValidateScriptGenerationResultRejectsObviouslyShortCopy(t *testing.T) {
 	result := validGatewayScriptResult()
 	result.Variants[0].ScriptText = result.Variants[0].Hook + "，今天给大家推荐这款实用神器。"
 	err := ValidateScriptGenerationResult(result, ScriptGenerationInput{VariantCount: 1, TargetDurationSeconds: 30})
-	if err == nil || !strings.Contains(err.Error(), "estimated duration") || !strings.Contains(err.Error(), "今天给大家推荐") {
-		t.Fatalf("expected duration and cliche validation errors, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "estimated duration") {
+		t.Fatalf("expected duration validation error, got %v", err)
 	}
 }
 
-func TestValidateScriptCopyResultRejectsProductionDirections(t *testing.T) {
+func TestScriptCopyQualityIssuesDetectProductionDirections(t *testing.T) {
 	result := validScriptCopyResult()
 	result.Variants[0].ScriptText = strings.Replace(result.Variants[0].ScriptText, "骑完卷好放进口袋", "最后拉上拉链，双手回到车把", 1)
-	err := ValidateScriptCopyResult(result, ScriptGenerationInput{
+	issues := validateScriptCopyQualityIssues(result, ScriptGenerationInput{
 		VariantCount:          1,
 		TargetDurationSeconds: 15,
 		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "production-direction") {
-		t.Fatalf("expected production-direction validation error, got %v", err)
+	if !strings.Contains(strings.Join(issues, "; "), "production-direction") {
+		t.Fatalf("expected production-direction quality issue, got %#v", issues)
+	}
+}
+
+func TestValidateScriptCopyResultAcceptsReasonableDurationOutsidePreferredRange(t *testing.T) {
+	result := reasonableNearTargetCopyResult()
+	input := ScriptGenerationInput{
+		VariantCount:          1,
+		TargetDurationSeconds: 30,
+		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
+	}
+	estimatedDurationMs := EstimateScriptDurationMs(result.Variants[0].ScriptText)
+	preferredMinimumMs, _ := ScriptEstimatedDurationRangeMs(30)
+	acceptedMinimumMs, acceptedMaximumMs := ScriptAcceptedDurationRangeMs(30)
+	if estimatedDurationMs >= preferredMinimumMs || estimatedDurationMs < acceptedMinimumMs || estimatedDurationMs > acceptedMaximumMs {
+		t.Fatalf("test copy duration %dms is not between the accepted and preferred boundaries", estimatedDurationMs)
+	}
+	if err := ValidateScriptCopyResult(result, input); err != nil {
+		t.Fatalf("reasonable near-target copy must not fail generation: %v", err)
+	}
+	if issues := validateScriptCopyQualityIssues(result, input); len(issues) == 0 || !strings.Contains(strings.Join(issues, "; "), "prefers") {
+		t.Fatalf("expected a non-blocking duration quality issue, got %#v", issues)
 	}
 }
 
@@ -199,6 +284,10 @@ func TestScriptDurationRules(t *testing.T) {
 	if minimumDuration != 27000 || maximumDuration != 33600 {
 		t.Fatalf("unexpected 30 second duration range %d-%d", minimumDuration, maximumDuration)
 	}
+	acceptedMinimum, acceptedMaximum := ScriptAcceptedDurationRangeMs(30)
+	if acceptedMinimum != 21000 || acceptedMaximum != 42000 {
+		t.Fatalf("unexpected 30 second accepted duration range %d-%d", acceptedMinimum, acceptedMaximum)
+	}
 	duration := EstimateScriptDurationMs(validScriptCopyResult().Variants[0].ScriptText)
 	if duration < 13500 || duration > 16800 {
 		t.Fatalf("expected valid 15 second estimate, got %d", duration)
@@ -212,6 +301,21 @@ func validScriptCopyResult() ScriptCopyResult {
 		SelectedSellingPoints: []string{"避免蹭链条"},
 		Hook:                  "骑车时裤脚总往链条上蹭",
 		ScriptText:            "骑车时裤脚总往链条上蹭，沾上油污还可能卷进齿盘。出门前用束裤带收紧裤脚，弹力贴合腿部又不影响蹬车。骑完卷好放进口袋，收纳不占地方，骑行也更利落。",
+	}}}
+}
+
+func reasonableNearTargetCopyResult() ScriptCopyResult {
+	hook := strings.Repeat("骑", 15)
+	clauses := []string{hook}
+	for _, value := range []string{"行", "裤", "脚", "链", "条", "束", "带"} {
+		clauses = append(clauses, strings.Repeat(value, 15))
+	}
+	return ScriptCopyResult{Variants: []ScriptCopyVariant{{
+		VariantIndex:          1,
+		Angle:                 "骑行裤脚安全",
+		SelectedSellingPoints: []string{"避免蹭链条"},
+		Hook:                  hook,
+		ScriptText:            strings.Join(clauses, "，"),
 	}}}
 }
 

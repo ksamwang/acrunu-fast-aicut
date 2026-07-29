@@ -19,7 +19,7 @@ type PromptBundle struct {
 }
 
 const PromptVersion = "phase2-v6"
-const ScriptGenerationPromptVersion = "workbench-script-v4"
+const ScriptGenerationPromptVersion = "workbench-script-v5"
 const ScriptVisualIntentPromptVersion = "workbench-script-visual-intent-v1"
 const EditPlanPromptVersion = "workbench-edit-plan-v5"
 const VisualPlanPromptVersion = "workbench-visual-plan-v7"
@@ -122,7 +122,7 @@ func BuildScriptGenerationPrompt(input ScriptGenerationInput) PromptBundle {
 					"先把相关卖点聚合成连贯的广告角度。每条文案只围绕一个明确的用户问题、使用场景或期望结果，最多使用 maximum_selling_points_per_variant 个紧密相关卖点。全部文案合计至少覆盖每个输入卖点一次，仅在必要时复用，不要把一条文案写成完整功能清单。" +
 					"每个 variant 只能返回 variant_index、angle、selected_selling_points、hook、script_text。variant_index 从 1 开始；selected_selling_points 只能逐字复制输入的卖点名称。口播必须自然表达这些卖点，但可以把功能转化为直接、克制的用户收益，不要机械复述名称。例如容量对应口袋不再塞满，隔层对应拿取不用翻找，固定结构对应骑行时包体不易晃动；不能把合理收益升级为绝对承诺。" +
 					"script_text 必须像真实中文信息流广告，而不是产品说明书、参数罗列、主播开场、测评报告或素材旁白。结构应为：具体钩子 -> 用户熟悉的问题或场景 -> 产品解决方式与实际收益 -> 可感知的使用结果 -> 自然收束。hook 必须是 script_text 完全一致的开头，并在前 2 到 3 秒建立本条角度。" +
-					"估算口播时长必须落在 estimated_duration_range_seconds；recommended_spoken_character_range 仅作为写作参考。长短句自然搭配，语义分句数量保持在 semantic_clause_range，不得为了凑时长连续堆叠短促的主谓句。" +
+					"口播时长以 target_duration_seconds 为目标，优先落在 estimated_duration_range_seconds；recommended_spoken_character_range 仅作为写作参考，不要为了卡住小数边界生硬增删词。长短句自然搭配，语义分句数量尽量保持在 semantic_clause_range，不得为了凑时长连续堆叠短促的主谓句。" +
 					"除非细节本身就是用户收益，否则不要念镜头顺序、颜色、手部、构图或素材动作。禁止出现转到暗光环境、画面里可以看到、双手回到车把、袋口回到闭合状态、最后拉上拉链、不用靠描述直接看清等表达。坏例：拉开拉链，袋口随即打开，最后拉上拉链。好例：常用小物分区放，骑行时不用再从口袋里翻来翻去。坏例：水从上方淋下，水珠继续滴落。好例：途中遇到小雨，随身物品也能多一层防护。坏例：调整肩带，包体落在腰侧。好例：下车接上肩带直接带走，不用再单独拎一个包。" +
 					"避免今天给大家推荐、实用神器、不容错过、赶紧入手、闭眼入、快来试试吧、赶快试试吧、值得拥有等空泛 AI 套话。产品数据未提供购买指令时，不要强行催单。只返回一个顶层键 variants。输入：" + string(inputJSON),
 			},
