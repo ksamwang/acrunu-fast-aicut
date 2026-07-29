@@ -124,11 +124,12 @@ type CreateVoiceoverWorkInput struct {
 }
 
 type NarrationSegment struct {
-	ID         string  `json:"id"`
-	StartMs    int     `json:"start_ms"`
-	EndMs      int     `json:"end_ms"`
-	Text       string  `json:"text"`
-	Confidence float64 `json:"confidence,omitempty"`
+	ID                 string  `json:"id"`
+	StartMs            int     `json:"start_ms"`
+	EndMs              int     `json:"end_ms"`
+	Text               string  `json:"text"`
+	Confidence         float64 `json:"confidence,omitempty"`
+	SynthesisUnitIndex *int    `json:"-"`
 }
 
 type VoiceoverEditPlanClip struct {
@@ -985,7 +986,7 @@ func (s *VoiceoverService) ProcessVoiceProfilePreview(ctx context.Context, profi
 		return err
 	}
 	storageKey := path.Join("voice-profiles", profileID, "preview.wav")
-	_, _, err = s.synthesizeAndStore(ctx, profile.PreviewText, profile.ReferenceAudioStorageKey, profile.ReferenceAudioName, profile.ReferenceText, storageKey)
+	_, _, _, err = s.synthesizeNarrationAndStore(ctx, profile.PreviewText, profile.ReferenceAudioStorageKey, profile.ReferenceAudioName, profile.ReferenceText, storageKey)
 	if err != nil {
 		_ = s.setVoiceProfilePreviewStatus(context.Background(), profileID, "failed", "", err.Error())
 		return err
@@ -1015,7 +1016,7 @@ func (s *VoiceoverService) ProcessVoiceAudition(ctx context.Context, auditionID 
 		return err
 	}
 	storageKey := path.Join("voice-auditions", auditionID+".wav")
-	sampleRate, durationMs, err := s.synthesizeAndStore(ctx, audition.Text, audition.referenceAudioStorageKey, audition.referenceAudioFileName, audition.referenceText, storageKey)
+	sampleRate, durationMs, _, err := s.synthesizeNarrationAndStore(ctx, audition.Text, audition.referenceAudioStorageKey, audition.referenceAudioFileName, audition.referenceText, storageKey)
 	if err != nil {
 		_ = s.setVoiceAuditionStatus(context.Background(), auditionID, "failed", "", 0, 0, err.Error())
 		return err
@@ -1068,7 +1069,7 @@ func (s *VoiceoverService) ProcessVoiceoverGenerate(ctx context.Context, payload
 	}
 
 	storageKey := path.Join("voiceovers", payload.TaskID, payload.VoiceoverID+".wav")
-	sampleRate, durationMs, err := s.synthesizeAndStore(ctx, variant.ScriptText, variant.ReferenceAudioStorageKey, variant.ReferenceAudioFileName, variant.ReferenceText, storageKey)
+	sampleRate, durationMs, synthesisUnits, err := s.synthesizeNarrationAndStore(ctx, variant.ScriptText, variant.ReferenceAudioStorageKey, variant.ReferenceAudioFileName, variant.ReferenceText, storageKey)
 	if err != nil {
 		s.failVoiceover(context.Background(), variant.ID, voiceover.ID, err)
 		return err
@@ -1093,6 +1094,13 @@ func (s *VoiceoverService) ProcessVoiceoverGenerate(ctx context.Context, payload
 		return err
 	}
 	segments := normalizeNarrationSegments(transcript.Segments, variant.ScriptText, durationMs)
+	if len(synthesisUnits) > 0 {
+		segments, err = normalizeNarrationSegmentsWithSynthesisUnits(transcript.Segments, variant.ScriptText, durationMs, synthesisUnits)
+		if err != nil {
+			s.failVoiceover(context.Background(), variant.ID, voiceover.ID, err)
+			return err
+		}
+	}
 	if err := s.persistNarrationSegments(ctx, variant.ID, voiceover.ID, segments); err != nil {
 		s.failVoiceover(context.Background(), variant.ID, voiceover.ID, err)
 		return err
@@ -1125,7 +1133,7 @@ func (s *VoiceoverService) processMemoryVoiceover(ctx context.Context, payload q
 	s.mu.Unlock()
 
 	storageKey := path.Join("voiceovers", payload.TaskID, payload.VoiceoverID+".wav")
-	_, durationMs, err := s.synthesizeAndStore(ctx, job.work.ScriptText, job.referenceAudioStorageKey, job.referenceAudioFileName, job.referenceText, storageKey)
+	_, durationMs, synthesisUnits, err := s.synthesizeNarrationAndStore(ctx, job.work.ScriptText, job.referenceAudioStorageKey, job.referenceAudioFileName, job.referenceText, storageKey)
 	if err != nil {
 		s.failMemoryVoiceover(payload.TaskID, err)
 		return err
@@ -1151,6 +1159,13 @@ func (s *VoiceoverService) processMemoryVoiceover(ctx context.Context, payload q
 		return err
 	}
 	segments := normalizeNarrationSegments(transcript.Segments, job.work.ScriptText, durationMs)
+	if len(synthesisUnits) > 0 {
+		segments, err = normalizeNarrationSegmentsWithSynthesisUnits(transcript.Segments, job.work.ScriptText, durationMs, synthesisUnits)
+		if err != nil {
+			s.failMemoryVoiceover(payload.TaskID, err)
+			return err
+		}
+	}
 	s.mu.Lock()
 	job.voiceoverStatus = "completed"
 	job.work.DurationMs = durationMs
@@ -1166,13 +1181,63 @@ func (s *VoiceoverService) processMemoryVoiceover(ctx context.Context, payload q
 	return nil
 }
 
-func (s *VoiceoverService) synthesizeAndStore(ctx context.Context, text string, referenceStorageKey string, referenceFileName string, referenceText string, storageKey string) (int, int, error) {
+func (s *VoiceoverService) synthesizeNarrationAndStore(
+	ctx context.Context,
+	text string,
+	referenceStorageKey string,
+	referenceFileName string,
+	referenceText string,
+	storageKey string,
+) (int, int, []synthesizedNarrationUnit, error) {
+	plannedUnits := splitNarrationSynthesisUnits(text)
+	if len(plannedUnits) == 0 {
+		return 0, 0, nil, errors.New("narration synthesis units are required")
+	}
+	gatewayUnits := make([]modelgateway.CosyVoiceSynthesisUnit, 0, len(plannedUnits))
+	var synthesisText strings.Builder
+	for _, unit := range plannedUnits {
+		gatewayUnits = append(gatewayUnits, modelgateway.CosyVoiceSynthesisUnit{Text: unit.Text, PauseAfterMs: unit.PauseAfterMs})
+		synthesisText.WriteString(unit.Text)
+	}
+	sampleRate, durationMs, unitResults, err := s.synthesizeAndStoreWithUnits(
+		ctx,
+		synthesisText.String(),
+		referenceStorageKey,
+		referenceFileName,
+		referenceText,
+		storageKey,
+		gatewayUnits,
+	)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	if len(unitResults) == 0 {
+		// Custom test synthesizers and a legacy TTS endpoint do not expose timing.
+		// The HTTP client requires timing for segmented production responses.
+		return sampleRate, durationMs, nil, nil
+	}
+	units, err := materializeSynthesizedNarrationUnits(plannedUnits, unitResults, sampleRate, durationMs)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	return sampleRate, durationMs, units, nil
+}
+
+func (s *VoiceoverService) synthesizeAndStoreWithUnits(
+	ctx context.Context,
+	text string,
+	referenceStorageKey string,
+	referenceFileName string,
+	referenceText string,
+	storageKey string,
+	units []modelgateway.CosyVoiceSynthesisUnit,
+) (int, int, []modelgateway.CosyVoiceSynthesisUnitResult, error) {
 	if s.synthesizer == nil {
-		return 0, 0, errors.New("CosyVoice client is not configured")
+		return 0, 0, nil, errors.New("CosyVoice client is not configured")
 	}
 	referenceFile, err := os.Open(s.localStore.FullPath(referenceStorageKey))
 	if err != nil {
-		return 0, 0, fmt.Errorf("open voice reference audio: %w", err)
+		return 0, 0, nil, fmt.Errorf("open voice reference audio: %w", err)
 	}
 	defer referenceFile.Close()
 
@@ -1182,22 +1247,23 @@ func (s *VoiceoverService) synthesizeAndStore(ctx context.Context, text string, 
 		PromptAudio:         referenceFile,
 		PromptAudioFilename: referenceFileName,
 		PromptText:          referenceText,
+		Units:               units,
 	})
 	s.synthesisMu.Unlock()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	sampleRate, durationMs, err := wavAudioMetadata(result.Audio)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	if result.SampleRate > 0 {
 		sampleRate = result.SampleRate
 	}
 	if _, err := s.localStore.Save(storageKey, bytes.NewReader(result.Audio)); err != nil {
-		return 0, 0, fmt.Errorf("save synthesized audio: %w", err)
+		return 0, 0, nil, fmt.Errorf("save synthesized audio: %w", err)
 	}
-	return sampleRate, durationMs, nil
+	return sampleRate, durationMs, append([]modelgateway.CosyVoiceSynthesisUnitResult(nil), result.Units...), nil
 }
 
 func (s *VoiceoverService) persistNarrationSegments(ctx context.Context, scriptVariantID pgtype.UUID, voiceoverID pgtype.UUID, segments []NarrationSegment) error {
@@ -1208,14 +1274,19 @@ func (s *VoiceoverService) persistNarrationSegments(ctx context.Context, scriptV
 		return err
 	}
 	for index, segment := range segments {
+		synthesisUnitIndex := pgtype.Int4{}
+		if segment.SynthesisUnitIndex != nil {
+			synthesisUnitIndex = pgtype.Int4{Int32: int32(*segment.SynthesisUnitIndex), Valid: true}
+		}
 		if _, err := s.queries.CreateNarrationSegment(ctx, db.CreateNarrationSegmentParams{
-			ScriptVariantID: scriptVariantID,
-			VoiceoverID:     voiceoverID,
-			SegmentIndex:    int32(index),
-			Text:            segment.Text,
-			StartMs:         int32(segment.StartMs),
-			EndMs:           int32(segment.EndMs),
-			Confidence:      pgtype.Numeric{},
+			ScriptVariantID:    scriptVariantID,
+			VoiceoverID:        voiceoverID,
+			SegmentIndex:       int32(index),
+			Text:               segment.Text,
+			StartMs:            int32(segment.StartMs),
+			EndMs:              int32(segment.EndMs),
+			Confidence:         pgtype.Numeric{},
+			SynthesisUnitIndex: synthesisUnitIndex,
 		}); err != nil {
 			return err
 		}
@@ -1355,11 +1426,17 @@ func voiceoverWorkFromRows(task db.GenerationTask, productName string, variant d
 	_ = json.Unmarshal(variant.Beats, &beats)
 	narrationSegments := make([]NarrationSegment, 0, len(narrationRows))
 	for _, row := range narrationRows {
+		var synthesisUnitIndex *int
+		if row.SynthesisUnitIndex.Valid {
+			value := int(row.SynthesisUnitIndex.Int32)
+			synthesisUnitIndex = &value
+		}
 		narrationSegments = append(narrationSegments, NarrationSegment{
-			ID:      uuidString(row.ID),
-			StartMs: int(row.StartMs),
-			EndMs:   int(row.EndMs),
-			Text:    row.Text,
+			ID:                 uuidString(row.ID),
+			StartMs:            int(row.StartMs),
+			EndMs:              int(row.EndMs),
+			Text:               row.Text,
+			SynthesisUnitIndex: synthesisUnitIndex,
 		})
 	}
 	status, progress, stageLabel := voiceoverWorkStage(task.Status, voiceover.Status)
@@ -1663,7 +1740,7 @@ func cloneVoiceProfile(profile VoiceProfile) VoiceProfile {
 
 func cloneVoiceoverWork(work VoiceoverWork) VoiceoverWork {
 	work.Beats = append([]VoiceoverBeat(nil), work.Beats...)
-	work.NarrationSegments = append([]NarrationSegment(nil), work.NarrationSegments...)
+	work.NarrationSegments = cloneNarrationSegments(work.NarrationSegments)
 	work.VisualBeats = cloneVisualBeats(work.VisualBeats)
 	work.EditPlan = append([]VoiceoverEditPlanClip(nil), work.EditPlan...)
 	if work.CompletedAt != nil {

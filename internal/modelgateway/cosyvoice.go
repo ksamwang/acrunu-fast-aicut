@@ -3,6 +3,7 @@ package modelgateway
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +17,11 @@ import (
 	"time"
 )
 
-const maxCosyVoiceResponseBytes = 128 << 20
+const (
+	maxCosyVoiceResponseBytes = 128 << 20
+	maxCosyVoiceUnits         = 512
+	maxCosyVoicePauseMs       = 2000
+)
 
 type CosyVoiceErrorKind string
 
@@ -57,12 +62,24 @@ type CosyVoiceSynthesisInput struct {
 	PromptAudio         io.Reader
 	PromptAudioFilename string
 	PromptText          string
+	Units               []CosyVoiceSynthesisUnit
+}
+
+type CosyVoiceSynthesisUnit struct {
+	Text         string `json:"text"`
+	PauseAfterMs int    `json:"pause_after_ms"`
+}
+
+type CosyVoiceSynthesisUnitResult struct {
+	SpeechSamples int
+	TotalSamples  int
 }
 
 type CosyVoiceSynthesisResult struct {
 	Audio      []byte
 	Model      string
 	SampleRate int
+	Units      []CosyVoiceSynthesisUnitResult
 }
 
 type CosyVoiceClient struct {
@@ -93,6 +110,9 @@ func (c *CosyVoiceClient) Synthesize(ctx context.Context, input CosyVoiceSynthes
 	if strings.TrimSpace(input.PromptText) == "" {
 		return CosyVoiceSynthesisResult{}, &CosyVoiceError{Kind: CosyVoiceErrorBadResponse, Cause: errors.New("prompt text is required")}
 	}
+	if err := validateCosyVoiceUnits(input.Text, input.Units); err != nil {
+		return CosyVoiceSynthesisResult{}, &CosyVoiceError{Kind: CosyVoiceErrorBadResponse, Cause: err}
+	}
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -104,6 +124,15 @@ func (c *CosyVoiceClient) Synthesize(ctx context.Context, input CosyVoiceSynthes
 	}
 	if err := writer.WriteField("prompt_text", strings.TrimSpace(input.PromptText)); err != nil {
 		return CosyVoiceSynthesisResult{}, &CosyVoiceError{Kind: CosyVoiceErrorUnavailable, Cause: err}
+	}
+	if len(input.Units) > 0 {
+		encodedUnits, err := json.Marshal(input.Units)
+		if err != nil {
+			return CosyVoiceSynthesisResult{}, &CosyVoiceError{Kind: CosyVoiceErrorBadResponse, Cause: err}
+		}
+		if err := writer.WriteField("segments_json", string(encodedUnits)); err != nil {
+			return CosyVoiceSynthesisResult{}, &CosyVoiceError{Kind: CosyVoiceErrorUnavailable, Cause: err}
+		}
 	}
 	promptPart, err := writer.CreateFormFile("prompt_audio", cosyVoiceMultipartFilename(input.PromptAudioFilename))
 	if err != nil {
@@ -146,11 +175,88 @@ func (c *CosyVoiceClient) Synthesize(ctx context.Context, input CosyVoiceSynthes
 		return CosyVoiceSynthesisResult{}, &CosyVoiceError{Kind: CosyVoiceErrorBadResponse, StatusCode: response.StatusCode, Cause: errors.New("empty audio response")}
 	}
 
+	sampleRate := parseCosyVoiceSampleRate(response.Header.Get("X-AICUT-TTS-Sample-Rate"))
+	unitResults, err := parseCosyVoiceUnitResults(response.Header, len(input.Units), sampleRate)
+	if err != nil {
+		return CosyVoiceSynthesisResult{}, &CosyVoiceError{Kind: CosyVoiceErrorBadResponse, StatusCode: response.StatusCode, Cause: err}
+	}
 	return CosyVoiceSynthesisResult{
 		Audio:      audio,
 		Model:      strings.TrimSpace(response.Header.Get("X-AICUT-TTS-Model")),
-		SampleRate: parseCosyVoiceSampleRate(response.Header.Get("X-AICUT-TTS-Sample-Rate")),
+		SampleRate: sampleRate,
+		Units:      unitResults,
 	}, nil
+}
+
+func validateCosyVoiceUnits(text string, units []CosyVoiceSynthesisUnit) error {
+	if len(units) == 0 {
+		return nil
+	}
+	if len(units) > maxCosyVoiceUnits {
+		return fmt.Errorf("synthesis units must not exceed %d", maxCosyVoiceUnits)
+	}
+	var combined strings.Builder
+	for index, unit := range units {
+		unitText := strings.TrimSpace(unit.Text)
+		if unitText == "" {
+			return fmt.Errorf("synthesis unit %d text is required", index+1)
+		}
+		if unit.PauseAfterMs < 0 || unit.PauseAfterMs > maxCosyVoicePauseMs {
+			return fmt.Errorf("synthesis unit %d pause is invalid", index+1)
+		}
+		combined.WriteString(unitText)
+	}
+	if units[len(units)-1].PauseAfterMs != 0 {
+		return errors.New("final synthesis unit must not append a pause")
+	}
+	if combined.String() != strings.TrimSpace(text) {
+		return errors.New("synthesis unit text does not match full text")
+	}
+	return nil
+}
+
+func parseCosyVoiceUnitResults(header http.Header, unitCount int, sampleRate int) ([]CosyVoiceSynthesisUnitResult, error) {
+	if unitCount == 0 {
+		return nil, nil
+	}
+	if strings.TrimSpace(header.Get("X-AICUT-TTS-Timing-Version")) != "1" {
+		return nil, errors.New("segmented synthesis timing metadata is missing")
+	}
+	if sampleRate <= 0 {
+		return nil, errors.New("segmented synthesis sample rate is missing")
+	}
+	speechSamples, err := parseCosyVoiceSampleList(header.Get("X-AICUT-TTS-Speech-Samples"), unitCount)
+	if err != nil {
+		return nil, fmt.Errorf("invalid segmented speech samples: %w", err)
+	}
+	totalSamples, err := parseCosyVoiceSampleList(header.Get("X-AICUT-TTS-Unit-Samples"), unitCount)
+	if err != nil {
+		return nil, fmt.Errorf("invalid segmented unit samples: %w", err)
+	}
+	results := make([]CosyVoiceSynthesisUnitResult, unitCount)
+	for index := range results {
+		if speechSamples[index] > totalSamples[index] {
+			return nil, fmt.Errorf("unit %d speech exceeds its total samples", index+1)
+		}
+		results[index] = CosyVoiceSynthesisUnitResult{SpeechSamples: speechSamples[index], TotalSamples: totalSamples[index]}
+	}
+	return results, nil
+}
+
+func parseCosyVoiceSampleList(value string, count int) ([]int, error) {
+	parts := strings.Split(strings.TrimSpace(value), ",")
+	if len(parts) != count {
+		return nil, fmt.Errorf("expected %d values, got %d", count, len(parts))
+	}
+	result := make([]int, count)
+	for index, part := range parts {
+		parsed, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || parsed <= 0 {
+			return nil, fmt.Errorf("value %d is invalid", index+1)
+		}
+		result[index] = parsed
+	}
+	return result, nil
 }
 
 func cosyVoiceMultipartFilename(value string) string {

@@ -31,11 +31,12 @@ type VisualPlanNarrativeBeat struct {
 }
 
 type VisualPlanInput struct {
-	ProductName       string                       `json:"product_name"`
-	ScriptText        string                       `json:"script_text"`
-	EditingIntent     string                       `json:"editing_intent"`
-	NarrationSegments []VisualPlanNarrationSegment `json:"narration_segments"`
-	NarrativeBeats    []VisualPlanNarrativeBeat    `json:"narrative_beats"`
+	ProductName         string                       `json:"product_name"`
+	ScriptText          string                       `json:"script_text"`
+	EditingIntent       string                       `json:"editing_intent"`
+	NarrationSegments   []VisualPlanNarrationSegment `json:"narration_segments"`
+	NarrativeBeats      []VisualPlanNarrativeBeat    `json:"narrative_beats"`
+	SafePauseBoundaries []int                        `json:"-"`
 }
 
 type VisualPlanBeat struct {

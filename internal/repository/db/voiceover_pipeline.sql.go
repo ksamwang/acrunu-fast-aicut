@@ -19,19 +19,21 @@ INSERT INTO narration_segments (
     text,
     start_ms,
     end_ms,
-    confidence
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, script_variant_id, voiceover_id, segment_index, text, start_ms, end_ms, confidence, created_at, updated_at
+    confidence,
+    synthesis_unit_index
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, script_variant_id, voiceover_id, segment_index, text, start_ms, end_ms, confidence, created_at, updated_at, synthesis_unit_index
 `
 
 type CreateNarrationSegmentParams struct {
-	ScriptVariantID pgtype.UUID    `json:"script_variant_id"`
-	VoiceoverID     pgtype.UUID    `json:"voiceover_id"`
-	SegmentIndex    int32          `json:"segment_index"`
-	Text            string         `json:"text"`
-	StartMs         int32          `json:"start_ms"`
-	EndMs           int32          `json:"end_ms"`
-	Confidence      pgtype.Numeric `json:"confidence"`
+	ScriptVariantID    pgtype.UUID    `json:"script_variant_id"`
+	VoiceoverID        pgtype.UUID    `json:"voiceover_id"`
+	SegmentIndex       int32          `json:"segment_index"`
+	Text               string         `json:"text"`
+	StartMs            int32          `json:"start_ms"`
+	EndMs              int32          `json:"end_ms"`
+	Confidence         pgtype.Numeric `json:"confidence"`
+	SynthesisUnitIndex pgtype.Int4    `json:"synthesis_unit_index"`
 }
 
 func (q *Queries) CreateNarrationSegment(ctx context.Context, arg CreateNarrationSegmentParams) (NarrationSegment, error) {
@@ -43,6 +45,7 @@ func (q *Queries) CreateNarrationSegment(ctx context.Context, arg CreateNarratio
 		arg.StartMs,
 		arg.EndMs,
 		arg.Confidence,
+		arg.SynthesisUnitIndex,
 	)
 	var i NarrationSegment
 	err := row.Scan(
@@ -56,6 +59,7 @@ func (q *Queries) CreateNarrationSegment(ctx context.Context, arg CreateNarratio
 		&i.Confidence,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SynthesisUnitIndex,
 	)
 	return i, err
 }
@@ -383,7 +387,7 @@ func (q *Queries) GetVoiceoverByScriptVariantID(ctx context.Context, scriptVaria
 }
 
 const listNarrationSegmentsByVoiceoverID = `-- name: ListNarrationSegmentsByVoiceoverID :many
-SELECT id, script_variant_id, voiceover_id, segment_index, text, start_ms, end_ms, confidence, created_at, updated_at FROM narration_segments
+SELECT id, script_variant_id, voiceover_id, segment_index, text, start_ms, end_ms, confidence, created_at, updated_at, synthesis_unit_index FROM narration_segments
 WHERE voiceover_id = $1
 ORDER BY segment_index ASC
 `
@@ -408,6 +412,7 @@ func (q *Queries) ListNarrationSegmentsByVoiceoverID(ctx context.Context, voiceo
 			&i.Confidence,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SynthesisUnitIndex,
 		); err != nil {
 			return nil, err
 		}

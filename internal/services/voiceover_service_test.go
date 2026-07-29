@@ -152,6 +152,9 @@ func TestVoiceoverServiceGeneratesPreviewAuditionAndNarration(t *testing.T) {
 	if len(synthesizer.inputs) != 3 {
 		t.Fatalf("expected preview, audition, and voiceover synthesis calls, got %d", len(synthesizer.inputs))
 	}
+	if len(synthesizer.inputs[2].Units) != 2 || synthesizer.inputs[2].Units[0].Text != "第一句。" || synthesizer.inputs[2].Units[0].PauseAfterMs != sentenceSynthesisPauseMs || synthesizer.inputs[2].Units[1].PauseAfterMs != 0 {
+		t.Fatalf("expected approved narration to use deterministic synthesis units, got %#v", synthesizer.inputs[2].Units)
+	}
 	if len(transcriber.inputs) != 1 || transcriber.inputs[0].DurationMs != 2000 {
 		t.Fatalf("unexpected transcription calls %#v", transcriber.inputs)
 	}

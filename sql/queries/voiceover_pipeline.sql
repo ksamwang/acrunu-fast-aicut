@@ -95,8 +95,9 @@ INSERT INTO narration_segments (
     text,
     start_ms,
     end_ms,
-    confidence
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    confidence,
+    synthesis_unit_index
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: ListNarrationSegmentsByVoiceoverID :many

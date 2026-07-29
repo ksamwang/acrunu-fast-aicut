@@ -1449,7 +1449,14 @@ func cloneEditPlan(plan EditPlan) EditPlan {
 }
 
 func cloneNarrationSegments(segments []NarrationSegment) []NarrationSegment {
-	return append([]NarrationSegment(nil), segments...)
+	result := append([]NarrationSegment(nil), segments...)
+	for index := range result {
+		if result[index].SynthesisUnitIndex != nil {
+			unitIndex := *result[index].SynthesisUnitIndex
+			result[index].SynthesisUnitIndex = &unitIndex
+		}
+	}
+	return result
 }
 
 func cloneNarrationPauses(pauses []NarrationPause) []NarrationPause {

@@ -186,16 +186,17 @@ type ModelProvider struct {
 }
 
 type NarrationSegment struct {
-	ID              pgtype.UUID        `json:"id"`
-	ScriptVariantID pgtype.UUID        `json:"script_variant_id"`
-	VoiceoverID     pgtype.UUID        `json:"voiceover_id"`
-	SegmentIndex    int32              `json:"segment_index"`
-	Text            string             `json:"text"`
-	StartMs         int32              `json:"start_ms"`
-	EndMs           int32              `json:"end_ms"`
-	Confidence      pgtype.Numeric     `json:"confidence"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID                 pgtype.UUID        `json:"id"`
+	ScriptVariantID    pgtype.UUID        `json:"script_variant_id"`
+	VoiceoverID        pgtype.UUID        `json:"voiceover_id"`
+	SegmentIndex       int32              `json:"segment_index"`
+	Text               string             `json:"text"`
+	StartMs            int32              `json:"start_ms"`
+	EndMs              int32              `json:"end_ms"`
+	Confidence         pgtype.Numeric     `json:"confidence"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	SynthesisUnitIndex pgtype.Int4        `json:"synthesis_unit_index"`
 }
 
 type Product struct {

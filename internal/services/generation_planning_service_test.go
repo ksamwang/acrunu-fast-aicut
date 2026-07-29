@@ -119,6 +119,7 @@ func TestMaterializeVisualTimelinePadsEachSemanticBeforeNextNarration(t *testing
 			{ID: "stretch", StartMs: 4458, EndMs: 5430, Text: "拉伸自如，"},
 			{ID: "fit", StartMs: 5430, EndMs: 6450, Text: "贴合脚踝。"},
 		},
+		SafePauseBoundaries: []int{1015, 2284, 3250, 4458, 5430, 6450},
 	}
 	result := modelgateway.VisualPlanResult{VisualBeats: []modelgateway.VisualPlanBeat{
 		{NarrationSegmentID: "quick", StartMs: 0, EndMs: 1015, DurationClass: modelgateway.VisualDurationClassBrief, Label: "快拆", VisualGoal: "展示一秒快拆", SourceType: "visual_only"},
@@ -128,7 +129,7 @@ func TestMaterializeVisualTimelinePadsEachSemanticBeforeNextNarration(t *testing
 		{NarrationSegmentID: "fit", StartMs: 5430, EndMs: 6450, DurationClass: modelgateway.VisualDurationClassStandard, Label: "贴合", VisualGoal: "展示贴合脚踝", SourceType: "visual_only"},
 	}}
 
-	beats, segments, pauses, durationMs, err := materializeVisualTimeline(result, input)
+	beats, segments, pauses, durationMs, err := materializeVisualTimeline(result, input, nil)
 	if err != nil {
 		t.Fatalf("materialize timeline: %v", err)
 	}
@@ -149,6 +150,7 @@ func TestMaterializeVisualTimelinePadsEachSemanticBeforeNextNarration(t *testing
 func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	assets := NewProductAssetService()
 	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
+	firstSynthesisUnit, secondSynthesisUnit := 0, 1
 	loader := staticVoiceoverWorkLoader{work: VoiceoverWork{
 		ID:            "voiceover-task-1",
 		ProductID:     product.ID,
@@ -161,8 +163,8 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 			{ID: "business-result", Label: "结果", SellingPoint: "固定更稳", VisualGoal: "展示固定后的骑行状态。", SourceType: "visual_only"},
 		},
 		NarrationSegments: []NarrationSegment{
-			{ID: "narration-1", StartMs: 0, EndMs: 2000, Text: "骑行时裤脚不再蹭链条。"},
-			{ID: "narration-2", StartMs: 2000, EndMs: 3500, Text: "固定后更安心。"},
+			{ID: "narration-1", StartMs: 0, EndMs: 2000, Text: "骑行时裤脚不再蹭链条。", SynthesisUnitIndex: &firstSynthesisUnit},
+			{ID: "narration-2", StartMs: 2000, EndMs: 3500, Text: "固定后更安心。", SynthesisUnitIndex: &secondSynthesisUnit},
 		},
 	}}
 	runs := NewGenerationRunService(loader)

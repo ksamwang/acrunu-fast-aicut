@@ -146,7 +146,7 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	visualBeats, narrationSegments, narrationPauses, timelineDurationMs, err := materializeVisualTimeline(visualResult, visualInput)
+	visualBeats, narrationSegments, narrationPauses, timelineDurationMs, err := materializeVisualTimeline(visualResult, visualInput, work.NarrationSegments)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -280,15 +280,7 @@ func normalizeGenerateEditPlanInput(input GenerateEditPlanInput) GenerateEditPla
 }
 
 func buildVisualPlannerInput(productName string, work VoiceoverWork) modelgateway.VisualPlanInput {
-	narrationSegments := make([]modelgateway.VisualPlanNarrationSegment, 0, len(work.NarrationSegments))
-	for _, segment := range work.NarrationSegments {
-		narrationSegments = append(narrationSegments, modelgateway.VisualPlanNarrationSegment{
-			ID:      segment.ID,
-			StartMs: segment.StartMs,
-			EndMs:   segment.EndMs,
-			Text:    segment.Text,
-		})
-	}
+	narrationSegments, safePauseBoundaries := visualPlanningNarrationSegments(work.NarrationSegments)
 	narrativeBeats := make([]modelgateway.VisualPlanNarrativeBeat, 0, len(work.Beats))
 	for index, beat := range work.Beats {
 		beatID := strings.TrimSpace(beat.ID)
@@ -304,31 +296,103 @@ func buildVisualPlannerInput(productName string, work VoiceoverWork) modelgatewa
 		})
 	}
 	return modelgateway.VisualPlanInput{
-		ProductName:       productName,
-		ScriptText:        work.ScriptText,
-		EditingIntent:     work.EditingIntent,
-		NarrationSegments: narrationSegments,
-		NarrativeBeats:    narrativeBeats,
+		ProductName:         productName,
+		ScriptText:          work.ScriptText,
+		EditingIntent:       work.EditingIntent,
+		NarrationSegments:   narrationSegments,
+		NarrativeBeats:      narrativeBeats,
+		SafePauseBoundaries: safePauseBoundaries,
 	}
 }
 
-func materializeVisualTimeline(result modelgateway.VisualPlanResult, input modelgateway.VisualPlanInput) ([]VisualBeat, []NarrationSegment, []NarrationPause, int, error) {
+func visualPlanningNarrationSegments(input []NarrationSegment) ([]modelgateway.VisualPlanNarrationSegment, []int) {
+	if !hasCompleteSynthesisUnitTimeline(input) {
+		segments := make([]modelgateway.VisualPlanNarrationSegment, 0, len(input))
+		for _, segment := range input {
+			segments = append(segments, modelgateway.VisualPlanNarrationSegment{
+				ID: segment.ID, StartMs: segment.StartMs, EndMs: segment.EndMs, Text: segment.Text,
+			})
+		}
+		return segments, nil
+	}
+
+	segments := make([]modelgateway.VisualPlanNarrationSegment, 0)
+	safeBoundaries := make([]int, 0)
+	for index := 0; index < len(input); {
+		unitIndex := *input[index].SynthesisUnitIndex
+		end := index + 1
+		var text strings.Builder
+		text.WriteString(input[index].Text)
+		for end < len(input) && input[end].SynthesisUnitIndex != nil && *input[end].SynthesisUnitIndex == unitIndex {
+			text.WriteString(input[end].Text)
+			end++
+		}
+		segments = append(segments, modelgateway.VisualPlanNarrationSegment{
+			ID:      input[index].ID,
+			StartMs: input[index].StartMs,
+			EndMs:   input[end-1].EndMs,
+			Text:    text.String(),
+		})
+		safeBoundaries = append(safeBoundaries, input[end-1].EndMs)
+		index = end
+	}
+	return segments, safeBoundaries
+}
+
+func hasCompleteSynthesisUnitTimeline(input []NarrationSegment) bool {
+	if len(input) == 0 {
+		return false
+	}
+	previousUnitIndex := -1
+	previousEndMs := input[0].StartMs
+	for _, segment := range input {
+		if segment.SynthesisUnitIndex == nil || *segment.SynthesisUnitIndex < previousUnitIndex || *segment.SynthesisUnitIndex > previousUnitIndex+1 || segment.StartMs != previousEndMs {
+			return false
+		}
+		if previousUnitIndex == -1 && *segment.SynthesisUnitIndex != 0 {
+			return false
+		}
+		previousUnitIndex = *segment.SynthesisUnitIndex
+		previousEndMs = segment.EndMs
+	}
+	return true
+}
+
+func materializeVisualTimeline(result modelgateway.VisualPlanResult, input modelgateway.VisualPlanInput, captions []NarrationSegment) ([]VisualBeat, []NarrationSegment, []NarrationPause, int, error) {
 	if err := modelgateway.ValidateVisualPlanResult(result, input); err != nil {
 		return nil, nil, nil, 0, err
+	}
+	if len(captions) == 0 {
+		captions = make([]NarrationSegment, 0, len(input.NarrationSegments))
+		for _, segment := range input.NarrationSegments {
+			captions = append(captions, NarrationSegment{ID: segment.ID, StartMs: segment.StartMs, EndMs: segment.EndMs, Text: segment.Text})
+		}
+	}
+	safePauseBoundaries := make(map[int]struct{}, len(input.SafePauseBoundaries))
+	for _, boundary := range input.SafePauseBoundaries {
+		safePauseBoundaries[boundary] = struct{}{}
 	}
 	pauses := make([]NarrationPause, 0, len(result.VisualBeats))
 	beats := make([]VisualBeat, 0, len(result.VisualBeats))
 	cumulativePauseMs := 0
 	for _, beat := range result.VisualBeats {
 		originalDurationMs := beat.EndMs - beat.StartMs
-		pauseMs := visualBeatTimelinePadding(beat.DurationClass, originalDurationMs)
+		pauseMs := 0
+		_, safePauseBoundary := safePauseBoundaries[beat.EndMs]
+		if safePauseBoundary {
+			pauseMs = visualBeatTimelinePadding(beat.DurationClass, originalDurationMs)
+		}
+		durationClass := beat.DurationClass
+		if !safePauseBoundary && !isVisualBeatDurationValid(durationClass, originalDurationMs) {
+			durationClass = unpaddedVisualBeatDurationClass(originalDurationMs)
+		}
 		beats = append(beats, VisualBeat{
 			ID:                 uuid.NewString(),
 			NarrationSegmentID: beat.NarrationSegmentID,
 			NarrativeBeatID:    beat.NarrativeBeatID,
 			StartMs:            beat.StartMs + cumulativePauseMs,
 			EndMs:              beat.EndMs + cumulativePauseMs + pauseMs,
-			DurationClass:      beat.DurationClass,
+			DurationClass:      durationClass,
 			Label:              beat.Label,
 			SellingPoint:       beat.SellingPoint,
 			VisualGoal:         beat.VisualGoal,
@@ -339,8 +403,19 @@ func materializeVisualTimeline(result modelgateway.VisualPlanResult, input model
 			cumulativePauseMs += pauseMs
 		}
 	}
-	narrationSegments := shiftNarrationSegments(input.NarrationSegments, pauses)
+	narrationSegments := shiftNarrationSegments(captions, pauses)
 	return beats, narrationSegments, pauses, input.NarrationSegments[len(input.NarrationSegments)-1].EndMs + cumulativePauseMs, nil
+}
+
+func unpaddedVisualBeatDurationClass(durationMs int) string {
+	switch {
+	case durationMs >= 1800:
+		return VisualBeatDurationStandard
+	case durationMs >= 1000:
+		return VisualBeatDurationBrief
+	default:
+		return VisualBeatDurationLegacy
+	}
 }
 
 func visualBeatTimelinePadding(durationClass string, durationMs int) int {
@@ -371,7 +446,7 @@ func visualBeatTimelinePadding(durationClass string, durationMs int) int {
 	return targetMs - durationMs
 }
 
-func shiftNarrationSegments(input []modelgateway.VisualPlanNarrationSegment, pauses []NarrationPause) []NarrationSegment {
+func shiftNarrationSegments(input []NarrationSegment, pauses []NarrationPause) []NarrationSegment {
 	result := make([]NarrationSegment, 0, len(input))
 	for _, segment := range input {
 		startShiftMs := 0
@@ -385,10 +460,12 @@ func shiftNarrationSegments(input []modelgateway.VisualPlanNarrationSegment, pau
 			}
 		}
 		result = append(result, NarrationSegment{
-			ID:      segment.ID,
-			StartMs: segment.StartMs + startShiftMs,
-			EndMs:   segment.EndMs + endShiftMs,
-			Text:    segment.Text,
+			ID:                 segment.ID,
+			StartMs:            segment.StartMs + startShiftMs,
+			EndMs:              segment.EndMs + endShiftMs,
+			Text:               segment.Text,
+			Confidence:         segment.Confidence,
+			SynthesisUnitIndex: segment.SynthesisUnitIndex,
 		})
 	}
 	return result
