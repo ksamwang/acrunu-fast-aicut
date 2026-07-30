@@ -8,7 +8,7 @@ import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, manualCl
 import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { AssetGrid } from "./AssetGrid";
-import { createAssetEmbeddings, getAssetEmbeddings, getAssetFrames, getAssetSellingPoints, getSemanticPreview, getSpeechSegments, listAssets, listProducts, listSellingPoints, saveAssetReview, saveAssetSellingPoints as persistAssetSellingPoints, updateAssetArchiveState as persistAssetArchiveState } from "./api";
+import { archiveAssets, createAssetEmbeddings, getAssetEmbeddings, getAssetFrames, getAssetSellingPoints, getSemanticPreview, getSpeechSegments, listAssets, listAssetSelection, listProducts, listSellingPoints, saveAssetReview, saveAssetSellingPoints as persistAssetSellingPoints, updateAssetArchiveState as persistAssetArchiveState } from "./api";
 import "./styles.css";
 
 function renderTagList(items?: string[], emptyText = "-") {
@@ -36,6 +36,15 @@ function assetPathForPage(path: string, page: number, pageSize: number) {
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
   return `${pathname}?${params.toString()}`;
+}
+
+function assetSelectionPathForList(path: string) {
+  const [, query = ""] = path.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.delete("page");
+  params.delete("page_size");
+  const selectionQuery = params.toString();
+  return selectionQuery ? `/api/assets/selection?${selectionQuery}` : "/api/assets/selection";
 }
 
 export function AssetsPage({ token }: { token: string }) {
@@ -84,6 +93,11 @@ export function AssetsPage({ token }: { token: string }) {
   const [editingAnalysis, setEditingAnalysis] = useState(false);
   const [savingAnalysis, setSavingAnalysis] = useState(false);
   const [updatingArchive, setUpdatingArchive] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedAssetIDs, setSelectedAssetIDs] = useState<Set<string>>(new Set());
+  const [selectionResultTotal, setSelectionResultTotal] = useState<number | null>(null);
+  const [selectingAllAssets, setSelectingAllAssets] = useState(false);
+  const [archivingSelectedAssets, setArchivingSelectedAssets] = useState(false);
   const [savingSellingPoints, setSavingSellingPoints] = useState(false);
   const [reviewDirty, setReviewDirty] = useState(false);
   const [sellingPointsDirty, setSellingPointsDirty] = useState(false);
@@ -141,6 +155,7 @@ export function AssetsPage({ token }: { token: string }) {
   }, [assetPage, assetPageSize, filters, semanticQuery]);
 
   const assets = useResource<AssetListResponse>(assetPath, token, [assetPath], listAssets);
+  const assetSelectionPath = useMemo(() => assetSelectionPathForList(assetPath), [assetPath]);
   const productNameByID = useMemo(() => {
     const map = new Map<string, string>();
     for (const product of products.data ?? []) {
@@ -148,6 +163,11 @@ export function AssetsPage({ token }: { token: string }) {
     }
     return map;
   }, [products.data]);
+
+  useEffect(() => {
+    setSelectedAssetIDs(new Set());
+    setSelectionResultTotal(null);
+  }, [assetSelectionPath]);
 
   useEffect(() => {
     if (!selectedAsset) {
@@ -480,6 +500,105 @@ export function AssetsPage({ token }: { token: string }) {
     });
   };
 
+  const exitAssetSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedAssetIDs(new Set());
+    setSelectionResultTotal(null);
+  };
+
+  const toggleAssetSelection = (asset: Asset) => {
+    if (asset.status === "archived") {
+      return;
+    }
+    setSelectedAssetIDs((current) => {
+      const next = new Set(current);
+      if (next.has(asset.id)) {
+        next.delete(asset.id);
+      } else {
+        next.add(asset.id);
+      }
+      return next;
+    });
+  };
+
+  const togglePageAssetSelection = (assetIDs: string[]) => {
+    setSelectedAssetIDs((current) => {
+      const next = new Set(current);
+      const allSelected = assetIDs.length > 0 && assetIDs.every((assetID) => current.has(assetID));
+      assetIDs.forEach((assetID) => allSelected ? next.delete(assetID) : next.add(assetID));
+      return next;
+    });
+  };
+
+  const toggleAllFilteredAssets = async () => {
+    const allSelected = selectionResultTotal !== null && selectionResultTotal > 0 && selectedAssetIDs.size === selectionResultTotal;
+    if (allSelected) {
+      setSelectedAssetIDs(new Set());
+      return;
+    }
+    setSelectingAllAssets(true);
+    try {
+      const result = await listAssetSelection(assetSelectionPath, token);
+      setSelectedAssetIDs(new Set(result.asset_ids));
+      setSelectionResultTotal(result.total);
+      if (result.total === 0) {
+        message.info("当前筛选结果中没有可归档素材");
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "全选素材失败");
+    } finally {
+      setSelectingAllAssets(false);
+    }
+  };
+
+  const archiveSelectedAssetIDs = async (assetIDs: string[]) => {
+    setArchivingSelectedAssets(true);
+    try {
+      const result = await archiveAssets(assetIDs, token);
+      const archivedByID = new Map(result.archived.map((asset) => [asset.id, asset]));
+      if (selectedAsset) {
+        setSelectedAsset(archivedByID.get(selectedAsset.id) ?? selectedAsset);
+      }
+      await assets.reload();
+
+      const failedIDs = result.failures.map((failure) => failure.asset_id);
+      const summary = [`已归档 ${result.archived.length} 项`];
+      if (result.skipped_ids.length > 0) {
+        summary.push(`跳过 ${result.skipped_ids.length} 项`);
+      }
+      if (result.failures.length > 0) {
+        summary.push(`失败 ${result.failures.length} 项`);
+        setSelectedAssetIDs(new Set(failedIDs));
+        setSelectionResultTotal(null);
+        message.warning(summary.join("，"));
+      } else {
+        message.success(summary.join("，"));
+        exitAssetSelectionMode();
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "批量归档素材失败");
+    } finally {
+      setArchivingSelectedAssets(false);
+    }
+  };
+
+  const confirmArchiveSelectedAssets = () => {
+    const assetIDs = Array.from(selectedAssetIDs);
+    if (assetIDs.length === 0) {
+      return;
+    }
+    Modal.confirm({
+      title: `归档 ${assetIDs.length} 个素材？`,
+      content: "归档后素材不会再参与检索和自动剪辑，可以在“已归档”筛选中恢复。",
+      okText: "归档",
+      cancelText: "取消",
+      centered: true,
+      onOk: () => archiveSelectedAssetIDs(assetIDs)
+    });
+  };
+
+  const allFilteredAssetsSelected = selectionResultTotal !== null && selectionResultTotal > 0 && selectedAssetIDs.size === selectionResultTotal;
+
   return (
     <div data-testid="assets-page" className="asset-library-page">
       <Space direction="vertical" size="middle" className="page-stack asset-library-stack">
@@ -731,7 +850,18 @@ export function AssetsPage({ token }: { token: string }) {
           pageSize={assetPageSize}
           semanticQuery={semanticQuery}
           productNameByID={productNameByID}
+          selectionMode={selectionMode}
+          selectedAssetIDs={selectedAssetIDs}
+          selectingAll={selectingAllAssets}
+          archivingSelected={archivingSelectedAssets}
+          allResultsSelected={allFilteredAssetsSelected}
           onSelect={openAssetDetail}
+          onEnterSelectionMode={() => setSelectionMode(true)}
+          onExitSelectionMode={exitAssetSelectionMode}
+          onToggleSelection={toggleAssetSelection}
+          onTogglePageSelection={togglePageAssetSelection}
+          onToggleAllResults={() => void toggleAllFilteredAssets()}
+          onArchiveSelected={confirmArchiveSelectedAssets}
           onPageChange={(page, pageSize) => {
             setAssetPage(page);
             setAssetPageSize(pageSize);

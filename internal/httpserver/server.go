@@ -255,6 +255,8 @@ func (s *Server) routes() {
 	protected.POST("/workbench/works/:taskID/regenerate", s.handleRegenerateVoiceoverWork)
 	protected.DELETE("/workbench/works/:taskID", s.handleDeleteVoiceoverWork)
 	protected.GET("/assets", s.handleListAssets)
+	protected.GET("/assets/selection", s.handleListAssetSelection)
+	protected.POST("/assets/bulk-archive", s.handleArchiveAssets)
 	protected.GET("/assets/:assetID", s.handleGetAsset)
 	protected.GET("/assets/:assetID/frames", s.handleListAssetFrames)
 	protected.GET("/assets/:assetID/selling-points", s.handleListAssetSellingPoints)

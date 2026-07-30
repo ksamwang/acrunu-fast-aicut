@@ -34,6 +34,7 @@ export type Asset = {
   semantic_score?: number;
   updated_at?: string;
   analyzed_at?: string;
+  archived_at?: string;
 };
 
 export type AssetSellingPointPayload = { selling_point_ids: string[] };
@@ -43,6 +44,17 @@ export type AssetListResponse = {
   total: number;
   page: number;
   page_size: number;
+};
+
+export type AssetSelectionResponse = {
+  asset_ids: string[];
+  total: number;
+};
+
+export type AssetBulkArchiveResult = {
+  archived: Asset[];
+  skipped_ids: string[];
+  failures: Array<{ asset_id: string; message: string }>;
 };
 
 export type AssetFrameSnapshot = {

@@ -216,6 +216,96 @@ func TestHandleArchiveAndRestoreAsset(t *testing.T) {
 	}
 }
 
+func TestHandleListAssetSelectionAndBulkArchive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	productAssetService := services.NewProductAssetService()
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	createAsset := func(fileName string) services.Asset {
+		asset, err := productAssetService.CreateAsset(services.CreateAssetInput{
+			ProductID:         product.ID,
+			FileName:          fileName,
+			StorageKey:        "assets/" + fileName,
+			SourceType:        "visual_only",
+			Status:            "ready",
+			AnalysisStatus:    "ready",
+			UsabilityStatus:   "usable",
+			ManualCleanStatus: "cleaned",
+		})
+		if err != nil {
+			t.Fatalf("create asset %s failed: %v", fileName, err)
+		}
+		return asset
+	}
+	assetA := createAsset("a.mp4")
+	assetB := createAsset("b.mp4")
+	assetC := createAsset("c.mp4")
+	if _, err := productAssetService.ArchiveAsset(assetC.ID, services.AssetArchiveUpdate{UpdatedByUserID: "editor-1"}); err != nil {
+		t.Fatalf("archive fixture asset: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: t.TempDir(), QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+	})
+	userToken := "Bearer " + makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	})
+
+	selectionReq := httptest.NewRequest(http.MethodGet, "/api/assets/selection?product_id="+product.ID, nil)
+	selectionReq.Header.Set("Authorization", userToken)
+	selectionRecorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(selectionRecorder, selectionReq)
+	if selectionRecorder.Code != http.StatusOK {
+		t.Fatalf("expected selection status 200, got %d, body=%s", selectionRecorder.Code, selectionRecorder.Body.String())
+	}
+	var selectionResp struct {
+		Data struct {
+			AssetIDs []string `json:"asset_ids"`
+			Total    int      `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(selectionRecorder.Body.Bytes(), &selectionResp); err != nil {
+		t.Fatalf("unmarshal selection response: %v", err)
+	}
+	if selectionResp.Data.Total != 2 || len(selectionResp.Data.AssetIDs) != 2 {
+		t.Fatalf("expected two archivable assets, got %#v", selectionResp.Data)
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"asset_ids": []string{assetA.ID, assetB.ID, assetC.ID, "missing-asset", assetA.ID},
+	})
+	if err != nil {
+		t.Fatalf("marshal bulk archive body: %v", err)
+	}
+	archiveReq := httptest.NewRequest(http.MethodPost, "/api/assets/bulk-archive", bytes.NewReader(body))
+	archiveReq.Header.Set("Content-Type", "application/json")
+	archiveReq.Header.Set("Authorization", userToken)
+	archiveRecorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(archiveRecorder, archiveReq)
+	if archiveRecorder.Code != http.StatusOK {
+		t.Fatalf("expected bulk archive status 200, got %d, body=%s", archiveRecorder.Code, archiveRecorder.Body.String())
+	}
+	var archiveResp struct {
+		Data services.AssetBulkArchiveResult `json:"data"`
+	}
+	if err := json.Unmarshal(archiveRecorder.Body.Bytes(), &archiveResp); err != nil {
+		t.Fatalf("unmarshal bulk archive response: %v", err)
+	}
+	if len(archiveResp.Data.Archived) != 2 || len(archiveResp.Data.SkippedIDs) != 1 || len(archiveResp.Data.Failures) != 1 {
+		t.Fatalf("unexpected bulk archive result %#v", archiveResp.Data)
+	}
+	for _, assetID := range []string{assetA.ID, assetB.ID, assetC.ID} {
+		asset, ok := productAssetService.GetAsset(assetID)
+		if !ok || asset.Status != "archived" {
+			t.Fatalf("expected asset %s archived, got %#v", assetID, asset)
+		}
+	}
+}
+
 func TestHandleListAndUpdateAssetSellingPoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

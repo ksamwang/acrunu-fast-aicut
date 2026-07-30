@@ -316,6 +316,17 @@ type AssetArchiveUpdate struct {
 	UpdatedByUserID string
 }
 
+type AssetBulkArchiveFailure struct {
+	AssetID string `json:"asset_id"`
+	Message string `json:"message"`
+}
+
+type AssetBulkArchiveResult struct {
+	Archived   []Asset                   `json:"archived"`
+	SkippedIDs []string                  `json:"skipped_ids"`
+	Failures   []AssetBulkArchiveFailure `json:"failures"`
+}
+
 type AssetBusinessTagUpdate struct {
 	IsCurated       bool
 	BusinessTags    []string
@@ -834,6 +845,42 @@ func (s *ProductAssetService) ArchiveAsset(assetID string, update AssetArchiveUp
 	asset.ArchivedAt = &now
 	s.assets[assetID] = asset
 	return asset, nil
+}
+
+func (s *ProductAssetService) ArchiveAssets(assetIDs []string, update AssetArchiveUpdate) AssetBulkArchiveResult {
+	result := AssetBulkArchiveResult{
+		Archived:   make([]Asset, 0, len(assetIDs)),
+		SkippedIDs: []string{},
+		Failures:   []AssetBulkArchiveFailure{},
+	}
+	seen := make(map[string]struct{}, len(assetIDs))
+	for _, assetID := range assetIDs {
+		assetID = strings.TrimSpace(assetID)
+		if assetID == "" {
+			continue
+		}
+		if _, exists := seen[assetID]; exists {
+			continue
+		}
+		seen[assetID] = struct{}{}
+
+		asset, exists := s.GetAsset(assetID)
+		if !exists {
+			result.Failures = append(result.Failures, AssetBulkArchiveFailure{AssetID: assetID, Message: ErrAssetNotFound.Error()})
+			continue
+		}
+		if asset.Status == "archived" {
+			result.SkippedIDs = append(result.SkippedIDs, assetID)
+			continue
+		}
+		archived, err := s.ArchiveAsset(assetID, update)
+		if err != nil {
+			result.Failures = append(result.Failures, AssetBulkArchiveFailure{AssetID: assetID, Message: err.Error()})
+			continue
+		}
+		result.Archived = append(result.Archived, archived)
+	}
+	return result
 }
 
 func (s *ProductAssetService) RestoreAsset(assetID string, update AssetArchiveUpdate) (Asset, error) {

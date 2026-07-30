@@ -31,6 +31,10 @@ type updateAssetBusinessTagsRequest struct {
 	UsageNotes     string   `json:"usage_notes"`
 }
 
+type archiveAssetsRequest struct {
+	AssetIDs []string `json:"asset_ids"`
+}
+
 func (s *Server) handleUpdateAssetReview(c *gin.Context) {
 	var req updateAssetReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -80,6 +84,25 @@ func (s *Server) handleArchiveAsset(c *gin.Context) {
 	}
 
 	OK(c, asset)
+}
+
+func (s *Server) handleArchiveAssets(c *gin.Context) {
+	var req archiveAssetsRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.AssetIDs) == 0 {
+		Fail(c, http.StatusBadRequest, "bad_request", "asset_ids are required")
+		return
+	}
+
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+
+	result := s.productAssetService.ArchiveAssets(req.AssetIDs, services.AssetArchiveUpdate{
+		UpdatedByUserID: user.ID,
+	})
+	OK(c, result)
 }
 
 func (s *Server) handleRestoreAsset(c *gin.Context) {

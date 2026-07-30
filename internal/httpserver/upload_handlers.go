@@ -33,6 +33,11 @@ type assetListResponse struct {
 	PageSize int              `json:"page_size"`
 }
 
+type assetSelectionResponse struct {
+	AssetIDs []string `json:"asset_ids"`
+	Total    int      `json:"total"`
+}
+
 func (s *Server) handleCreateUploadToken(c *gin.Context) {
 	var req createUploadTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -237,6 +242,35 @@ func (s *Server) handleListAssets(c *gin.Context) {
 		Page:     page,
 		PageSize: pageSize,
 	})
+}
+
+func (s *Server) handleListAssetSelection(c *gin.Context) {
+	filters := assetFiltersFromRequest(c)
+	semanticQuery := strings.TrimSpace(c.Query("semantic_query"))
+	assetIDs := make([]string, 0)
+	if semanticQuery != "" {
+		ids, err := s.assetEmbeddingService.SearchAssetIDs(c.Request.Context(), services.AssetSemanticSearchInput{
+			Query:   semanticQuery,
+			Filters: filters,
+		})
+		if err != nil {
+			Fail(c, http.StatusBadGateway, "semantic_search_failed", err.Error())
+			return
+		}
+		for _, assetID := range ids {
+			asset, ok := s.productAssetService.GetAsset(assetID)
+			if ok && asset.Status != "archived" {
+				assetIDs = append(assetIDs, assetID)
+			}
+		}
+	} else {
+		for _, asset := range s.productAssetService.ListAssets(filters) {
+			if asset.Status != "archived" {
+				assetIDs = append(assetIDs, asset.ID)
+			}
+		}
+	}
+	OK(c, assetSelectionResponse{AssetIDs: assetIDs, Total: len(assetIDs)})
 }
 
 func assetFiltersFromRequest(c *gin.Context) services.AssetFilters {

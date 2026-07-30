@@ -44,16 +44,19 @@ type semanticAssetSearchHit struct {
 	SemanticScore float64
 }
 
+type preparedAssetSemanticSearch struct {
+	ProviderID     string
+	Model          string
+	Dimension      int
+	QueryEmbedding []float64
+}
+
 func (s *AssetEmbeddingService) SearchAssets(ctx context.Context, input AssetSemanticSearchInput) (AssetSemanticSearchResult, error) {
-	if s == nil || s.pool == nil {
+	if s == nil {
 		return AssetSemanticSearchResult{}, fmt.Errorf("asset semantic search is not configured")
 	}
 	if s.productAssetService == nil {
 		return AssetSemanticSearchResult{}, fmt.Errorf("product asset service is nil")
-	}
-	input.Query = strings.TrimSpace(input.Query)
-	if input.Query == "" {
-		return AssetSemanticSearchResult{}, fmt.Errorf("semantic search query is required")
 	}
 	if input.Limit <= 0 {
 		input.Limit = defaultSemanticAssetSearchLimit
@@ -64,35 +67,17 @@ func (s *AssetEmbeddingService) SearchAssets(ctx context.Context, input AssetSem
 	if input.Offset < 0 {
 		input.Offset = 0
 	}
-
-	cfg := ResolveEmbeddingConfigWithProviders(ctx, s.systemConfigService, s.modelProviderService, s.fallbackConfig)
-	if strings.TrimSpace(cfg.Model) == "" {
-		return AssetSemanticSearchResult{}, fmt.Errorf("embedding model is required")
-	}
-	providerID, err := s.resolveEmbeddingProviderID()
+	prepared, err := s.prepareAssetSemanticSearch(ctx, input.Query)
 	if err != nil {
 		return AssetSemanticSearchResult{}, err
 	}
-	result, err := modelgateway.NewTextEmbedder(cfg).EmbedText(ctx, modelgateway.EmbedTextInput{Text: input.Query})
-	if err != nil {
-		return AssetSemanticSearchResult{}, err
-	}
-	if len(result.Embedding) == 0 {
-		return AssetSemanticSearchResult{}, fmt.Errorf("semantic search embedding is empty")
-	}
-	dimension := cfg.Dimensions
-	if dimension <= 0 {
-		dimension = len(result.Embedding)
-	}
-	if len(result.Embedding) != dimension {
-		return AssetSemanticSearchResult{}, fmt.Errorf("semantic search embedding dimension mismatch: expected %d, got %d", dimension, len(result.Embedding))
-	}
+	input.Query = strings.TrimSpace(input.Query)
 
 	hits, total, err := s.searchAssetEmbeddingObjects(ctx, semanticAssetSearchStoreInput{
-		ProviderID:     providerID,
-		Model:          cfg.Model,
-		Dimension:      dimension,
-		QueryEmbedding: result.Embedding,
+		ProviderID:     prepared.ProviderID,
+		Model:          prepared.Model,
+		Dimension:      prepared.Dimension,
+		QueryEmbedding: prepared.QueryEmbedding,
 		Filters:        input.Filters,
 		Limit:          input.Limit,
 		Offset:         input.Offset,
@@ -111,6 +96,80 @@ func (s *AssetEmbeddingService) SearchAssets(ctx context.Context, input AssetSem
 		items = append(items, asset)
 	}
 	return AssetSemanticSearchResult{Query: input.Query, Items: items, Total: total}, nil
+}
+
+func (s *AssetEmbeddingService) SearchAssetIDs(ctx context.Context, input AssetSemanticSearchInput) ([]string, error) {
+	prepared, err := s.prepareAssetSemanticSearch(ctx, input.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0)
+	seen := map[string]struct{}{}
+	for offset := 0; ; {
+		hits, total, searchErr := s.searchAssetEmbeddingObjects(ctx, semanticAssetSearchStoreInput{
+			ProviderID:     prepared.ProviderID,
+			Model:          prepared.Model,
+			Dimension:      prepared.Dimension,
+			QueryEmbedding: prepared.QueryEmbedding,
+			Filters:        input.Filters,
+			Limit:          maxSemanticAssetSearchLimit,
+			Offset:         offset,
+		})
+		if searchErr != nil {
+			return nil, searchErr
+		}
+		for _, hit := range hits {
+			if _, exists := seen[hit.AssetID]; exists {
+				continue
+			}
+			seen[hit.AssetID] = struct{}{}
+			ids = append(ids, hit.AssetID)
+		}
+		offset += len(hits)
+		if len(hits) == 0 || offset >= total {
+			break
+		}
+	}
+	return ids, nil
+}
+
+func (s *AssetEmbeddingService) prepareAssetSemanticSearch(ctx context.Context, query string) (preparedAssetSemanticSearch, error) {
+	if s == nil || s.pool == nil {
+		return preparedAssetSemanticSearch{}, fmt.Errorf("asset semantic search is not configured")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return preparedAssetSemanticSearch{}, fmt.Errorf("semantic search query is required")
+	}
+	cfg := ResolveEmbeddingConfigWithProviders(ctx, s.systemConfigService, s.modelProviderService, s.fallbackConfig)
+	if strings.TrimSpace(cfg.Model) == "" {
+		return preparedAssetSemanticSearch{}, fmt.Errorf("embedding model is required")
+	}
+	providerID, err := s.resolveEmbeddingProviderID()
+	if err != nil {
+		return preparedAssetSemanticSearch{}, err
+	}
+	result, err := modelgateway.NewTextEmbedder(cfg).EmbedText(ctx, modelgateway.EmbedTextInput{Text: query})
+	if err != nil {
+		return preparedAssetSemanticSearch{}, err
+	}
+	if len(result.Embedding) == 0 {
+		return preparedAssetSemanticSearch{}, fmt.Errorf("semantic search embedding is empty")
+	}
+	dimension := cfg.Dimensions
+	if dimension <= 0 {
+		dimension = len(result.Embedding)
+	}
+	if len(result.Embedding) != dimension {
+		return preparedAssetSemanticSearch{}, fmt.Errorf("semantic search embedding dimension mismatch: expected %d, got %d", dimension, len(result.Embedding))
+	}
+	return preparedAssetSemanticSearch{
+		ProviderID:     providerID,
+		Model:          cfg.Model,
+		Dimension:      dimension,
+		QueryEmbedding: result.Embedding,
+	}, nil
 }
 
 func (s *AssetEmbeddingService) searchAssetEmbeddingObjects(ctx context.Context, input semanticAssetSearchStoreInput) ([]semanticAssetSearchHit, int, error) {

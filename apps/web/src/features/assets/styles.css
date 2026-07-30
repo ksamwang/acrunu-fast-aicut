@@ -113,6 +113,7 @@
 }
 
 .asset-library-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -130,15 +131,79 @@
     transform 180ms ease;
 }
 
+.asset-library-card-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.asset-library-card-main:disabled {
+  cursor: default;
+}
+
 .asset-library-card:hover {
   transform: translateY(-2px);
   border-color: #93c5fd;
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
 }
 
-.asset-library-card:focus-visible {
+.asset-library-card-main:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.32);
-  outline-offset: 3px;
+  outline-offset: -3px;
+}
+
+.asset-library-card.is-selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2), 0 14px 30px rgba(15, 23, 42, 0.12);
+}
+
+.asset-library-card.is-archived {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.asset-library-card.is-archived:hover {
+  border-color: #fca5a5;
+}
+
+.asset-library-card.is-archived .asset-card-body {
+  background: #fff5f5;
+}
+
+.asset-library-card.is-archived .asset-card-status {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.asset-card-checkbox {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.2);
+}
+
+.asset-library-card.is-selection-mode .asset-card-status {
+  left: 42px;
+}
+
+.asset-selection-toolbar {
+  justify-content: flex-end;
 }
 
 .asset-card-media {
