@@ -68,7 +68,7 @@ func TestAssetCandidateServiceUsesVisualGoalWithoutSellingPointRelation(t *testi
 		SellingPoint:       "避免蹭链条，骑行更安心",
 		VisualGoal:         "展示固定裤脚和远离链条的动作。",
 		SourceType:         "mixed",
-	}}, 20)
+	}}, 100)
 	if err != nil {
 		t.Fatalf("retrieve candidates: %v", err)
 	}
@@ -87,6 +87,27 @@ func TestAssetCandidateServiceUsesVisualGoalWithoutSellingPointRelation(t *testi
 	}
 	if len(input.SourceTypes) != 2 || input.SourceTypes[0] != "visual_only" || input.SourceTypes[1] != "talking_head" {
 		t.Fatalf("unexpected source types %#v", input.SourceTypes)
+	}
+}
+
+func TestCandidateDiversityKeepsOnlySemanticPeersAndUsesStableJitter(t *testing.T) {
+	candidates := []AssetCandidate{
+		{ID: "candidate-a", AssetID: "asset-a", ReuseKey: "same-source", SemanticScore: 0.91},
+		{ID: "candidate-duplicate", AssetID: "asset-duplicate", ReuseKey: "same-source", SemanticScore: 0.90},
+		{ID: "candidate-b", AssetID: "asset-b", SemanticScore: 0.85},
+		{ID: "candidate-unrelated", AssetID: "asset-unrelated", SemanticScore: 0.70},
+	}
+	candidates = deduplicateCandidatesByReuseKey(candidates)
+	candidates = markCandidateSemanticQualification(candidates)
+	if len(candidates) != 3 || !candidates[0].SemanticQualified || !candidates[1].SemanticQualified || candidates[2].SemanticQualified {
+		t.Fatalf("expected duplicates to be removed and unrelated material to remain fallback-only, got %#v", candidates)
+	}
+	usage := assetUsageSnapshot{batch: map[string]int{"same-source": 1}, recent: map[string]int{}}
+	context := CandidateDiversityContext{GenerationRunID: "run-1", GenerationBatchID: "batch-1"}
+	first := rerankCandidatesForDiversity(candidates, usage, context, "visual-1")
+	second := rerankCandidatesForDiversity(candidates, usage, context, "visual-1")
+	if first[0].AssetID != "asset-b" || first[0].DiversityScore != second[0].DiversityScore {
+		t.Fatalf("expected deterministic unused-material preference, got %#v and %#v", first, second)
 	}
 }
 

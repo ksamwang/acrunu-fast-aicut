@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
@@ -226,6 +227,7 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 	}
 
 	works := make([]services.VoiceoverWork, 0, len(request.Variants))
+	generationBatchID := uuid.NewString()
 	creatorName := strings.TrimSpace(user.DisplayName)
 	if creatorName == "" {
 		creatorName = strings.TrimSpace(user.Username)
@@ -238,10 +240,11 @@ func (s *Server) handleCreateVoiceoverTasks(c *gin.Context) {
 			configSnapshot["bgm"] = resolvedBGM[index]
 		}
 		run, err := s.generationRunService.Create(c.Request.Context(), services.CreateGenerationRunInput{
-			ProductID:       product.ID,
-			CreatedByUserID: user.ID,
-			CreatedByName:   creatorName,
-			ConfigSnapshot:  configSnapshot,
+			GenerationBatchID: generationBatchID,
+			ProductID:         product.ID,
+			CreatedByUserID:   user.ID,
+			CreatedByName:     creatorName,
+			ConfigSnapshot:    configSnapshot,
 		})
 		if err != nil {
 			s.handleVoiceoverTaskCreateError(c, "create_generation_run", err)

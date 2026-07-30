@@ -54,6 +54,7 @@ const (
 
 type GenerationRun struct {
 	ID                  string         `json:"id"`
+	GenerationBatchID   string         `json:"generation_batch_id"`
 	ProductID           string         `json:"product_id"`
 	CreatedByUserID     string         `json:"created_by_user_id,omitempty"`
 	CreatedByName       string         `json:"created_by_name,omitempty"`
@@ -142,10 +143,11 @@ type NarrationPause struct {
 }
 
 type CreateGenerationRunInput struct {
-	ProductID       string
-	CreatedByUserID string
-	CreatedByName   string
-	ConfigSnapshot  map[string]any
+	GenerationBatchID string
+	ProductID         string
+	CreatedByUserID   string
+	CreatedByName     string
+	ConfigSnapshot    map[string]any
 }
 
 type generationWorkLoader interface {
@@ -184,6 +186,10 @@ func newGenerationRunService(pool *pgxpool.Pool, voiceovers generationWorkLoader
 }
 
 func (s *GenerationRunService) Create(ctx context.Context, input CreateGenerationRunInput) (GenerationRun, error) {
+	input.GenerationBatchID = normalizeID(input.GenerationBatchID)
+	if input.GenerationBatchID == "" {
+		input.GenerationBatchID = uuid.NewString()
+	}
 	input.ProductID = normalizeID(input.ProductID)
 	if input.ProductID == "" {
 		return GenerationRun{}, fmt.Errorf("product id is required")
@@ -193,16 +199,17 @@ func (s *GenerationRunService) Create(ctx context.Context, input CreateGeneratio
 	if s.pool == nil {
 		now := time.Now()
 		run := GenerationRun{
-			ID:              uuid.NewString(),
-			ProductID:       input.ProductID,
-			CreatedByUserID: input.CreatedByUserID,
-			CreatedByName:   input.CreatedByName,
-			Status:          generationRunStatusGenerating,
-			Stage:           generationRunStageQueued,
-			Progress:        4,
-			ConfigSnapshot:  cloneRunObject(input.ConfigSnapshot),
-			CreatedAt:       now,
-			UpdatedAt:       now,
+			ID:                uuid.NewString(),
+			GenerationBatchID: input.GenerationBatchID,
+			ProductID:         input.ProductID,
+			CreatedByUserID:   input.CreatedByUserID,
+			CreatedByName:     input.CreatedByName,
+			Status:            generationRunStatusGenerating,
+			Stage:             generationRunStageQueued,
+			Progress:          4,
+			ConfigSnapshot:    cloneRunObject(input.ConfigSnapshot),
+			CreatedAt:         now,
+			UpdatedAt:         now,
 		}
 		s.mu.Lock()
 		s.memoryRuns[run.ID] = run
@@ -216,9 +223,12 @@ func (s *GenerationRunService) Create(ctx context.Context, input CreateGeneratio
 	}
 	var runID string
 	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO generation_runs (product_id, created_by_user_id, created_by_name_snapshot, status, stage, progress, config_snapshot)
-		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, 'generating', 'queued', 4, $4::jsonb)
-		RETURNING id::text`, input.ProductID, input.CreatedByUserID, input.CreatedByName, snapshot).Scan(&runID); err != nil {
+		INSERT INTO generation_runs (
+			generation_batch_id, product_id, created_by_user_id, created_by_name_snapshot,
+			status, stage, progress, config_snapshot
+		)
+		VALUES ($1::uuid, $2::uuid, NULLIF($3, '')::uuid, $4, 'generating', 'queued', 4, $5::jsonb)
+		RETURNING id::text`, input.GenerationBatchID, input.ProductID, input.CreatedByUserID, input.CreatedByName, snapshot).Scan(&runID); err != nil {
 		return GenerationRun{}, err
 	}
 	return s.Get(ctx, runID)
@@ -932,6 +942,47 @@ func (s *GenerationRunService) SaveEditPlan(ctx context.Context, plan EditPlan) 
 		}
 		plan.Clips[index] = clip
 	}
+	if plan.Status == "ready" {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM generation_asset_selections selections
+			WHERE selections.generation_run_id = $1::uuid
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM clip_segments clips
+				JOIN assets ON assets.id = clips.asset_id
+				WHERE clips.edit_plan_id = $2::uuid
+				  AND COALESCE(NULLIF(LOWER(BTRIM(assets.checksum)), ''), clips.asset_id::text) = selections.reuse_key
+			  )`, plan.GenerationRunID, stored.ID); err != nil {
+			return EditPlan{}, err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO generation_asset_selections (
+				generation_run_id, generation_batch_id, asset_id, reuse_key,
+				state, expires_at, created_at, updated_at
+			)
+			SELECT DISTINCT ON (COALESCE(NULLIF(LOWER(BTRIM(assets.checksum)), ''), clips.asset_id::text))
+				$1::uuid,
+				runs.generation_batch_id,
+				clips.asset_id,
+				COALESCE(NULLIF(LOWER(BTRIM(assets.checksum)), ''), clips.asset_id::text) AS reuse_key,
+				'committed',
+				NULL,
+				now(),
+				now()
+			FROM clip_segments clips
+			JOIN assets ON assets.id = clips.asset_id
+			JOIN generation_runs runs ON runs.id = $1::uuid
+			WHERE clips.edit_plan_id = $2::uuid
+			ORDER BY COALESCE(NULLIF(LOWER(BTRIM(assets.checksum)), ''), clips.asset_id::text), clips.segment_index
+			ON CONFLICT (generation_run_id, reuse_key) DO UPDATE SET
+				generation_batch_id = EXCLUDED.generation_batch_id,
+				asset_id = EXCLUDED.asset_id,
+				state = 'committed',
+				expires_at = NULL,
+				updated_at = now()`, plan.GenerationRunID, stored.ID); err != nil {
+			return EditPlan{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return EditPlan{}, err
 	}
@@ -1147,7 +1198,7 @@ func editPlanWorkClips(clips []EditPlanClip) []VoiceoverEditPlanClip {
 }
 
 const generationRunColumns = `
-	SELECT id::text, product_id::text, COALESCE(created_by_user_id::text, ''), COALESCE(created_by_name_snapshot, ''),
+	SELECT id::text, generation_batch_id::text, product_id::text, COALESCE(created_by_user_id::text, ''), COALESCE(created_by_name_snapshot, ''),
 		COALESCE(voiceover_task_id::text, ''), COALESCE(script_variant_id::text, ''), COALESCE(voiceover_id::text, ''),
 		status, stage, progress, COALESCE(error_message, ''), config_snapshot,
 		COALESCE(output_storage_key, ''), COALESCE(output_mime_type, ''), COALESCE(output_duration_ms, 0),
@@ -1165,6 +1216,7 @@ func scanGenerationRun(row generationRunScanner) (GenerationRun, error) {
 	var completedAt pgtype.Timestamptz
 	if err := row.Scan(
 		&run.ID,
+		&run.GenerationBatchID,
 		&run.ProductID,
 		&run.CreatedByUserID,
 		&run.CreatedByName,

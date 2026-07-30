@@ -364,10 +364,16 @@ func TestCreateVoiceoverTaskSnapshotsOutputRatioAndSubtitleStyle(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"product_id": product.ID, "voice_profile_id": profileResponse.Data.ID,
 		"output_ratio": services.OutputRatioThreeFour, "subtitle_preset_id": preset.ID,
-		"variants": []map[string]any{{
-			"hook": "固定裤脚", "script_text": "固定裤脚，骑行更安心。", "editing_intent": "展示产品使用",
-			"beats": []map[string]any{{"label": "固定", "selling_point": "防蹭", "visual_goal": "展示固定裤脚", "source_type": "visual_only"}},
-		}},
+		"variants": []map[string]any{
+			{
+				"hook": "固定裤脚", "script_text": "固定裤脚，骑行更安心。", "editing_intent": "展示产品使用",
+				"beats": []map[string]any{{"label": "固定", "selling_point": "防蹭", "visual_goal": "展示固定裤脚", "source_type": "visual_only"}},
+			},
+			{
+				"hook": "快速固定", "script_text": "出门前快速固定裤脚。", "editing_intent": "展示快速安装",
+				"beats": []map[string]any{{"label": "安装", "selling_point": "便捷", "visual_goal": "展示快速安装束裤带", "source_type": "visual_only"}},
+			},
+		},
 	})
 	request := httptest.NewRequest(http.MethodPost, "/api/workbench/voiceover-tasks", bytes.NewReader(payload))
 	request.Header.Set("Authorization", voiceoverUserAuthHeader())
@@ -378,8 +384,11 @@ func TestCreateVoiceoverTaskSnapshotsOutputRatioAndSubtitleStyle(t *testing.T) {
 		t.Fatalf("create voiceover task: %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	runs, err := generationRuns.List(context.Background())
-	if err != nil || len(runs) != 1 {
+	if err != nil || len(runs) != 2 {
 		t.Fatalf("unexpected generation runs %#v err=%v", runs, err)
+	}
+	if runs[0].GenerationBatchID == "" || runs[0].GenerationBatchID != runs[1].GenerationBatchID {
+		t.Fatalf("expected all submitted variants to share one generation batch, got %#v", runs)
 	}
 	snapshot := runs[0].ConfigSnapshot
 	if snapshot["output_ratio"] != services.OutputRatioThreeFour || snapshot["output_height"] != float64(1440) || snapshot["subtitle_preset_id"] != preset.ID {

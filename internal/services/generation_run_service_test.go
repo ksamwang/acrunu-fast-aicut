@@ -32,6 +32,9 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create generation run: %v", err)
 	}
+	if run.GenerationBatchID == "" {
+		t.Fatal("expected an implicit generation batch id")
+	}
 	if err := service.LinkTask(context.Background(), run.ID, "voiceover-task-1", generationRunTaskStageVoiceover); err != nil {
 		t.Fatalf("link voiceover task: %v", err)
 	}

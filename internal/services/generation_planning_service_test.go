@@ -488,6 +488,28 @@ func TestBuildPlannerInputFindsGlobalUniqueAssignment(t *testing.T) {
 	}
 }
 
+func TestBuildPlannerInputTreatsMatchingChecksumsAsOneMaterial(t *testing.T) {
+	sets := []CandidateSet{{
+		Requirement: ShotRequirement{
+			VisualBeatID: "visual-1", NarrationSegmentID: "narration-1",
+			StartMs: 0, EndMs: 1000, NarrationText: "展示产品。", VisualGoal: "展示产品", SourceType: "visual_only",
+		},
+		Candidates: []AssetCandidate{
+			{ID: "candidate-a", AssetID: "asset-a", ReuseKey: "checksum-shared", SourceOutMs: 2000},
+			{ID: "candidate-a-copy", AssetID: "asset-a-copy", ReuseKey: "checksum-shared", SourceOutMs: 2000},
+			{ID: "candidate-b", AssetID: "asset-b", ReuseKey: "checksum-b", SourceOutMs: 2000},
+		},
+	}}
+	input, err := buildPlannerInput("束裤带", "展示产品。", sets)
+	if err != nil {
+		t.Fatalf("build planner input: %v", err)
+	}
+	candidates := input.Requirements[0].Slots[0].Candidates
+	if len(candidates) != 2 || candidates[0].ReuseKey == candidates[1].ReuseKey {
+		t.Fatalf("expected duplicate checksum assets to share one planner material, got %#v", candidates)
+	}
+}
+
 func TestBuildPlannerInputPreservesFeasibleMaterialBeyondTopSix(t *testing.T) {
 	sets := make([]CandidateSet, 0, 7)
 	for requirementIndex := 0; requirementIndex < 7; requirementIndex++ {
@@ -510,7 +532,7 @@ func TestBuildPlannerInputPreservesFeasibleMaterialBeyondTopSix(t *testing.T) {
 	}
 	input, err := buildPlannerInput("束裤带", "展示产品。", sets)
 	if err != nil {
-		t.Fatalf("expected top-12 matching to preserve a global assignment: %v", err)
+		t.Fatalf("expected expanded matching to preserve a global assignment: %v", err)
 	}
 	foundSeventhMaterial := false
 	for _, requirement := range input.Requirements {
@@ -525,6 +547,47 @@ func TestBuildPlannerInputPreservesFeasibleMaterialBeyondTopSix(t *testing.T) {
 	}
 	if !foundSeventhMaterial {
 		t.Fatal("expected the globally required seventh material to survive per-slot trimming")
+	}
+}
+
+func TestBuildPlannerInputsKeepsExpandedPoolForBatchAllocation(t *testing.T) {
+	candidates := make([]AssetCandidate, 0, 8)
+	for index := 0; index < 8; index++ {
+		candidates = append(candidates, AssetCandidate{
+			ID:          fmt.Sprintf("candidate-%d", index+1),
+			AssetID:     fmt.Sprintf("asset-%d", index+1),
+			ReuseKey:    fmt.Sprintf("asset-%d", index+1),
+			SourceOutMs: 2000,
+		})
+	}
+	sets := []CandidateSet{{
+		Requirement: ShotRequirement{
+			VisualBeatID: "visual-1", NarrationSegmentID: "narration-1",
+			StartMs: 0, EndMs: 1000, NarrationText: "展示产品。", VisualGoal: "展示产品", SourceType: "visual_only",
+		},
+		Candidates: candidates,
+	}}
+	plannerInput, allocationInput, err := buildPlannerInputs("束裤带", "展示产品。", sets)
+	if err != nil {
+		t.Fatalf("build planner inputs: %v", err)
+	}
+	if len(plannerInput.Requirements[0].Slots[0].Candidates) != editPlannerCandidatesPerVisualBeat {
+		t.Fatalf("expected compact LLM pool, got %#v", plannerInput.Requirements[0].Slots[0].Candidates)
+	}
+	if len(allocationInput.Requirements[0].Slots[0].Candidates) != 8 {
+		t.Fatalf("expected expanded allocation pool, got %#v", allocationInput.Requirements[0].Slots[0].Candidates)
+	}
+	preferred := modelgateway.EditPlanResult{Clips: []modelgateway.EditPlanClipChoice{{SlotID: "s001", CandidateID: "m001"}}}
+	batchUseCounts := map[string]int{}
+	for index := 1; index <= editPlannerCandidatesPerVisualBeat; index++ {
+		batchUseCounts[fmt.Sprintf("asset-%d", index)] = 1
+	}
+	selected, err := selectDiversePlannerResult(allocationInput, preferred, batchUseCounts, map[string]int{}, map[string]bool{})
+	if err != nil {
+		t.Fatalf("select from expanded allocation pool: %v", err)
+	}
+	if selected.Clips[0].CandidateID != "m007" {
+		t.Fatalf("expected allocator to use material outside the LLM top six, got %#v", selected.Clips)
 	}
 }
 
