@@ -1,8 +1,12 @@
+import { useEffect, useRef } from "react";
+import type { WheelEvent as ReactWheelEvent } from "react";
 import { Button, Progress, Tabs, Tag, Tooltip, Typography } from "antd";
 import {
   ArrowLeft,
   Captions,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   Clapperboard,
   Clock3,
@@ -11,6 +15,8 @@ import {
   Mic2,
   MonitorPlay,
   Music2,
+  RotateCcw,
+  Trash2,
   UserRound,
   Volume2
 } from "lucide-react";
@@ -25,6 +31,19 @@ const sourceTypeLabels = {
   mixed: "混合"
 };
 
+type FinishedWorkDetailProps = {
+  work: FinishedWork;
+  position: number;
+  total: number;
+  actionKind: "retry" | "regenerate" | "delete" | null;
+  onBack: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  onRetry: () => void;
+  onRegenerate: () => void;
+  onDelete: () => void;
+};
+
 function outputResolution(work: FinishedWork) {
   return work.output_width && work.output_height ? `${work.output_width} × ${work.output_height}` : "-";
 }
@@ -36,9 +55,25 @@ function formatFileSize(bytes?: number) {
   return `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
-export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBack: () => void }) {
+export function FinishedWorkDetail({
+  work,
+  position,
+  total,
+  actionKind,
+  onBack,
+  onPrevious,
+  onNext,
+  onRetry,
+  onRegenerate,
+  onDelete
+}: FinishedWorkDetailProps) {
   const isGenerating = work.status === "generating";
   const isFailed = work.status === "failed";
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const wheelDeltaRef = useRef(0);
+  const wheelLockedUntilRef = useRef(0);
+  const wheelResetTimerRef = useRef<number | null>(null);
+  const playbackStateRef = useRef({ shouldResume: false, volume: 1, muted: false });
   const narrationSegments = work.narration_segments ?? [];
   const editPlan = work.edit_plan ?? [];
   const beats = work.beats ?? [];
@@ -56,6 +91,87 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
   });
   const previewCaption = narrationSegments[0] ? subtitleDisplayText(narrationSegments[0].text) : "";
   const statusLabel = isGenerating ? "生成中" : isFailed ? "生成失败" : "已完成";
+  const actionBusy = actionKind !== null;
+
+  useEffect(() => {
+    wheelDeltaRef.current = 0;
+    const video = previewRef.current?.querySelector("video");
+    if (!video) {
+      return;
+    }
+    const playback = playbackStateRef.current;
+    video.volume = playback.volume;
+    video.muted = playback.muted;
+    if (!playback.shouldResume) {
+      return;
+    }
+    const resume = () => {
+      void video.play().catch(() => {
+        playbackStateRef.current.shouldResume = false;
+      });
+    };
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      resume();
+      return;
+    }
+    video.addEventListener("canplay", resume, { once: true });
+    return () => video.removeEventListener("canplay", resume);
+  }, [work.id, work.video_url]);
+
+  useEffect(() => () => {
+    if (wheelResetTimerRef.current !== null) {
+      window.clearTimeout(wheelResetTimerRef.current);
+    }
+  }, []);
+
+  const navigateToWork = (navigate?: () => void) => {
+    if (!navigate) {
+      return;
+    }
+    const video = previewRef.current?.querySelector("video");
+    if (video) {
+      playbackStateRef.current = {
+        shouldResume: !video.paused && !video.ended,
+        volume: video.volume,
+        muted: video.muted
+      };
+    }
+    navigate();
+  };
+
+  const handlePreviewWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (event.deltaY === 0 || Math.abs(event.deltaY) < Math.abs(event.deltaX)) {
+      return;
+    }
+    event.preventDefault();
+    const now = window.performance.now();
+    if (now < wheelLockedUntilRef.current) {
+      return;
+    }
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? event.currentTarget.clientHeight : 1;
+    const delta = event.deltaY * unit;
+    if (wheelDeltaRef.current !== 0 && Math.sign(wheelDeltaRef.current) !== Math.sign(delta)) {
+      wheelDeltaRef.current = 0;
+    }
+    wheelDeltaRef.current += delta;
+    if (wheelResetTimerRef.current !== null) {
+      window.clearTimeout(wheelResetTimerRef.current);
+    }
+    wheelResetTimerRef.current = window.setTimeout(() => {
+      wheelDeltaRef.current = 0;
+      wheelResetTimerRef.current = null;
+    }, 180);
+    if (Math.abs(wheelDeltaRef.current) < 80) {
+      return;
+    }
+    const navigate = wheelDeltaRef.current > 0 ? onNext : onPrevious;
+    wheelDeltaRef.current = 0;
+    if (!navigate) {
+      return;
+    }
+    wheelLockedUntilRef.current = now + 420;
+    navigateToWork(navigate);
+  };
 
   const overviewPane = (
     <div className="finished-detail-pane-scroll">
@@ -217,13 +333,36 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
             <span>{formatDateTime(work.completed_at ?? work.created_at)}</span>
           </div>
         </div>
+        <div className="finished-detail-actions">
+          <Button
+            icon={<RotateCcw size={15} />}
+            loading={actionKind === "retry" || actionKind === "regenerate"}
+            disabled={isGenerating || actionBusy}
+            onClick={isFailed ? onRetry : onRegenerate}
+          >
+            {isFailed ? "重试" : "重新生成"}
+          </Button>
+          <Button
+            danger
+            icon={<Trash2 size={15} />}
+            loading={actionKind === "delete"}
+            disabled={isGenerating || actionBusy}
+            onClick={onDelete}
+          >
+            删除
+          </Button>
+        </div>
       </header>
 
       <main className="finished-detail-scroll">
         <div className="finished-detail-workspace">
           <section className="finished-detail-media-panel" aria-label="成品预览">
-            <div className={`finished-detail-preview${isGenerating ? " is-generating" : ""}`}>
-              <FinishedWorkVisual work={work} />
+            <div
+              className={`finished-detail-preview${isGenerating ? " is-generating" : ""}`}
+              ref={previewRef}
+              onWheel={handlePreviewWheel}
+            >
+              <FinishedWorkVisual key={work.id} work={work} />
               {!work.video_url ? <span className="finished-detail-preview-scrim" /> : null}
               {isGenerating ? (
                 <span className="finished-detail-generation-state">
@@ -239,6 +378,29 @@ export function FinishedWorkDetail({ work, onBack }: { work: FinishedWork; onBac
                 <span className="finished-detail-play"><Volume2 size={22} /></span>
               )}
               {previewCaption && !work.video_url ? <span className="finished-detail-caption">{previewCaption}</span> : null}
+              <nav className="finished-detail-preview-navigation" aria-label="切换成品">
+                <Tooltip title="上一条成品" placement="left">
+                  <Button
+                    type="text"
+                    icon={<ChevronUp size={18} />}
+                    aria-label="上一条成品"
+                    disabled={!onPrevious}
+                    onClick={() => navigateToWork(onPrevious)}
+                  />
+                </Tooltip>
+                <span className="finished-detail-preview-position" aria-label={`第 ${position} 条，共 ${total} 条`}>
+                  {position}<small>/</small>{total}
+                </span>
+                <Tooltip title="下一条成品" placement="left">
+                  <Button
+                    type="text"
+                    icon={<ChevronDown size={18} />}
+                    aria-label="下一条成品"
+                    disabled={!onNext}
+                    onClick={() => navigateToWork(onNext)}
+                  />
+                </Tooltip>
+              </nav>
             </div>
 
             <div className="finished-detail-media-footer">

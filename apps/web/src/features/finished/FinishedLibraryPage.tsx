@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Checkbox, Dropdown, Empty, Input, message, Modal, Progress, Segmented, Select, Tag } from "antd";
 import type { MenuProps } from "antd";
 import { CalendarDays, CheckSquare2, CircleAlert, Download, LoaderCircle, Play, RotateCcw, Trash2, UserRound, X } from "lucide-react";
@@ -15,11 +15,67 @@ import "./styles.css";
 
 type StatusFilter = "all" | "generating" | "completed";
 
+type FinishedWorkAction = "retry" | "regenerate" | "delete";
+
+type FinishedLibraryBrowseState = {
+  status_filter: StatusFilter;
+  product_id?: string;
+  keyword: string;
+  scroll_top: number;
+  anchor_work_id?: string;
+};
+
 type FinishedWorkDateGroup = {
   key: string;
   label: string;
   works: FinishedWork[];
 };
+
+const finishedLibraryBrowseStateKey = "aicut.finished-library-browse.v1";
+const finishedDetailOriginStateKey = "aicutFinishedDetailFromLibrary";
+
+function defaultFinishedLibraryBrowseState(): FinishedLibraryBrowseState {
+  return {
+    status_filter: "all",
+    keyword: "",
+    scroll_top: 0
+  };
+}
+
+function readFinishedLibraryBrowseState(): FinishedLibraryBrowseState {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(finishedLibraryBrowseStateKey) ?? "null") as Partial<FinishedLibraryBrowseState> | null;
+    const statusFilter = parsed?.status_filter;
+    return {
+      status_filter: statusFilter === "generating" || statusFilter === "completed" ? statusFilter : "all",
+      product_id: typeof parsed?.product_id === "string" && parsed.product_id ? parsed.product_id : undefined,
+      keyword: typeof parsed?.keyword === "string" ? parsed.keyword : "",
+      scroll_top: typeof parsed?.scroll_top === "number" && Number.isFinite(parsed.scroll_top) ? Math.max(0, parsed.scroll_top) : 0,
+      anchor_work_id: typeof parsed?.anchor_work_id === "string" && parsed.anchor_work_id ? parsed.anchor_work_id : undefined
+    };
+  } catch {
+    return defaultFinishedLibraryBrowseState();
+  }
+}
+
+function writeFinishedLibraryBrowseState(state: FinishedLibraryBrowseState) {
+  try {
+    window.sessionStorage.setItem(finishedLibraryBrowseStateKey, JSON.stringify(state));
+  } catch {
+    // Browsing still works when storage is unavailable; only refresh restoration is lost.
+  }
+}
+
+function historyStateWithDetailOrigin(fromLibrary: boolean) {
+  const current = window.history.state;
+  const base = current && typeof current === "object" ? current as Record<string, unknown> : {};
+  return { ...base, [finishedDetailOriginStateKey]: fromLibrary };
+}
+
+function detailWasOpenedFromLibrary() {
+  const current = window.history.state;
+  return Boolean(current && typeof current === "object" && (current as Record<string, unknown>)[finishedDetailOriginStateKey]);
+}
 
 function readFinishedWorkID() {
   const match = window.location.hash.match(/^#\/finished\/([^/?#]+)/);
@@ -35,6 +91,15 @@ function readFinishedWorkID() {
 
 function writeFinishedWorkID(workID: string) {
   window.location.hash = `#/finished/${encodeURIComponent(workID)}`;
+  window.history.replaceState(historyStateWithDetailOrigin(true), "", window.location.href);
+}
+
+function replaceFinishedWorkID(workID: string) {
+  window.history.replaceState(
+    historyStateWithDetailOrigin(detailWasOpenedFromLibrary()),
+    "",
+    `#/finished/${encodeURIComponent(workID)}`
+  );
 }
 
 function emptyDescription(status: StatusFilter) {
@@ -119,17 +184,37 @@ function groupFinishedWorksByDate(works: FinishedWork[]): FinishedWorkDateGroup[
 
 export function FinishedLibraryPage({ token }: { token: string }) {
   const products = useResource<Product[]>("/api/products", token, [], listProducts);
+  const [initialBrowseState] = useState(readFinishedLibraryBrowseState);
+  const [initialSelectedWorkID] = useState(readFinishedWorkID);
   const [works, setWorks] = useState<FinishedWork[]>([]);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [productID, setProductID] = useState<string | undefined>();
-  const [keyword, setKeyword] = useState("");
-  const [selectedWorkID, setSelectedWorkID] = useState(readFinishedWorkID);
+  const [hasLoadedWorks, setHasLoadedWorks] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialBrowseState.status_filter);
+  const [productID, setProductID] = useState<string | undefined>(initialBrowseState.product_id);
+  const [keyword, setKeyword] = useState(initialBrowseState.keyword);
+  const [selectedWorkID, setSelectedWorkID] = useState(initialSelectedWorkID);
   const [actionWorkID, setActionWorkID] = useState<string | null>(null);
+  const [actionKind, setActionKind] = useState<FinishedWorkAction | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedWorkIDs, setSelectedWorkIDs] = useState<Set<string>>(() => new Set());
   const [downloading, setDownloading] = useState(false);
   const [retryingSelected, setRetryingSelected] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const browseStateRef = useRef<FinishedLibraryBrowseState>(initialBrowseState);
+  const finishedWorkScrollRef = useRef<HTMLElement | null>(null);
+  const scrollPersistFrameRef = useRef<number | null>(null);
+  const restoreListPositionRef = useRef(!initialSelectedWorkID);
+
+  const persistBrowseState = (anchorWorkID?: string) => {
+    const scroller = finishedWorkScrollRef.current;
+    browseStateRef.current = {
+      status_filter: statusFilter,
+      product_id: productID,
+      keyword,
+      scroll_top: scroller?.scrollTop ?? browseStateRef.current.scroll_top,
+      anchor_work_id: anchorWorkID ?? browseStateRef.current.anchor_work_id
+    };
+    writeFinishedLibraryBrowseState(browseStateRef.current);
+  };
 
   useEffect(() => {
     let disposed = false;
@@ -138,6 +223,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
         const nextWorks = await listVoiceoverWorks(token);
         if (!disposed) {
           setWorks(nextWorks);
+          setHasLoadedWorks(true);
         }
       } catch {
         // Keep the last successful list visible while the service is temporarily unavailable.
@@ -152,9 +238,31 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => {
-    const syncSelectedWork = () => setSelectedWorkID(readFinishedWorkID());
+    const syncSelectedWork = () => {
+      const nextWorkID = readFinishedWorkID();
+      if (!nextWorkID) {
+        restoreListPositionRef.current = true;
+      }
+      setSelectedWorkID(nextWorkID);
+    };
     window.addEventListener("hashchange", syncSelectedWork);
     return () => window.removeEventListener("hashchange", syncSelectedWork);
+  }, []);
+
+  useEffect(() => {
+    browseStateRef.current = {
+      ...browseStateRef.current,
+      status_filter: statusFilter,
+      product_id: productID,
+      keyword
+    };
+    writeFinishedLibraryBrowseState(browseStateRef.current);
+  }, [keyword, productID, statusFilter]);
+
+  useEffect(() => () => {
+    if (scrollPersistFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollPersistFrameRef.current);
+    }
   }, []);
 
   const filteredWorks = useMemo(() => {
@@ -177,8 +285,16 @@ export function FinishedLibraryPage({ token }: { token: string }) {
   }, [keyword, productID, statusFilter, works]);
 
   const dateGroups = useMemo(() => groupFinishedWorksByDate(filteredWorks), [filteredWorks]);
+  const orderedFilteredWorks = useMemo(() => dateGroups.flatMap((group) => group.works), [dateGroups]);
+  const orderedAllWorks = useMemo(() => groupFinishedWorksByDate(works).flatMap((group) => group.works), [works]);
 
   const selectedWork = selectedWorkID ? works.find((work) => work.id === selectedWorkID) : undefined;
+  const detailWorks = selectedWorkID && orderedFilteredWorks.some((work) => work.id === selectedWorkID)
+    ? orderedFilteredWorks
+    : orderedAllWorks;
+  const selectedWorkIndex = selectedWorkID ? detailWorks.findIndex((work) => work.id === selectedWorkID) : -1;
+  const previousWork = selectedWorkIndex > 0 ? detailWorks[selectedWorkIndex - 1] : undefined;
+  const nextWork = selectedWorkIndex >= 0 && selectedWorkIndex < detailWorks.length - 1 ? detailWorks[selectedWorkIndex + 1] : undefined;
   const selectableWorks = filteredWorks.filter((work) => work.status !== "generating");
   const canDownloadWorks = (workIDs: string[]) => {
     const workIDSet = new Set(workIDs);
@@ -205,6 +321,73 @@ export function FinishedLibraryPage({ token }: { token: string }) {
       return next.size === current.size ? current : next;
     });
   }, [works]);
+
+  useEffect(() => {
+    if (selectedWorkID) {
+      browseStateRef.current.anchor_work_id = selectedWorkID;
+      writeFinishedLibraryBrowseState(browseStateRef.current);
+      return;
+    }
+    if (!hasLoadedWorks || !restoreListPositionRef.current) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const scroller = finishedWorkScrollRef.current;
+      if (!scroller) {
+        return;
+      }
+      const anchorWorkID = browseStateRef.current.anchor_work_id;
+      const anchor = anchorWorkID ? document.getElementById(`finished-work-card-${anchorWorkID}`) : null;
+      if (anchor && scroller.contains(anchor)) {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const anchorRect = anchor.getBoundingClientRect();
+        scroller.scrollTop = Math.max(
+          0,
+          scroller.scrollTop + anchorRect.top - scrollerRect.top - (scroller.clientHeight - anchorRect.height) / 2
+        );
+      } else {
+        scroller.scrollTop = browseStateRef.current.scroll_top;
+      }
+      browseStateRef.current.scroll_top = scroller.scrollTop;
+      writeFinishedLibraryBrowseState(browseStateRef.current);
+      restoreListPositionRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [dateGroups, hasLoadedWorks, selectedWorkID]);
+
+  const handleFinishedWorkScroll = (scrollTop: number) => {
+    browseStateRef.current.scroll_top = scrollTop;
+    if (scrollPersistFrameRef.current !== null) {
+      return;
+    }
+    scrollPersistFrameRef.current = window.requestAnimationFrame(() => {
+      scrollPersistFrameRef.current = null;
+      writeFinishedLibraryBrowseState(browseStateRef.current);
+    });
+  };
+
+  const openFinishedWork = (workID: string) => {
+    persistBrowseState(workID);
+    restoreListPositionRef.current = false;
+    writeFinishedWorkID(workID);
+  };
+
+  const replaceSelectedFinishedWork = (workID: string) => {
+    persistBrowseState(workID);
+    replaceFinishedWorkID(workID);
+    setSelectedWorkID(workID);
+  };
+
+  const returnToFinishedLibrary = () => {
+    persistBrowseState(selectedWorkID || undefined);
+    restoreListPositionRef.current = true;
+    if (detailWasOpenedFromLibrary()) {
+      window.history.back();
+      return;
+    }
+    window.history.replaceState(historyStateWithDetailOrigin(false), "", "#/finished");
+    setSelectedWorkID("");
+  };
 
   const toggleWorkSelection = (workID: string) => {
     setSelectedWorkIDs((current) => {
@@ -399,6 +582,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
 
   const regenerateWork = async (workID: string) => {
     setActionWorkID(workID);
+    setActionKind("regenerate");
     try {
       const regenerated = await regenerateVoiceoverWork(workID, token);
       setWorks((current) => current.map((work) => (work.id === regenerated.id ? regenerated : work)));
@@ -407,11 +591,13 @@ export function FinishedLibraryPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "重新生成失败");
     } finally {
       setActionWorkID(null);
+      setActionKind(null);
     }
   };
 
   const retryWork = async (workID: string) => {
     setActionWorkID(workID);
+    setActionKind("retry");
     try {
       const retried = await retryVoiceoverWork(workID, token);
       setWorks((current) => current.map((work) => (work.id === retried.id ? retried : work)));
@@ -420,19 +606,29 @@ export function FinishedLibraryPage({ token }: { token: string }) {
       message.error(error instanceof Error ? error.message : "重试失败");
     } finally {
       setActionWorkID(null);
+      setActionKind(null);
     }
   };
 
-  const deleteWork = async (workID: string) => {
+  const deleteWork = async (workID: string, replacementWorkID?: string) => {
     setActionWorkID(workID);
+    setActionKind("delete");
     try {
       await deleteVoiceoverWork(workID, token);
       setWorks((current) => current.filter((work) => work.id !== workID));
+      if (selectedWorkID === workID) {
+        if (replacementWorkID) {
+          replaceSelectedFinishedWork(replacementWorkID);
+        } else {
+          returnToFinishedLibrary();
+        }
+      }
       message.success("成片已删除");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "删除成片失败");
     } finally {
       setActionWorkID(null);
+      setActionKind(null);
     }
   };
 
@@ -447,7 +643,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
     });
   };
 
-  const confirmDelete = (work: FinishedWork) => {
+  const confirmDelete = (work: FinishedWork, replacementWorkID?: string) => {
     Modal.confirm({
       title: "删除成片？",
       content: `“${work.title}”将从成品库移除，已渲染的视频文件也会删除。`,
@@ -455,7 +651,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
       cancelText: "取消",
       okButtonProps: { danger: true },
       centered: true,
-      onOk: () => deleteWork(work.id)
+      onOk: () => deleteWork(work.id, replacementWorkID)
     });
   };
 
@@ -530,13 +726,26 @@ export function FinishedLibraryPage({ token }: { token: string }) {
 
   if (selectedWorkID) {
     if (selectedWork) {
-      return <FinishedWorkDetail work={selectedWork} onBack={() => { window.location.hash = "#/finished"; }} />;
+      return (
+        <FinishedWorkDetail
+          work={selectedWork}
+          position={selectedWorkIndex >= 0 ? selectedWorkIndex + 1 : 1}
+          total={Math.max(detailWorks.length, 1)}
+          actionKind={actionWorkID === selectedWork.id ? actionKind : null}
+          onBack={returnToFinishedLibrary}
+          onPrevious={previousWork ? () => replaceSelectedFinishedWork(previousWork.id) : undefined}
+          onNext={nextWork ? () => replaceSelectedFinishedWork(nextWork.id) : undefined}
+          onRetry={() => void retryWork(selectedWork.id)}
+          onRegenerate={() => confirmRegenerate(selectedWork)}
+          onDelete={() => confirmDelete(selectedWork, nextWork?.id ?? previousWork?.id)}
+        />
+      );
     }
     return (
       <div className="finished-detail-page">
         <div className="finished-detail-missing">
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未找到成品" />
-          <Button onClick={() => { window.location.hash = "#/finished"; }}>返回成品库</Button>
+          <Button onClick={returnToFinishedLibrary}>返回成品库</Button>
         </div>
       </div>
     );
@@ -581,7 +790,11 @@ export function FinishedLibraryPage({ token }: { token: string }) {
         )}
       </section>
 
-      <main className="finished-work-scroll">
+      <main
+        className="finished-work-scroll"
+        ref={finishedWorkScrollRef}
+        onScroll={(event) => handleFinishedWorkScroll(event.currentTarget.scrollTop)}
+      >
         {filteredWorks.length === 0 ? (
           <div className="finished-empty-state">
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDescription(statusFilter)} />
@@ -622,6 +835,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                           disabled={selectionMode && !selectable}
                         >
                           <article
+                            id={`finished-work-card-${work.id}`}
                             className={`finished-work-card${isGenerating ? " is-generating" : ""}${isFailed ? " is-failed" : ""}${selectionMode ? " is-selection-mode" : ""}${selected ? " is-selected" : ""}`}
                             data-status={work.status}
                             data-testid={`finished-work-${work.id}`}
@@ -640,7 +854,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                               type="button"
                               className={`finished-work-media${isGenerating ? " is-generating" : ""}`}
                               aria-label={selectionMode ? `${selected ? "取消选择" : "选择"} ${work.title}` : `查看 ${work.title}`}
-                              onClick={() => selectionMode ? (selectable && toggleWorkSelection(work.id)) : writeFinishedWorkID(work.id)}
+                              onClick={() => selectionMode ? (selectable && toggleWorkSelection(work.id)) : openFinishedWork(work.id)}
                             >
                               <FinishedWorkVisual work={work} compact />
                               <span className="finished-work-overlay-top">
