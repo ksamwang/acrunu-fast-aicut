@@ -57,6 +57,17 @@ export type AssetBulkArchiveResult = {
   failures: Array<{ asset_id: string; message: string }>;
 };
 
+export type AssetReanalysisQueueItem = {
+  asset: Asset;
+  frame_task_id: string;
+};
+
+export type AssetBulkReanalysisResult = {
+  queued: AssetReanalysisQueueItem[];
+  skipped_ids: string[];
+  failures: Array<{ asset_id: string; message: string }>;
+};
+
 export type AssetFrameSnapshot = {
   id: string;
   asset_id: string;

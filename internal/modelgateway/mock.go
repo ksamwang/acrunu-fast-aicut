@@ -10,19 +10,27 @@ type FrameReference struct {
 
 type ImageReference struct {
 	StorageKey string `json:"storage_key"`
+	DataURL    string `json:"data_url,omitempty"`
+}
+
+type SellingPointContext struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
 }
 
 type AnalyzeAssetInput struct {
-	AssetID               string           `json:"asset_id"`
-	SourceType            string           `json:"source_type"`
-	ProductName           string           `json:"product_name,omitempty"`
-	DurationMs            int              `json:"duration_ms"`
-	Width                 int              `json:"width"`
-	Height                int              `json:"height"`
-	HasAudio              bool             `json:"has_audio"`
-	AudioCodec            string           `json:"audio_codec,omitempty"`
-	FrameSnapshots        []FrameReference `json:"frame_snapshots,omitempty"`
-	ProductReferenceImage *ImageReference  `json:"product_reference_image,omitempty"`
+	AssetID                string                `json:"asset_id"`
+	ProductID              string                `json:"product_id,omitempty"`
+	SourceType             string                `json:"source_type"`
+	ProductName            string                `json:"product_name,omitempty"`
+	CandidateSellingPoints []SellingPointContext `json:"candidate_selling_points,omitempty"`
+	DurationMs             int                   `json:"duration_ms"`
+	Width                  int                   `json:"width"`
+	Height                 int                   `json:"height"`
+	HasAudio               bool                  `json:"has_audio"`
+	AudioCodec             string                `json:"audio_codec,omitempty"`
+	FrameSnapshots         []FrameReference      `json:"frame_snapshots,omitempty"`
+	ProductReferenceImage  *ImageReference       `json:"product_reference_image,omitempty"`
 }
 
 type AnalyzeAssetResult struct {
@@ -110,14 +118,15 @@ func (a *MockAssetAnalyzer) AnalyzeAsset(_ context.Context, input AnalyzeAssetIn
 		Subjects:          append([]string(nil), visualTags...),
 		SceneTags:         append([]string(nil), visualTags...),
 		ModelResult: map[string]any{
-			"provider":                    "mock",
-			"prompt_version":              promptBundle.Version,
-			"schema_version":              OutputSchemaVersion,
-			"frame_count":                 len(input.FrameSnapshots),
-			"frame_sampling":              "uniform_trim_range",
-			"has_product_reference_image": input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != "",
-			"source_type":                 input.SourceType,
-			"prompt_overview":             promptBundle.Prompts,
+			"provider":                      "mock",
+			"prompt_version":                promptBundle.Version,
+			"schema_version":                OutputSchemaVersion,
+			"frame_count":                   len(input.FrameSnapshots),
+			"frame_sampling":                "uniform_trim_range",
+			"has_product_reference_image":   hasProductReferenceImage(input.ProductReferenceImage),
+			"candidate_selling_point_count": len(input.CandidateSellingPoints),
+			"source_type":                   input.SourceType,
+			"prompt_overview":               promptBundle.Prompts,
 		},
 	}, nil
 }

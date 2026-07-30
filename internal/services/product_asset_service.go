@@ -299,6 +299,13 @@ type AssetAnalysisUpdate struct {
 	UpdatedByUserID  string
 }
 
+type AssetAnalysisStateUpdate struct {
+	AnalysisStatus  string
+	AnalysisError   string
+	UsabilityStatus string
+	UpdatedByUserID string
+}
+
 type AssetReviewUpdate struct {
 	SceneDescription  string
 	ActionDescription string
@@ -801,6 +808,49 @@ func (s *ProductAssetService) UpdateAssetAnalysis(assetID string, update AssetAn
 	asset.UpdatedAt = time.Now()
 	s.assets[assetID] = asset
 	return nil
+}
+
+func (s *ProductAssetService) UpdateAssetAnalysisState(assetID string, update AssetAnalysisStateUpdate) (Asset, error) {
+	if s.queries != nil {
+		if _, ok := s.getAssetFromPostgres(assetID); !ok {
+			return Asset{}, ErrAssetNotFound
+		}
+		if err := s.queries.UpdateAssetAnalysisState(context.Background(), db.UpdateAssetAnalysisStateParams{
+			ID:              assetNullableUUIDParam(assetID),
+			AnalysisStatus:  update.AnalysisStatus,
+			AnalysisError:   assetTextParam(update.AnalysisError),
+			UsabilityStatus: update.UsabilityStatus,
+			UpdatedByUserID: assetNullableUUIDParam(update.UpdatedByUserID),
+		}); err != nil {
+			return Asset{}, err
+		}
+		updated, ok := s.getAssetFromPostgres(assetID)
+		if !ok {
+			return Asset{}, ErrAssetNotFound
+		}
+		return updated, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	asset, ok := s.assets[assetID]
+	if !ok {
+		return Asset{}, ErrAssetNotFound
+	}
+	asset.AnalysisStatus = update.AnalysisStatus
+	asset.AnalysisError = update.AnalysisError
+	if update.UsabilityStatus != "" {
+		if _, overridden := asset.ReviewOverrides["usability_status"]; !overridden {
+			asset.UsabilityStatus = update.UsabilityStatus
+		}
+	}
+	if update.UpdatedByUserID != "" {
+		asset.UpdatedByUserID = update.UpdatedByUserID
+	}
+	asset.UpdatedAt = time.Now()
+	s.assets[assetID] = asset
+	return asset, nil
 }
 
 func (s *ProductAssetService) UpdateAssetReview(assetID string, update AssetReviewUpdate) (Asset, error) {

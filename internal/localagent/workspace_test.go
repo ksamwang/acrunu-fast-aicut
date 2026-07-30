@@ -554,6 +554,9 @@ func TestWorkspaceStartVLMLabelRunsAsync(t *testing.T) {
 		if r.FormValue("product_name") != "车载氛围灯" {
 			t.Fatalf("expected product_name to be forwarded, got %q", r.FormValue("product_name"))
 		}
+		if r.FormValue("product_id") != "product-1" {
+			t.Fatalf("expected product_id to be forwarded, got %q", r.FormValue("product_id"))
+		}
 		referenceImage, _, err := r.FormFile("product_reference_image")
 		if err != nil {
 			t.Fatalf("expected product reference image: %v", err)

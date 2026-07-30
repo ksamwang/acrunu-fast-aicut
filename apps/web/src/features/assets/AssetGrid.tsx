@@ -1,5 +1,5 @@
 import { Button, Card, Empty, Pagination, Space, Typography } from "antd";
-import { Archive, CheckSquare2, X } from "lucide-react";
+import { Archive, CheckSquare2, ScanSearch, X } from "lucide-react";
 import type { Asset, AssetListResponse } from "../../shared/types/asset";
 import { AssetCard } from "./AssetCard";
 
@@ -15,6 +15,7 @@ type AssetGridProps = {
   selectedAssetIDs: Set<string>;
   selectingAll: boolean;
   archivingSelected: boolean;
+  reanalyzingSelected: boolean;
   allResultsSelected: boolean;
   onSelect: (asset: Asset) => void;
   onEnterSelectionMode: () => void;
@@ -23,6 +24,7 @@ type AssetGridProps = {
   onTogglePageSelection: (assetIDs: string[]) => void;
   onToggleAllResults: () => void;
   onArchiveSelected: () => void;
+  onReanalyzeSelected: () => void;
   onPageChange: (page: number, pageSize: number) => void;
 };
 
@@ -38,6 +40,7 @@ export function AssetGrid({
   selectedAssetIDs,
   selectingAll,
   archivingSelected,
+  reanalyzingSelected,
   allResultsSelected,
   onSelect,
   onEnterSelectionMode,
@@ -46,6 +49,7 @@ export function AssetGrid({
   onTogglePageSelection,
   onToggleAllResults,
   onArchiveSelected,
+  onReanalyzeSelected,
   onPageChange
 }: AssetGridProps) {
   const total = result?.total ?? 0;
@@ -59,16 +63,19 @@ export function AssetGrid({
       extra={selectionMode ? (
         <Space className="asset-selection-toolbar" wrap size={6}>
           <Typography.Text strong>已选 {selectedAssetIDs.size} 项</Typography.Text>
-          <Button size="small" disabled={pageSelectableIDs.length === 0 || archivingSelected} onClick={() => onTogglePageSelection(pageSelectableIDs)}>
+          <Button size="small" disabled={pageSelectableIDs.length === 0 || archivingSelected || reanalyzingSelected} onClick={() => onTogglePageSelection(pageSelectableIDs)}>
             {allPageSelected ? "取消本页" : "全选本页"}
           </Button>
-          <Button size="small" loading={selectingAll} disabled={archivingSelected} onClick={onToggleAllResults}>
+          <Button size="small" loading={selectingAll} disabled={archivingSelected || reanalyzingSelected} onClick={onToggleAllResults}>
             {allResultsSelected ? "取消全选" : "全选当前结果"}
           </Button>
-          <Button size="small" type="primary" danger icon={<Archive size={14} />} loading={archivingSelected} disabled={selectedAssetIDs.size === 0} onClick={onArchiveSelected}>
+          <Button size="small" type="primary" icon={<ScanSearch size={14} />} loading={reanalyzingSelected} disabled={selectedAssetIDs.size === 0 || archivingSelected} onClick={onReanalyzeSelected}>
+            批量 VLM
+          </Button>
+          <Button size="small" type="primary" danger icon={<Archive size={14} />} loading={archivingSelected} disabled={selectedAssetIDs.size === 0 || reanalyzingSelected} onClick={onArchiveSelected}>
             归档所选
           </Button>
-          <Button size="small" type="text" icon={<X size={15} />} aria-label="退出素材选择" disabled={archivingSelected} onClick={onExitSelectionMode} />
+          <Button size="small" type="text" icon={<X size={15} />} aria-label="退出素材选择" disabled={archivingSelected || reanalyzingSelected} onClick={onExitSelectionMode} />
         </Space>
       ) : (
         <Space size={10}>

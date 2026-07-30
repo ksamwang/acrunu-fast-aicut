@@ -320,6 +320,62 @@ func TestUpdateAssetAnalysisReappliesReviewOverridesInMemory(t *testing.T) {
 	}
 }
 
+func TestUpdateAssetAnalysisStatePreservesModelAndReviewData(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	if err := service.UpdateAssetAnalysis(asset.ID, AssetAnalysisUpdate{
+		AnalysisStatus: "ready",
+		ModelLabels: map[string]any{
+			"scene_description":  "模型描述",
+			"action_description": "模型动作",
+			"usability_status":   "usable",
+		},
+		ModelResult: map[string]any{"prompt_version": "phase2-v7"},
+	}); err != nil {
+		t.Fatalf("seed analysis failed: %v", err)
+	}
+	if _, err := service.UpdateAssetReview(asset.ID, AssetReviewUpdate{
+		SceneDescription:  "人工描述",
+		ActionDescription: "人工动作",
+		UsabilityStatus:   "usable",
+		UpdatedByUserID:   "editor-1",
+	}); err != nil {
+		t.Fatalf("seed review failed: %v", err)
+	}
+
+	updated, err := service.UpdateAssetAnalysisState(asset.ID, AssetAnalysisStateUpdate{
+		AnalysisStatus:  "pending_analysis",
+		AnalysisError:   "",
+		UsabilityStatus: "needs_review",
+		UpdatedByUserID: "editor-2",
+	})
+	if err != nil {
+		t.Fatalf("update analysis state failed: %v", err)
+	}
+	if updated.SceneDescription != "人工描述" || updated.ActionDescription != "人工动作" || updated.UsabilityStatus != "usable" {
+		t.Fatalf("expected manual review to remain effective, got %#v", updated)
+	}
+	if updated.ModelLabels["scene_description"] != "模型描述" || updated.ModelResult["prompt_version"] != "phase2-v7" {
+		t.Fatalf("expected prior model data to remain intact, got labels=%#v result=%#v", updated.ModelLabels, updated.ModelResult)
+	}
+	if updated.ReviewOverrides["scene_description"] != "人工描述" || updated.AnalysisStatus != "pending_analysis" {
+		t.Fatalf("expected review overrides and queued status, got %#v", updated)
+	}
+}
+
 func TestListAssetsSupportsTagDurationAudioAndSellingPointFilters(t *testing.T) {
 	service := NewProductAssetService()
 	product := service.CreateProduct(CreateProductInput{Name: "P1"})

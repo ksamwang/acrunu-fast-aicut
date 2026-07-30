@@ -234,9 +234,13 @@ func (s *fileTaskStore) CreateAssetAnalyzeTask(_ context.Context, userID string,
 }
 
 func (s *fileTaskStore) CreateAssetEmbeddingTask(_ context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error) {
-	return s.createTask(userID, productID, "asset_embedding", map[string]any{
+	summary := map[string]any{
 		"asset_id": payload.AssetID,
-	})
+	}
+	if payload.AnalysisTaskID != "" {
+		summary["analysis_task_id"] = payload.AnalysisTaskID
+	}
+	return s.createTask(userID, productID, "asset_embedding", summary)
 }
 
 func (s *fileTaskStore) CreateVoiceProfilePreviewTask(_ context.Context, userID string, payload queue.VoiceProfilePreviewPayload) (GenerationTask, error) {

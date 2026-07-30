@@ -100,8 +100,8 @@ func (a *OpenAICompatibleAnalyzer) requestAnalyzeAsset(ctx context.Context, inpu
 			},
 		})
 	}
-	if input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != "" {
-		dataURL, err := imageDataURL(input.ProductReferenceImage.StorageKey)
+	if hasProductReferenceImage(input.ProductReferenceImage) {
+		dataURL, err := imageReferenceDataURL(input.ProductReferenceImage)
 		if err != nil {
 			return AnalyzeAssetResult{}, NewError(ErrorCodeConfiguration, fmt.Sprintf("read product reference image failed: %v", err), false, err)
 		}
@@ -188,36 +188,9 @@ func (a *OpenAICompatibleAnalyzer) requestAnalyzeAsset(ctx context.Context, inpu
 	result.ModelResult["max_tokens"] = a.maxTokens
 	result.ModelResult["frame_count"] = len(input.FrameSnapshots)
 	result.ModelResult["frame_sampling"] = "uniform_trim_range"
-	result.ModelResult["has_product_reference_image"] = input.ProductReferenceImage != nil && input.ProductReferenceImage.StorageKey != ""
-	return normalizeAnalyzeAssetResultForInput(result, input), nil
-}
-
-func normalizeAnalyzeAssetResultForInput(result AnalyzeAssetResult, input AnalyzeAssetInput) AnalyzeAssetResult {
-	if result.VisibleProduct || strings.TrimSpace(input.ProductName) == "" {
-		return result
-	}
-	if !hasConcreteProductPosition(result.ProductPosition) || !analysisMentionsProduct(result, input.ProductName) {
-		return result
-	}
-	if result.ModelResult == nil {
-		result.ModelResult = map[string]any{}
-	}
-	result.VisibleProduct = true
-	result.ModelResult["visible_product_normalized"] = true
-	return result
-}
-
-func analysisMentionsProduct(result AnalyzeAssetResult, productName string) bool {
-	productName = normalizeAnalysisDescription(productName)
-	if productName == "" {
-		return false
-	}
-	evidence := normalizeAnalysisDescription(strings.Join([]string{
-		result.SceneDescription,
-		result.ActionDescription,
-		strings.Join(result.VisualTags, " "),
-	}, " "))
-	return strings.Contains(evidence, productName)
+	result.ModelResult["has_product_reference_image"] = hasProductReferenceImage(input.ProductReferenceImage)
+	result.ModelResult["candidate_selling_point_count"] = len(input.CandidateSellingPoints)
+	return result, nil
 }
 
 func hasConcreteProductPosition(value string) bool {
@@ -363,6 +336,27 @@ func imageDataURL(path string) (string, error) {
 		mimeType = "image/webp"
 	}
 	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+func hasProductReferenceImage(reference *ImageReference) bool {
+	return reference != nil && (strings.TrimSpace(reference.StorageKey) != "" || strings.TrimSpace(reference.DataURL) != "")
+}
+
+func imageReferenceDataURL(reference *ImageReference) (string, error) {
+	if reference == nil {
+		return "", fmt.Errorf("product reference image is required")
+	}
+	if dataURL := strings.TrimSpace(reference.DataURL); dataURL != "" {
+		comma := strings.IndexByte(dataURL, ',')
+		if comma <= len("data:image/") || !strings.HasPrefix(strings.ToLower(dataURL), "data:image/") || !strings.Contains(strings.ToLower(dataURL[:comma]), ";base64") {
+			return "", fmt.Errorf("product reference image data URL is invalid")
+		}
+		if _, err := base64.StdEncoding.DecodeString(dataURL[comma+1:]); err != nil {
+			return "", fmt.Errorf("decode product reference image data URL failed: %w", err)
+		}
+		return dataURL, nil
+	}
+	return imageDataURL(reference.StorageKey)
 }
 
 func joinOpenAICompatibleURL(base string, suffix string) string {

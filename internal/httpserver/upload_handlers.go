@@ -660,7 +660,7 @@ func (s *Server) enqueueAssetEmbedding(c *gin.Context, response gin.H, userID st
 
 	response["embedding_task_id"] = embeddingTask.ID
 	payload.TaskID = embeddingTask.ID
-	if enqueueErr := s.queueClient.EnqueueAssetEmbedding(payload.TaskID, payload.AssetID); enqueueErr != nil {
+	if enqueueErr := s.queueClient.EnqueueAssetEmbedding(payload); enqueueErr != nil {
 		_ = s.taskService.MarkFailed(c.Request.Context(), embeddingTask.ID, enqueueErr.Error())
 		response["embedding_task_error"] = enqueueErr.Error()
 	}

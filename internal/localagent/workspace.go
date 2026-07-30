@@ -1139,6 +1139,7 @@ func (w *Workspace) labelItem(ctx context.Context, item WorkspaceItem, input Wor
 
 	result, err := analyzeFramesOnServer(ctx, input.ServerBaseURL, input.AuthToken, input.ProductReferenceImageDataURL, modelgateway.AnalyzeAssetInput{
 		AssetID:        item.ID,
+		ProductID:      input.ProductID,
 		SourceType:     input.SourceType,
 		ProductName:    input.ProductName,
 		DurationMs:     input.SourceOutMs - input.SourceInMs,
@@ -1192,6 +1193,7 @@ func analyzeFramesOnServer(ctx context.Context, serverBaseURL string, authToken 
 
 	fields := map[string]string{
 		"asset_id":     input.AssetID,
+		"product_id":   input.ProductID,
 		"source_type":  input.SourceType,
 		"product_name": input.ProductName,
 		"frame_count":  fmt.Sprintf("%d", len(input.FrameSnapshots)),

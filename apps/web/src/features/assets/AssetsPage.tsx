@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, Descriptions, Divider, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ScanSearch } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { assetDisplayTitle, assetFileDisplayName, assetVideoURL } from "../../shared/lib/asset-display";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
@@ -8,7 +8,7 @@ import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, manualCl
 import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { AssetGrid } from "./AssetGrid";
-import { archiveAssets, createAssetEmbeddings, getAssetEmbeddings, getAssetFrames, getAssetSellingPoints, getSemanticPreview, getSpeechSegments, listAssets, listAssetSelection, listProducts, listSellingPoints, saveAssetReview, saveAssetSellingPoints as persistAssetSellingPoints, updateAssetArchiveState as persistAssetArchiveState } from "./api";
+import { archiveAssets, createAssetEmbeddings, getAsset, getAssetEmbeddings, getAssetFrames, getAssetSellingPoints, getSemanticPreview, getSpeechSegments, listAssets, listAssetSelection, listProducts, listSellingPoints, reanalyzeAsset, reanalyzeAssets, saveAssetReview, saveAssetSellingPoints as persistAssetSellingPoints, updateAssetArchiveState as persistAssetArchiveState } from "./api";
 import "./styles.css";
 
 function renderTagList(items?: string[], emptyText = "-") {
@@ -45,6 +45,10 @@ function assetSelectionPathForList(path: string) {
   params.delete("page_size");
   const selectionQuery = params.toString();
   return selectionQuery ? `/api/assets/selection?${selectionQuery}` : "/api/assets/selection";
+}
+
+function isAssetAnalysisInProgress(status?: string) {
+  return status === "pending_analysis" || status === "analyzing";
 }
 
 export function AssetsPage({ token }: { token: string }) {
@@ -98,6 +102,8 @@ export function AssetsPage({ token }: { token: string }) {
   const [selectionResultTotal, setSelectionResultTotal] = useState<number | null>(null);
   const [selectingAllAssets, setSelectingAllAssets] = useState(false);
   const [archivingSelectedAssets, setArchivingSelectedAssets] = useState(false);
+  const [reanalyzingAsset, setReanalyzingAsset] = useState(false);
+  const [reanalyzingSelectedAssets, setReanalyzingSelectedAssets] = useState(false);
   const [savingSellingPoints, setSavingSellingPoints] = useState(false);
   const [reviewDirty, setReviewDirty] = useState(false);
   const [sellingPointsDirty, setSellingPointsDirty] = useState(false);
@@ -168,6 +174,52 @@ export function AssetsPage({ token }: { token: string }) {
     setSelectedAssetIDs(new Set());
     setSelectionResultTotal(null);
   }, [assetSelectionPath]);
+
+  const hasVisibleAnalysisInProgress = (assets.data?.items ?? []).some((asset) => isAssetAnalysisInProgress(asset.analysis_status));
+  useEffect(() => {
+    if (!hasVisibleAnalysisInProgress) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void assets.reload();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [assetPath, hasVisibleAnalysisInProgress]);
+
+  useEffect(() => {
+    if (!selectedAsset || !isAssetAnalysisInProgress(selectedAsset.analysis_status)) {
+      return;
+    }
+    const assetID = selectedAsset.id;
+    let refreshing = false;
+    const timer = window.setInterval(async () => {
+      if (refreshing) {
+        return;
+      }
+      refreshing = true;
+      try {
+        const updated = await getAsset(assetID, token);
+        setSelectedAsset((current) => {
+          if (current?.id !== assetID) {
+            return current;
+          }
+          if (current.analysis_status === updated.analysis_status && current.updated_at === updated.updated_at && current.analysis_error === updated.analysis_error) {
+            return current;
+          }
+          return updated;
+        });
+        if (!isAssetAnalysisInProgress(updated.analysis_status)) {
+          window.clearInterval(timer);
+          await assets.reload();
+        }
+      } catch {
+        // Keep polling errors quiet; the visible analysis status remains actionable.
+      } finally {
+        refreshing = false;
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [selectedAsset?.id, selectedAsset?.analysis_status, token]);
 
   useEffect(() => {
     if (!selectedAsset) {
@@ -424,13 +476,44 @@ export function AssetsPage({ token }: { token: string }) {
     }
   };
 
+  const startSelectedAssetReanalysis = async () => {
+    if (!selectedAsset) {
+      return;
+    }
+    setReanalyzingAsset(true);
+    try {
+      const queued = await reanalyzeAsset(selectedAsset.id, token);
+      setSelectedAsset(queued.asset);
+      await assets.reload();
+      message.success("已加入 VLM 重新分析队列，完成后会自动更新向量");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "重新分析素材失败");
+    } finally {
+      setReanalyzingAsset(false);
+    }
+  };
+
+  const confirmSelectedAssetReanalysis = () => {
+    if (!selectedAsset) {
+      return;
+    }
+    Modal.confirm({
+      title: "重新分析当前素材？",
+      content: "服务端会重新抽取 9 帧并更新模型结果和向量；已经保存的人工复核内容会保留。",
+      okText: "开始 VLM",
+      cancelText: "取消",
+      centered: true,
+      onOk: startSelectedAssetReanalysis
+    });
+  };
+
   const assetItems = assets.data?.items ?? [];
   const assetTotal = assets.data?.total ?? 0;
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
   const selectedAssetNumber = selectedAssetPosition
     ? (selectedAssetPosition.page - 1) * (assets.data?.page_size ?? assetPageSize) + selectedAssetPosition.index + 1
     : 0;
-  const assetNavigationBusy = navigatingAsset || savingAnalysis || updatingArchive || savingSellingPoints || vectorizingAsset;
+  const assetNavigationBusy = navigatingAsset || savingAnalysis || updatingArchive || savingSellingPoints || vectorizingAsset || reanalyzingAsset;
 
   const openAssetDetail = (asset: Asset) => {
     const index = assetItems.findIndex((item) => item.id === asset.id);
@@ -594,6 +677,50 @@ export function AssetsPage({ token }: { token: string }) {
       cancelText: "取消",
       centered: true,
       onOk: () => archiveSelectedAssetIDs(assetIDs)
+    });
+  };
+
+  const reanalyzeSelectedAssetIDs = async (assetIDs: string[]) => {
+    setReanalyzingSelectedAssets(true);
+    try {
+      const result = await reanalyzeAssets(assetIDs, token);
+      await assets.reload();
+      const summary = [`已排队 ${result.queued.length} 项`];
+      if (result.skipped_ids.length > 0) {
+        summary.push(`跳过 ${result.skipped_ids.length} 项`);
+      }
+      if (result.failures.length > 0) {
+        summary.push(`失败 ${result.failures.length} 项`);
+        setSelectedAssetIDs(new Set(result.failures.map((failure) => failure.asset_id)));
+        setSelectionResultTotal(null);
+        message.warning(summary.join("，"));
+      } else {
+        if (result.queued.length > 0) {
+          message.success(`${summary.join("，")}；识别完成后会自动更新向量`);
+        } else {
+          message.info(summary.join("，"));
+        }
+        exitAssetSelectionMode();
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "批量重新分析素材失败");
+    } finally {
+      setReanalyzingSelectedAssets(false);
+    }
+  };
+
+  const confirmReanalyzeSelectedAssets = () => {
+    const assetIDs = Array.from(selectedAssetIDs);
+    if (assetIDs.length === 0) {
+      return;
+    }
+    Modal.confirm({
+      title: `重新分析 ${assetIDs.length} 个素材？`,
+      content: "服务端会按运行控制中的 VLM 并发排队，人工复核内容不会被覆盖。",
+      okText: "开始 VLM",
+      cancelText: "取消",
+      centered: true,
+      onOk: () => reanalyzeSelectedAssetIDs(assetIDs)
     });
   };
 
@@ -854,6 +981,7 @@ export function AssetsPage({ token }: { token: string }) {
           selectedAssetIDs={selectedAssetIDs}
           selectingAll={selectingAllAssets}
           archivingSelected={archivingSelectedAssets}
+          reanalyzingSelected={reanalyzingSelectedAssets}
           allResultsSelected={allFilteredAssetsSelected}
           onSelect={openAssetDetail}
           onEnterSelectionMode={() => setSelectionMode(true)}
@@ -862,6 +990,7 @@ export function AssetsPage({ token }: { token: string }) {
           onTogglePageSelection={togglePageAssetSelection}
           onToggleAllResults={() => void toggleAllFilteredAssets()}
           onArchiveSelected={confirmArchiveSelectedAssets}
+          onReanalyzeSelected={confirmReanalyzeSelectedAssets}
           onPageChange={(page, pageSize) => {
             setAssetPage(page);
             setAssetPageSize(pageSize);
@@ -937,6 +1066,17 @@ export function AssetsPage({ token }: { token: string }) {
                     <Divider type="vertical" className="asset-detail-section-divider" />
                     <Button
                       size="small"
+                      icon={<ScanSearch size={14} />}
+                      loading={reanalyzingAsset}
+                      disabled={selectedAsset.status === "archived" || editingAnalysis || isAssetAnalysisInProgress(selectedAsset.analysis_status)}
+                      onClick={confirmSelectedAssetReanalysis}
+                      data-testid="reanalyze-asset"
+                    >
+                      {isAssetAnalysisInProgress(selectedAsset.analysis_status) ? "VLM 处理中" : "重新 VLM"}
+                    </Button>
+                    <Button
+                      size="small"
+                      disabled={isAssetAnalysisInProgress(selectedAsset.analysis_status)}
                       onClick={() => {
                         if (editingAnalysis) {
                           setEditingAnalysis(false);
@@ -969,6 +1109,7 @@ export function AssetsPage({ token }: { token: string }) {
                       <Button
                         size="small"
                         loading={updatingArchive}
+                        disabled={isAssetAnalysisInProgress(selectedAsset.analysis_status)}
                         onClick={() => void updateAssetArchiveState(selectedAsset, "restore")}
                         data-testid="restore-asset"
                       >
@@ -979,6 +1120,7 @@ export function AssetsPage({ token }: { token: string }) {
                         size="small"
                         danger
                         loading={updatingArchive}
+                        disabled={isAssetAnalysisInProgress(selectedAsset.analysis_status)}
                         onClick={() => void updateAssetArchiveState(selectedAsset, "archive")}
                         data-testid="archive-asset"
                       >

@@ -502,6 +502,32 @@ func (q *Queries) UpdateAssetAnalysis(ctx context.Context, arg UpdateAssetAnalys
 	return err
 }
 
+const updateAssetAnalysisState = `-- name: UpdateAssetAnalysisState :exec
+UPDATE assets
+SET analysis_status = $2,
+    analysis_error = $3,
+    usability_status = CASE
+      WHEN review_overrides ? 'usability_status' THEN usability_status
+      ELSE COALESCE(NULLIF($4, ''), usability_status)
+    END,
+    updated_by_user_id = COALESCE($5, updated_by_user_id),
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdateAssetAnalysisStateParams struct {
+	ID              pgtype.UUID `json:"id"`
+	AnalysisStatus  string      `json:"analysis_status"`
+	AnalysisError   pgtype.Text `json:"analysis_error"`
+	UsabilityStatus string      `json:"usability_status"`
+	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
+}
+
+func (q *Queries) UpdateAssetAnalysisState(ctx context.Context, arg UpdateAssetAnalysisStateParams) error {
+	_, err := q.db.Exec(ctx, updateAssetAnalysisState, arg.ID, arg.AnalysisStatus, arg.AnalysisError, arg.UsabilityStatus, arg.UpdatedByUserID)
+	return err
+}
+
 const updateAssetDefaultUseOriginalAudio = `-- name: UpdateAssetDefaultUseOriginalAudio :exec
 UPDATE assets
 SET default_use_original_audio = $2,

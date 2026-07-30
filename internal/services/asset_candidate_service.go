@@ -445,6 +445,7 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 		  AND e.dimension = $4
 		  AND a.product_id = $5::uuid
 		  AND a.status = 'ready'
+		  AND a.analysis_status = 'ready'
 		  AND a.usability_status IN ('usable', 'needs_review')
 		  AND e.object_type = 'shot'
 		  AND a.source_type = ANY($6::text[])

@@ -186,6 +186,12 @@ func analyzeAssetResultRepairIssues(result AnalyzeAssetResult) []string {
 	if normalizeAnalysisDescription(sceneDescription) != "" && normalizeAnalysisDescription(sceneDescription) == normalizeAnalysisDescription(actionDescription) {
 		issues = append(issues, "scene_description and action_description must provide different retrieval evidence")
 	}
+	if result.VisibleProduct && !hasConcreteProductPosition(result.ProductPosition) {
+		issues = append(issues, "product_position must identify the visible target product location when visible_product is true")
+	}
+	if !result.VisibleProduct && hasConcreteProductPosition(result.ProductPosition) {
+		issues = append(issues, "product_position must be not_visible when visible_product is false")
+	}
 	return issues
 }
 

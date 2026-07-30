@@ -175,7 +175,7 @@ func TestOpenAICompatibleAnalyzerKeepsValidResultWhenRepairStillUsesGenericWordi
 	}
 }
 
-func TestOpenAICompatibleAnalyzerNormalizesContradictoryProductVisibility(t *testing.T) {
+func TestOpenAICompatibleAnalyzerDoesNotOverrideProviderProductVisibility(t *testing.T) {
 	tempDir := t.TempDir()
 	framePath := filepath.Join(tempDir, "frame.jpg")
 	if err := os.WriteFile(framePath, []byte("jpeg"), 0644); err != nil {
@@ -202,11 +202,14 @@ func TestOpenAICompatibleAnalyzerNormalizesContradictoryProductVisibility(t *tes
 	if err != nil {
 		t.Fatalf("AnalyzeAsset failed: %v", err)
 	}
-	if !result.VisibleProduct {
-		t.Fatalf("expected product visibility to be normalized, got %#v", result)
+	if result.VisibleProduct {
+		t.Fatalf("expected provider product visibility to be preserved, got %#v", result)
 	}
-	if normalized, _ := result.ModelResult["visible_product_normalized"].(bool); !normalized {
-		t.Fatalf("expected normalization metadata, got %#v", result.ModelResult)
+	if _, normalized := result.ModelResult["visible_product_normalized"]; normalized {
+		t.Fatalf("expected no product visibility mutation metadata, got %#v", result.ModelResult)
+	}
+	if warnings, ok := result.ModelResult["quality_warnings"].([]string); !ok || len(warnings) == 0 {
+		t.Fatalf("expected contradictory provider output to remain visible as a quality warning, got %#v", result.ModelResult)
 	}
 }
 

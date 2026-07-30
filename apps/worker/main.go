@@ -59,7 +59,7 @@ func main() {
 		queueClient,
 		analyzer,
 		logger,
-	).WithAssetEmbeddingService(assetEmbeddingService.Service)
+	).WithAssetEmbeddingService(assetEmbeddingService.Service).WithRuntimeSettings(systemConfigService.Service)
 	renderService := services.NewGenerationRenderService(
 		cfg.StorageRoot,
 		generationRunService.Service,

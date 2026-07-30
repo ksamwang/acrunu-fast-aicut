@@ -140,6 +140,18 @@ SET analysis_status = $2,
     updated_at = now()
 WHERE id = $1;
 
+-- name: UpdateAssetAnalysisState :exec
+UPDATE assets
+SET analysis_status = $2,
+    analysis_error = $3,
+    usability_status = CASE
+      WHEN review_overrides ? 'usability_status' THEN usability_status
+      ELSE COALESCE(NULLIF($4, ''), usability_status)
+    END,
+    updated_by_user_id = COALESCE($5, updated_by_user_id),
+    updated_at = now()
+WHERE id = $1;
+
 -- name: UpdateAssetReview :exec
 UPDATE assets
 SET reviewer_notes = $2,

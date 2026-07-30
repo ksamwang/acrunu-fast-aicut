@@ -92,8 +92,8 @@ func (c *Client) EnqueueAssetAnalyze(taskID string, assetID string) error {
 	return err
 }
 
-func (c *Client) EnqueueAssetEmbedding(taskID string, assetID string) error {
-	encodedPayload, err := json.Marshal(AssetEmbeddingPayload{TaskID: taskID, AssetID: assetID})
+func (c *Client) EnqueueAssetEmbedding(payload AssetEmbeddingPayload) error {
+	encodedPayload, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}

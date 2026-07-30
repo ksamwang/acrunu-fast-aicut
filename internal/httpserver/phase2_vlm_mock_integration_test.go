@@ -27,6 +27,12 @@ func TestPhase2VLMMockAnalysisIntegration(t *testing.T) {
 	productAssetService := services.NewProductAssetService()
 	taskService := services.NewTaskService(tempDir)
 	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "P1"})
+	if _, err := productAssetService.CreateSellingPoint(product.ID, services.CreateSellingPointInput{
+		Title:       "解决安装痛点",
+		Description: "快速完成安装",
+	}); err != nil {
+		t.Fatalf("create selling point failed: %v", err)
+	}
 
 	server := New(Options{
 		Config:              config.Config{StorageRoot: tempDir, QueueBackend: "file"},
@@ -155,6 +161,9 @@ func TestPhase2VLMMockAnalysisIntegration(t *testing.T) {
 	}
 	if sourceType, ok := asset.ModelResult["source_type"].(string); !ok || sourceType != "talking_head" {
 		t.Fatalf("expected talking_head source_type in model result, got %#v", asset.ModelResult)
+	}
+	if count, ok := asset.ModelResult["candidate_selling_point_count"].(int); !ok || count != 1 {
+		t.Fatalf("expected one candidate selling point in analyzer input, got %#v", asset.ModelResult)
 	}
 	if asset.AnalyzedAt == nil {
 		t.Fatalf("expected analyzed_at to be set")

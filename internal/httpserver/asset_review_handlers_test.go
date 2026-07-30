@@ -216,6 +216,104 @@ func TestHandleArchiveAndRestoreAsset(t *testing.T) {
 	}
 }
 
+func TestHandleReanalyzeAssetQueuesNineFramesAndPreservesReview(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	storageRoot := t.TempDir()
+	productAssetService := services.NewProductAssetService()
+	taskService := services.NewTaskService(storageRoot)
+	product := productAssetService.CreateProduct(services.CreateProductInput{Name: "束裤带"})
+	asset, err := productAssetService.CreateAsset(services.CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "a.mp4",
+		StorageKey:        "assets/a.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "ready",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		DurationMs:        4920,
+		CreatedByUserID:   "editor-1",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	if err := productAssetService.UpdateAssetAnalysis(asset.ID, services.AssetAnalysisUpdate{
+		AnalysisStatus: "ready",
+		ModelLabels: map[string]any{
+			"scene_description":  "模型描述",
+			"action_description": "模型动作",
+			"usability_status":   "usable",
+		},
+		ModelResult: map[string]any{"prompt_version": "phase2-v6"},
+	}); err != nil {
+		t.Fatalf("seed analysis failed: %v", err)
+	}
+	if _, err := productAssetService.UpdateAssetReview(asset.ID, services.AssetReviewUpdate{
+		SceneDescription:  "人工描述",
+		ActionDescription: "人工动作",
+		UsabilityStatus:   "usable",
+		UpdatedByUserID:   "editor-1",
+	}); err != nil {
+		t.Fatalf("seed review failed: %v", err)
+	}
+
+	server := New(Options{
+		Config:              config.Config{StorageRoot: storageRoot, QueueBackend: "file"},
+		ProductAssetService: productAssetService,
+		TaskService:         taskService,
+	})
+	defer server.queueClient.Close()
+	userToken := "Bearer " + makeDevToken(auth.User{
+		ID:          "editor-1",
+		Username:    "editor",
+		DisplayName: "Editor",
+		Role:        auth.RoleUser,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/assets/"+asset.ID+"/reanalyze", nil)
+	req.Header.Set("Authorization", userToken)
+	recorder := httptest.NewRecorder()
+	server.engine.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Asset       services.Asset `json:"asset"`
+			FrameTaskID string         `json:"frame_task_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if resp.Data.FrameTaskID == "" || resp.Data.Asset.AnalysisStatus != "pending_analysis" {
+		t.Fatalf("expected queued frame task and pending asset, got %#v", resp.Data)
+	}
+	if resp.Data.Asset.SceneDescription != "人工描述" || resp.Data.Asset.ModelLabels["scene_description"] != "模型描述" {
+		t.Fatalf("expected review and prior model labels to be preserved, got %#v", resp.Data.Asset)
+	}
+
+	tasks, err := taskService.ListTasks(t.Context(), services.TaskFilters{TaskType: "asset_extract_frames"})
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("expected one frame extraction task, got %#v err=%v", tasks, err)
+	}
+	frameCountIsNine := false
+	switch frameCount := tasks[0].PayloadSummary["frame_count"].(type) {
+	case int:
+		frameCountIsNine = frameCount == 9
+	case float64:
+		frameCountIsNine = frameCount == 9
+	}
+	if !frameCountIsNine {
+		t.Fatalf("expected fixed nine-frame extraction, got %#v", tasks[0].PayloadSummary)
+	}
+	if skipAnalyze, _ := tasks[0].PayloadSummary["skip_analyze"].(bool); skipAnalyze {
+		t.Fatalf("expected reanalysis extraction to continue to VLM, got %#v", tasks[0].PayloadSummary)
+	}
+}
+
 func TestHandleListAssetSelectionAndBulkArchive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

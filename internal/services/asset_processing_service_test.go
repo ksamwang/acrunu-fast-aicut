@@ -20,7 +20,23 @@ type stubAnalyzer struct {
 }
 
 type stubAssetQueue struct {
-	enqueuedAnalyze []queue.AssetAnalyzePayload
+	enqueuedAnalyze   []queue.AssetAnalyzePayload
+	enqueuedEmbedding []queue.AssetEmbeddingPayload
+}
+
+type stubAssetVectorizer struct {
+	assetIDs []string
+	err      error
+}
+
+func (s *stubAssetVectorizer) VectorizeAsset(_ context.Context, assetID string) (AssetEmbeddingRunResult, error) {
+	s.assetIDs = append(s.assetIDs, assetID)
+	return AssetEmbeddingRunResult{AssetID: assetID}, s.err
+}
+
+func (s *stubAssetQueue) EnqueueAssetEmbedding(payload queue.AssetEmbeddingPayload) error {
+	s.enqueuedEmbedding = append(s.enqueuedEmbedding, payload)
+	return nil
 }
 
 func (s stubAnalyzer) AnalyzeAsset(_ context.Context, input modelgateway.AnalyzeAssetInput) (modelgateway.AnalyzeAssetResult, error) {
@@ -132,9 +148,26 @@ func TestNormalizeFrameExtractionStrategy(t *testing.T) {
 	}
 }
 
+func TestAssetProcessingVLMConcurrencyUsesRuntimeSetting(t *testing.T) {
+	settings := NewSystemConfigService()
+	if _, err := settings.Upsert(SystemConfig{Key: "vlm.max_concurrency", Value: 7, Type: "number"}); err != nil {
+		t.Fatalf("set VLM concurrency failed: %v", err)
+	}
+	processing := NewAssetProcessingService("", nil, nil, nil, nil, nil).WithRuntimeSettings(settings)
+	if got := processing.vlmMaxConcurrency(context.Background()); got != 7 {
+		t.Fatalf("expected runtime VLM concurrency 7, got %d", got)
+	}
+}
+
 func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 	service := NewProductAssetService()
-	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	product := service.CreateProduct(CreateProductInput{
+		Name:     "P1",
+		Metadata: map[string]any{"reference_image": "data:image/png;base64,cmVm"},
+	})
+	if _, err := service.CreateSellingPoint(product.ID, CreateSellingPointInput{Title: "解决骑行痛点", Description: "避免裤脚靠近链条"}); err != nil {
+		t.Fatalf("create selling point failed: %v", err)
+	}
 	asset, err := service.CreateAsset(CreateAssetInput{
 		ProductID:         product.ID,
 		FileName:          "demo.mp4",
@@ -186,6 +219,15 @@ func TestHandleAssetAnalyzeUpdatesAsset(t *testing.T) {
 	}
 	if analyzerInput.ProductName != product.Name {
 		t.Fatalf("expected analyzer input to include product name %q, got %q", product.Name, analyzerInput.ProductName)
+	}
+	if analyzerInput.ProductID != product.ID {
+		t.Fatalf("expected analyzer input product id %s, got %s", product.ID, analyzerInput.ProductID)
+	}
+	if len(analyzerInput.CandidateSellingPoints) != 1 || analyzerInput.CandidateSellingPoints[0].Title != "解决骑行痛点" {
+		t.Fatalf("expected active selling point context, got %#v", analyzerInput.CandidateSellingPoints)
+	}
+	if analyzerInput.ProductReferenceImage == nil || analyzerInput.ProductReferenceImage.DataURL == "" {
+		t.Fatalf("expected product reference image data URL, got %#v", analyzerInput.ProductReferenceImage)
 	}
 }
 
@@ -276,6 +318,111 @@ func TestHandleAssetAnalyzeTracksTaskStatus(t *testing.T) {
 	}
 	if storedTask.DurationMs < 0 {
 		t.Fatalf("expected non-negative task duration, got %d", storedTask.DurationMs)
+	}
+}
+
+func TestHandleAssetAnalyzeQueuesEmbeddingBeforeMarkingAssetReady(t *testing.T) {
+	taskService := NewTaskService(t.TempDir())
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "demo.mp4",
+		StorageKey:        "assets/demo.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "pending_analysis",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+		CreatedByUserID:   "user-1",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+
+	assetQueue := &stubAssetQueue{}
+	vectorizer := &stubAssetVectorizer{}
+	processing := NewAssetProcessingService("", service, taskService, assetQueue, stubAnalyzer{
+		result: modelgateway.AnalyzeAssetResult{
+			UsabilityStatus:   "usable",
+			SceneDescription:  "产品完成固定",
+			ActionDescription: "手将产品粘合固定",
+			ShotSize:          "close_up",
+			CameraMovement:    "static",
+			VisualTags:        []string{"产品固定"},
+			SceneContext:      "使用场景",
+			ProductPosition:   "裤脚处",
+			VisibleProduct:    true,
+		},
+	}, nil).WithAssetEmbeddingService(vectorizer)
+
+	analyzeTask, err := taskService.CreateAssetAnalyzeTask(context.Background(), "user-1", product.ID, queue.AssetAnalyzePayload{AssetID: asset.ID})
+	if err != nil {
+		t.Fatalf("create analyze task failed: %v", err)
+	}
+	if err := processing.HandleAssetAnalyze(context.Background(), queue.AssetAnalyzePayload{TaskID: analyzeTask.ID, AssetID: asset.ID}); err != nil {
+		t.Fatalf("analyze asset failed: %v", err)
+	}
+	queuedAsset, ok := service.GetAsset(asset.ID)
+	if !ok || queuedAsset.AnalysisStatus != "analyzing" {
+		t.Fatalf("expected asset to remain analyzing until embedding completes, got %#v", queuedAsset)
+	}
+	if len(assetQueue.enqueuedEmbedding) != 1 || assetQueue.enqueuedEmbedding[0].AssetID != asset.ID {
+		t.Fatalf("expected one embedding task, got %#v", assetQueue.enqueuedEmbedding)
+	}
+
+	embeddingPayload := assetQueue.enqueuedEmbedding[0]
+	if err := processing.HandleAssetEmbedding(context.Background(), embeddingPayload); err != nil {
+		t.Fatalf("embed asset failed: %v", err)
+	}
+	readyAsset, ok := service.GetAsset(asset.ID)
+	if !ok || readyAsset.AnalysisStatus != "ready" || readyAsset.AnalysisError != "" {
+		t.Fatalf("expected asset ready after embedding, got %#v", readyAsset)
+	}
+	if len(vectorizer.assetIDs) != 1 || vectorizer.assetIDs[0] != asset.ID {
+		t.Fatalf("expected vectorizer to receive asset, got %#v", vectorizer.assetIDs)
+	}
+}
+
+func TestHandleAssetEmbeddingCannotCompleteSupersededAnalysis(t *testing.T) {
+	service := NewProductAssetService()
+	product := service.CreateProduct(CreateProductInput{Name: "P1"})
+	asset, err := service.CreateAsset(CreateAssetInput{
+		ProductID:         product.ID,
+		FileName:          "demo.mp4",
+		StorageKey:        "assets/demo.mp4",
+		SourceType:        "visual_only",
+		Status:            "ready",
+		AnalysisStatus:    "analyzing",
+		UsabilityStatus:   "usable",
+		ManualCleanStatus: "cleaned",
+	})
+	if err != nil {
+		t.Fatalf("create asset failed: %v", err)
+	}
+	if err := service.UpdateAssetAnalysis(asset.ID, AssetAnalysisUpdate{
+		AnalysisStatus: "analyzing",
+		ModelLabels:    map[string]any{"scene_description": "new analysis"},
+		ModelResult:    map[string]any{"analysis_task_id": "analysis-new"},
+	}); err != nil {
+		t.Fatalf("seed current analysis failed: %v", err)
+	}
+
+	vectorizer := &stubAssetVectorizer{}
+	processing := NewAssetProcessingService("", service, nil, nil, nil, nil).WithAssetEmbeddingService(vectorizer)
+	if err := processing.HandleAssetEmbedding(context.Background(), queue.AssetEmbeddingPayload{
+		TaskID:         "embedding-old",
+		AssetID:        asset.ID,
+		AnalysisTaskID: "analysis-old",
+	}); err != nil {
+		t.Fatalf("superseded embedding should be skipped cleanly: %v", err)
+	}
+	updated, ok := service.GetAsset(asset.ID)
+	if !ok || updated.AnalysisStatus != "analyzing" {
+		t.Fatalf("expected current analysis to remain in progress, got %#v", updated)
+	}
+	if len(vectorizer.assetIDs) != 0 {
+		t.Fatalf("expected superseded embedding not to run, got %#v", vectorizer.assetIDs)
 	}
 }
 

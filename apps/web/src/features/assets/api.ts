@@ -1,5 +1,5 @@
 import { apiRequest } from "../../shared/api/server-api";
-import type { Asset, AssetBulkArchiveResult, AssetEmbeddingListResponse, AssetEmbeddingRunResult, AssetFrameResponse, AssetListResponse, AssetReviewPayload, AssetSelectionResponse, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
+import type { Asset, AssetBulkArchiveResult, AssetBulkReanalysisResult, AssetEmbeddingListResponse, AssetEmbeddingRunResult, AssetFrameResponse, AssetListResponse, AssetReanalysisQueueItem, AssetReviewPayload, AssetSelectionResponse, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
 
 export const listProducts = (path: string, token: string) => apiRequest<Product[]>(path, {}, token);
@@ -14,5 +14,8 @@ export const getAssetSellingPoints = (assetID: string, token: string) => apiRequ
 export const saveAssetReview = (assetID: string, values: AssetReviewPayload, token: string) => apiRequest<Asset>("/api/assets/" + assetID + "/review", { method: "PUT", body: JSON.stringify(values) }, token);
 export const updateAssetArchiveState = (assetID: string, action: "archive" | "restore", token: string) => apiRequest<Asset>("/api/assets/" + assetID + "/" + action, { method: "POST" }, token);
 export const archiveAssets = (assetIDs: string[], token: string) => apiRequest<AssetBulkArchiveResult>("/api/assets/bulk-archive", { method: "POST", body: JSON.stringify({ asset_ids: assetIDs }) }, token);
+export const reanalyzeAsset = (assetID: string, token: string) => apiRequest<AssetReanalysisQueueItem>("/api/assets/" + assetID + "/reanalyze", { method: "POST" }, token);
+export const reanalyzeAssets = (assetIDs: string[], token: string) => apiRequest<AssetBulkReanalysisResult>("/api/assets/bulk-reanalyze", { method: "POST", body: JSON.stringify({ asset_ids: assetIDs }) }, token);
+export const getAsset = (assetID: string, token: string) => apiRequest<Asset>("/api/assets/" + assetID, {}, token);
 export const saveAssetSellingPoints = (assetID: string, values: AssetSellingPointPayload, token: string) => apiRequest<SellingPoint[]>("/api/assets/" + assetID + "/selling-points", { method: "PUT", body: JSON.stringify(values) }, token);
 export const createAssetEmbeddings = (assetID: string, token: string) => apiRequest<AssetEmbeddingRunResult>("/api/assets/" + assetID + "/embeddings", { method: "POST" }, token);

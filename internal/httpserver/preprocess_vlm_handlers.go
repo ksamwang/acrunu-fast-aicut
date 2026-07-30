@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -67,18 +68,41 @@ func (s *Server) handlePreprocessVLMLabel(c *gin.Context) {
 	}
 	defer s.vlmGate.release()
 
+	productID := strings.TrimSpace(c.PostForm("product_id"))
+	productName := strings.TrimSpace(c.PostForm("product_name"))
+	candidateSellingPoints := []modelgateway.SellingPointContext{}
+	if productID != "" {
+		product, err := s.productAssetService.GetProduct(productID)
+		if err != nil {
+			Fail(c, http.StatusBadRequest, "invalid_product", "product_id does not reference an existing product")
+			return
+		}
+		productName = product.Name
+		for _, sellingPoint := range s.productAssetService.ListSellingPoints(productID) {
+			if sellingPoint.Status != "active" {
+				continue
+			}
+			candidateSellingPoints = append(candidateSellingPoints, modelgateway.SellingPointContext{
+				Title:       sellingPoint.Title,
+				Description: sellingPoint.Description,
+			})
+		}
+	}
+
 	analyzer := modelgateway.NewAnalyzer(services.ResolveVLMAnalyzerConfigWithProviders(c.Request.Context(), s.systemConfigService, s.modelProviderService, s.cfg), nil)
 	result, err := analyzer.AnalyzeAsset(c.Request.Context(), modelgateway.AnalyzeAssetInput{
-		AssetID:               c.PostForm("asset_id"),
-		SourceType:            c.PostForm("source_type"),
-		ProductName:           c.PostForm("product_name"),
-		DurationMs:            formInt(c, "duration_ms"),
-		Width:                 formInt(c, "width"),
-		Height:                formInt(c, "height"),
-		HasAudio:              c.PostForm("has_audio") == "true",
-		AudioCodec:            c.PostForm("audio_codec"),
-		FrameSnapshots:        frames,
-		ProductReferenceImage: productReferenceImage,
+		AssetID:                c.PostForm("asset_id"),
+		ProductID:              productID,
+		SourceType:             c.PostForm("source_type"),
+		ProductName:            productName,
+		CandidateSellingPoints: candidateSellingPoints,
+		DurationMs:             formInt(c, "duration_ms"),
+		Width:                  formInt(c, "width"),
+		Height:                 formInt(c, "height"),
+		HasAudio:               c.PostForm("has_audio") == "true",
+		AudioCodec:             c.PostForm("audio_codec"),
+		FrameSnapshots:         frames,
+		ProductReferenceImage:  productReferenceImage,
 	})
 	if err != nil {
 		Fail(c, http.StatusBadGateway, "vlm_label_failed", err.Error())

@@ -52,16 +52,19 @@ func TestBuildPromptBundleIncludesPromptSections(t *testing.T) {
 	}
 }
 
-func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
+func TestBuildPromptBundleGroundsProductAndCandidateSellingPoints(t *testing.T) {
 	visualBundle := BuildPromptBundle(AnalyzeAssetInput{
 		AssetID:     "asset-1",
 		SourceType:  "visual_only",
 		ProductName: "车载氛围灯",
+		CandidateSellingPoints: []SellingPointContext{
+			{Title: "自动亮灯", Description: "开门后自动点亮"},
+		},
 	})
 	if !strings.Contains(visualBundle.Prompts[0].User, "Target product name") {
 		t.Fatalf("expected visual_only prompt to include product context, got %s", visualBundle.Prompts[0].User)
 	}
-	if !strings.Contains(visualBundle.Prompts[0].User, "visible_product means the target product is visible") {
+	if !strings.Contains(visualBundle.Prompts[0].User, "visible_product is based only on whether the target product is actually visible") {
 		t.Fatalf("expected target product visibility rule, got %s", visualBundle.Prompts[0].User)
 	}
 	for _, expected := range []string{
@@ -79,6 +82,11 @@ func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
 		"write only the concrete visible product state",
 		"visual_tags must contain only 3 to 6 retrieval terms",
 		"directly demonstrated by the ordered frames",
+		"zero or one candidate selling point",
+		"positive demonstration or negative pain point",
+		"Candidate product selling points",
+		"自动亮灯",
+		"visible_product must remain false",
 		"people_presence must be true whenever any human body part is visible",
 		"normally no more than 40 Chinese characters",
 	} {
@@ -87,7 +95,7 @@ func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
 		}
 	}
 	if strings.Contains(visualBundle.Prompts[0].User, "无明显操作，展示") {
-		t.Fatalf("expected phase2-v6 prompt to remove generic no-operation output, got %s", visualBundle.Prompts[0].User)
+		t.Fatalf("expected phase2-v7 prompt to remove generic no-operation output, got %s", visualBundle.Prompts[0].User)
 	}
 
 	talkingHeadBundle := BuildPromptBundle(AnalyzeAssetInput{
@@ -95,8 +103,8 @@ func TestBuildPromptBundleUsesProductNameOnlyForVisualOnly(t *testing.T) {
 		SourceType:  "talking_head",
 		ProductName: "车载氛围灯",
 	})
-	if strings.Contains(talkingHeadBundle.Prompts[0].User, "product_name") {
-		t.Fatalf("expected talking_head prompt not to include product context, got %s", talkingHeadBundle.Prompts[0].User)
+	if !strings.Contains(talkingHeadBundle.Prompts[0].User, "Target product name") {
+		t.Fatalf("expected talking_head prompt to retain product context, got %s", talkingHeadBundle.Prompts[0].User)
 	}
 }
 

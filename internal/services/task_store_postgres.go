@@ -53,9 +53,13 @@ func (s *PostgresTaskStore) CreateAssetAnalyzeTask(ctx context.Context, userID s
 }
 
 func (s *PostgresTaskStore) CreateAssetEmbeddingTask(ctx context.Context, userID string, productID string, payload queue.AssetEmbeddingPayload) (GenerationTask, error) {
-	return s.createTask(ctx, userID, productID, "asset_embedding", map[string]any{
+	summary := map[string]any{
 		"asset_id": payload.AssetID,
-	})
+	}
+	if payload.AnalysisTaskID != "" {
+		summary["analysis_task_id"] = payload.AnalysisTaskID
+	}
+	return s.createTask(ctx, userID, productID, "asset_embedding", summary)
 }
 
 func (s *PostgresTaskStore) CreateVoiceProfilePreviewTask(ctx context.Context, userID string, payload queue.VoiceProfilePreviewPayload) (GenerationTask, error) {

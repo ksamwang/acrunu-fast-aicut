@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,6 +19,11 @@ import (
 
 type assetAnalysisTaskEnqueuer interface {
 	EnqueueAssetAnalyze(taskID string, assetID string) error
+	EnqueueAssetEmbedding(payload queue.AssetEmbeddingPayload) error
+}
+
+type AssetEmbeddingVectorizer interface {
+	VectorizeAsset(ctx context.Context, assetID string) (AssetEmbeddingRunResult, error)
 }
 
 const (
@@ -28,10 +35,15 @@ type AssetProcessingService struct {
 	storageRoot           string
 	localStore            *storage.LocalStore
 	productAssetService   *ProductAssetService
-	assetEmbeddingService *AssetEmbeddingService
+	assetEmbeddingService AssetEmbeddingVectorizer
 	taskService           *TaskService
 	queueClient           assetAnalysisTaskEnqueuer
 	analyzer              modelgateway.AssetAnalyzer
+	systemConfigService   *SystemConfigService
+	vlmGate               *runtimeConcurrencyGate
+	runtimeSettingsMu     sync.Mutex
+	runtimeSettingsAt     time.Time
+	cachedVLMConcurrency  int
 	logger                *slog.Logger
 }
 
@@ -51,18 +63,26 @@ func NewAssetProcessingService(
 	}
 
 	return &AssetProcessingService{
-		storageRoot:         storageRoot,
-		localStore:          storage.NewLocalStore(storageRoot),
-		productAssetService: productAssetService,
-		taskService:         taskService,
-		queueClient:         queueClient,
-		analyzer:            analyzer,
-		logger:              logger,
+		storageRoot:          storageRoot,
+		localStore:           storage.NewLocalStore(storageRoot),
+		productAssetService:  productAssetService,
+		taskService:          taskService,
+		queueClient:          queueClient,
+		analyzer:             analyzer,
+		vlmGate:              newRuntimeConcurrencyGate(),
+		cachedVLMConcurrency: 2,
+		logger:               logger,
 	}
 }
 
-func (s *AssetProcessingService) WithAssetEmbeddingService(assetEmbeddingService *AssetEmbeddingService) *AssetProcessingService {
+func (s *AssetProcessingService) WithAssetEmbeddingService(assetEmbeddingService AssetEmbeddingVectorizer) *AssetProcessingService {
 	s.assetEmbeddingService = assetEmbeddingService
+	return s
+}
+
+func (s *AssetProcessingService) WithRuntimeSettings(systemConfigService *SystemConfigService) *AssetProcessingService {
+	s.systemConfigService = systemConfigService
+	s.runtimeSettingsAt = time.Time{}
 	return s
 }
 
@@ -81,11 +101,10 @@ func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, p
 	frames, err := ffmpeg.ExtractFrames(ctx, inputPath, outputDir, timestamps)
 	if err != nil {
 		if s.productAssetService != nil {
-			updateErr := s.productAssetService.UpdateAssetAnalysis(payload.AssetID, AssetAnalysisUpdate{
+			_, updateErr := s.productAssetService.UpdateAssetAnalysisState(payload.AssetID, AssetAnalysisStateUpdate{
 				AnalysisStatus:  "failed",
-				UsabilityStatus: "needs_review",
 				AnalysisError:   err.Error(),
-				AnalyzedAt:      time.Now(),
+				UsabilityStatus: "needs_review",
 			})
 			if updateErr != nil {
 				return fmt.Errorf("extract frames failed: %v; failed to persist analysis error: %w", err, updateErr)
@@ -124,7 +143,7 @@ func (s *AssetProcessingService) handleAssetExtractFrames(ctx context.Context, p
 
 		analyzeTaskID := ""
 		if s.taskService != nil {
-			analyzeTask, err := s.taskService.CreateAssetAnalyzeTask(ctx, asset.CreatedByUserID, asset.ProductID, queue.AssetAnalyzePayload{
+			analyzeTask, err := s.taskService.CreateAssetAnalyzeTask(ctx, firstNonEmpty(asset.UpdatedByUserID, asset.CreatedByUserID), asset.ProductID, queue.AssetAnalyzePayload{
 				AssetID: payload.AssetID,
 			})
 			if err != nil {
@@ -154,7 +173,35 @@ func (s *AssetProcessingService) HandleAssetEmbedding(ctx context.Context, paylo
 		if s.assetEmbeddingService == nil {
 			return fmt.Errorf("asset embedding service is nil")
 		}
+		if payload.AnalysisTaskID != "" && !s.isCurrentAssetAnalysisTask(payload.AssetID, payload.AnalysisTaskID) {
+			s.logger.Info("asset embedding skipped because its source analysis was superseded",
+				slog.String("task_id", payload.TaskID),
+				slog.String("analysis_task_id", payload.AnalysisTaskID),
+				slog.String("asset_id", payload.AssetID),
+			)
+			return nil
+		}
 		_, err := s.assetEmbeddingService.VectorizeAsset(runCtx, payload.AssetID)
+		if err != nil {
+			if s.productAssetService != nil {
+				asset, ok := s.productAssetService.GetAsset(payload.AssetID)
+				currentAnalysis := payload.AnalysisTaskID != "" && s.isCurrentAssetAnalysisTask(payload.AssetID, payload.AnalysisTaskID)
+				standaloneEmbedding := payload.AnalysisTaskID == "" && ok && asset.AnalysisStatus == "ready"
+				if currentAnalysis || standaloneEmbedding {
+					_, _ = s.productAssetService.UpdateAssetAnalysisState(payload.AssetID, AssetAnalysisStateUpdate{
+						AnalysisStatus: "failed",
+						AnalysisError:  "embedding: " + err.Error(),
+					})
+				}
+			}
+			return err
+		}
+		if s.productAssetService != nil && payload.AnalysisTaskID != "" && s.isCurrentAssetAnalysisTask(payload.AssetID, payload.AnalysisTaskID) {
+			_, err = s.productAssetService.UpdateAssetAnalysisState(payload.AssetID, AssetAnalysisStateUpdate{
+				AnalysisStatus: "ready",
+				AnalysisError:  "",
+			})
+		}
 		return err
 	})
 }
@@ -175,31 +222,62 @@ func (s *AssetProcessingService) handleAssetAnalyze(ctx context.Context, payload
 		frames = append(frames, modelgateway.FrameReference{
 			FrameIndex:  frame.FrameIndex,
 			TimestampMs: frame.TimestampMs,
-			StorageKey:  frame.StorageKey,
+			StorageKey:  s.localStore.FullPath(frame.StorageKey),
 		})
 	}
 	productName := ""
+	var productReferenceImage *modelgateway.ImageReference
+	candidateSellingPoints := []modelgateway.SellingPointContext{}
 	if product, err := s.productAssetService.GetProduct(asset.ProductID); err == nil {
 		productName = product.Name
+		if dataURL, ok := product.Metadata["reference_image"].(string); ok && strings.TrimSpace(dataURL) != "" {
+			productReferenceImage = &modelgateway.ImageReference{DataURL: dataURL}
+		}
+		for _, sellingPoint := range s.productAssetService.ListSellingPoints(asset.ProductID) {
+			if sellingPoint.Status != "active" {
+				continue
+			}
+			candidateSellingPoints = append(candidateSellingPoints, modelgateway.SellingPointContext{
+				Title:       sellingPoint.Title,
+				Description: sellingPoint.Description,
+			})
+		}
+	}
+	if err := s.vlmGate.acquire(ctx, func() int { return s.vlmMaxConcurrency(ctx) }); err != nil {
+		_, _ = s.productAssetService.UpdateAssetAnalysisState(asset.ID, AssetAnalysisStateUpdate{
+			AnalysisStatus: "failed",
+			AnalysisError:  err.Error(),
+		})
+		return err
+	}
+	if _, err := s.productAssetService.UpdateAssetAnalysisState(asset.ID, AssetAnalysisStateUpdate{
+		AnalysisStatus: "analyzing",
+		AnalysisError:  "",
+	}); err != nil {
+		s.vlmGate.release()
+		return err
 	}
 
 	result, err := s.analyzer.AnalyzeAsset(ctx, modelgateway.AnalyzeAssetInput{
-		AssetID:        asset.ID,
-		SourceType:     asset.SourceType,
-		ProductName:    productName,
-		DurationMs:     asset.DurationMs,
-		Width:          asset.Width,
-		Height:         asset.Height,
-		HasAudio:       asset.HasAudio,
-		AudioCodec:     asset.AudioCodec,
-		FrameSnapshots: frames,
+		AssetID:                asset.ID,
+		ProductID:              asset.ProductID,
+		SourceType:             asset.SourceType,
+		ProductName:            productName,
+		CandidateSellingPoints: candidateSellingPoints,
+		DurationMs:             asset.DurationMs,
+		Width:                  asset.Width,
+		Height:                 asset.Height,
+		HasAudio:               asset.HasAudio,
+		AudioCodec:             asset.AudioCodec,
+		FrameSnapshots:         frames,
+		ProductReferenceImage:  productReferenceImage,
 	})
+	s.vlmGate.release()
 	if err != nil {
-		updateErr := s.productAssetService.UpdateAssetAnalysis(asset.ID, AssetAnalysisUpdate{
+		_, updateErr := s.productAssetService.UpdateAssetAnalysisState(asset.ID, AssetAnalysisStateUpdate{
 			AnalysisStatus:  "failed",
-			UsabilityStatus: "needs_review",
 			AnalysisError:   err.Error(),
-			AnalyzedAt:      time.Now(),
+			UsabilityStatus: "needs_review",
 		})
 		if updateErr != nil {
 			return fmt.Errorf("analysis failed: %v; failed to persist analysis error: %w", err, updateErr)
@@ -207,9 +285,73 @@ func (s *AssetProcessingService) handleAssetAnalyze(ctx context.Context, payload
 		return err
 	}
 
-	update := AssetAnalysisUpdateFromResult(result, "ready", time.Now())
+	shouldQueueEmbedding := s.assetEmbeddingService != nil && s.queueClient != nil && s.taskService != nil && payload.TaskID != ""
+	analysisStatus := "ready"
+	if shouldQueueEmbedding {
+		analysisStatus = "analyzing"
+	}
+	update := AssetAnalysisUpdateFromResult(result, analysisStatus, time.Now())
 	update.AnalysisError = ""
-	return s.productAssetService.UpdateAssetAnalysis(asset.ID, update)
+	update.UpdatedByUserID = asset.UpdatedByUserID
+	if shouldQueueEmbedding {
+		if update.ModelResult == nil {
+			update.ModelResult = map[string]any{}
+		}
+		update.ModelResult["analysis_task_id"] = payload.TaskID
+	}
+	if err := s.productAssetService.UpdateAssetAnalysis(asset.ID, update); err != nil {
+		return err
+	}
+	if !shouldQueueEmbedding {
+		return nil
+	}
+
+	embeddingPayload := queue.AssetEmbeddingPayload{AssetID: asset.ID, AnalysisTaskID: payload.TaskID}
+	embeddingTask, err := s.taskService.CreateAssetEmbeddingTask(ctx, firstNonEmpty(asset.UpdatedByUserID, asset.CreatedByUserID), asset.ProductID, embeddingPayload)
+	if err != nil {
+		_, _ = s.productAssetService.UpdateAssetAnalysisState(asset.ID, AssetAnalysisStateUpdate{AnalysisStatus: "failed", AnalysisError: "queue embedding: " + err.Error()})
+		return err
+	}
+	embeddingPayload.TaskID = embeddingTask.ID
+	if err := s.queueClient.EnqueueAssetEmbedding(embeddingPayload); err != nil {
+		_ = s.taskService.MarkFailed(context.Background(), embeddingTask.ID, err.Error())
+		_, _ = s.productAssetService.UpdateAssetAnalysisState(asset.ID, AssetAnalysisStateUpdate{AnalysisStatus: "failed", AnalysisError: "queue embedding: " + err.Error()})
+		return err
+	}
+	return nil
+}
+
+func (s *AssetProcessingService) isCurrentAssetAnalysisTask(assetID string, analysisTaskID string) bool {
+	if s.productAssetService == nil || analysisTaskID == "" {
+		return false
+	}
+	asset, ok := s.productAssetService.GetAsset(assetID)
+	if !ok || asset.AnalysisStatus != "analyzing" {
+		return false
+	}
+	return stringValueFromMap(asset.ModelResult, "analysis_task_id") == analysisTaskID
+}
+
+func (s *AssetProcessingService) vlmMaxConcurrency(ctx context.Context) int {
+	s.runtimeSettingsMu.Lock()
+	defer s.runtimeSettingsMu.Unlock()
+
+	if s.systemConfigService == nil {
+		return s.cachedVLMConcurrency
+	}
+	if s.runtimeSettingsAt.IsZero() || time.Since(s.runtimeSettingsAt) >= time.Second {
+		if err := s.systemConfigService.Refresh(ctx); err != nil {
+			s.logger.Warn("failed to refresh VLM concurrency setting", slog.String("error", err.Error()))
+		}
+		if settings, err := GetRuntimeSettings(s.systemConfigService); err == nil && settings.VLMMaxConcurrency > 0 {
+			s.cachedVLMConcurrency = settings.VLMMaxConcurrency
+		}
+		s.runtimeSettingsAt = time.Now()
+	}
+	if s.cachedVLMConcurrency < 1 {
+		return 1
+	}
+	return s.cachedVLMConcurrency
 }
 
 func (s *AssetProcessingService) runTrackedTask(ctx context.Context, taskID string, assetID string, taskType string, run func(context.Context) error) error {

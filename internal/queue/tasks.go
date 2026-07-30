@@ -41,8 +41,9 @@ type AssetAnalyzePayload struct {
 }
 
 type AssetEmbeddingPayload struct {
-	TaskID  string `json:"task_id"`
-	AssetID string `json:"asset_id"`
+	TaskID         string `json:"task_id"`
+	AssetID        string `json:"asset_id"`
+	AnalysisTaskID string `json:"analysis_task_id,omitempty"`
 }
 
 type VoiceProfilePreviewPayload struct {
