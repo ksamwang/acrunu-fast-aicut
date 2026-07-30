@@ -170,16 +170,7 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	candidateSets, err := s.candidateService.RetrieveWithDiversity(
-		ctx,
-		run.ProductID,
-		requirements,
-		maxCandidatesPerNarrationSegment,
-		CandidateDiversityContext{
-			GenerationRunID:   run.ID,
-			GenerationBatchID: run.GenerationBatchID,
-		},
-	)
+	candidateSets, err := s.candidateService.Retrieve(ctx, run.ProductID, requirements, maxCandidatesPerNarrationSegment)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -192,7 +183,7 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err := validateCandidateSets(candidateSets); err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	plannerInput, allocationInput, err := buildPlannerInputs(product.Name, work.ScriptText, candidateSets)
+	plannerInput, err := buildPlannerInput(product.Name, work.ScriptText, candidateSets)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -213,24 +204,7 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	preferredResult := result
-	result, err = s.candidateService.AllocatePlannerSelection(ctx, AllocatePlannerSelectionInput{
-		GenerationRunID:   run.ID,
-		GenerationBatchID: run.GenerationBatchID,
-		ProductID:         run.ProductID,
-		PlannerInput:      allocationInput,
-		PreferredResult:   result,
-	})
-	if err != nil {
-		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
-	}
-	s.logger.Info("generation material diversity allocation completed",
-		slog.String("generation_run_id", run.ID),
-		slog.String("generation_batch_id", run.GenerationBatchID),
-		slog.Int("selection_count", len(result.Clips)),
-		slog.Int("diversity_override_count", plannerSelectionChangeCount(preferredResult, result)),
-	)
-	clips, err := materializeEditPlan(result, allocationInput)
+	clips, err := materializeEditPlan(result, plannerInput)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -250,20 +224,6 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 		return EditPlan{}, err
 	}
 	return plan, nil
-}
-
-func plannerSelectionChangeCount(preferred modelgateway.EditPlanResult, selected modelgateway.EditPlanResult) int {
-	preferredBySlot := make(map[string]string, len(preferred.Clips))
-	for _, choice := range preferred.Clips {
-		preferredBySlot[choice.SlotID] = choice.CandidateID
-	}
-	changed := 0
-	for _, choice := range selected.Clips {
-		if preferredBySlot[choice.SlotID] != choice.CandidateID {
-			changed++
-		}
-	}
-	return changed
 }
 
 func (s *GenerationPlanningService) resolvePlanner(ctx context.Context) (modelgateway.EditPlanner, string, string, error) {
@@ -527,57 +487,41 @@ func validateCandidateSets(sets []CandidateSet) error {
 }
 
 func buildPlannerInput(productName string, scriptText string, sets []CandidateSet) (modelgateway.EditPlanInput, error) {
-	plannerInput, _, err := buildPlannerInputs(productName, scriptText, sets)
-	return plannerInput, err
-}
-
-func buildPlannerInputs(productName string, scriptText string, sets []CandidateSet) (modelgateway.EditPlanInput, modelgateway.EditPlanInput, error) {
 	requirements := make([]modelgateway.EditPlanRequirement, 0, len(sets))
-	aliasesByReuseKey := make(map[string]string)
+	aliasesByAssetID := make(map[string]string)
 	nextMaterialAlias := 1
 	nextSlotID := 1
 	for setIndex, set := range sets {
 		slots, err := buildDeterministicEditPlanSlots(set.Requirement, &nextSlotID)
 		if err != nil {
-			return modelgateway.EditPlanInput{}, modelgateway.EditPlanInput{}, fmt.Errorf("visual beat %d: %w", setIndex+1, err)
+			return modelgateway.EditPlanInput{}, fmt.Errorf("visual beat %d: %w", setIndex+1, err)
 		}
 		for slotIndex := range slots {
 			slot := &slots[slotIndex]
-			seenReuseKeys := make(map[string]struct{}, len(set.Candidates))
 			for _, candidate := range set.Candidates {
 				assetID := strings.TrimSpace(candidate.AssetID)
 				if assetID == "" || candidate.SourceOutMs-candidate.SourceInMs < slot.DurationMs {
 					continue
 				}
-				reuseKey := candidateReuseKey(candidate)
-				if _, exists := seenReuseKeys[reuseKey]; exists {
-					continue
-				}
-				seenReuseKeys[reuseKey] = struct{}{}
-				alias := aliasesByReuseKey[reuseKey]
+				alias := aliasesByAssetID[assetID]
 				if alias == "" {
 					alias = fmt.Sprintf("m%03d", nextMaterialAlias)
 					nextMaterialAlias++
-					aliasesByReuseKey[reuseKey] = alias
+					aliasesByAssetID[assetID] = alias
 				}
 				slot.Candidates = append(slot.Candidates, modelgateway.EditPlanCandidate{
-					ID:                alias,
-					SourceType:        candidate.SourceType,
-					SourceInMs:        candidate.SourceInMs,
-					SourceOutMs:       candidate.SourceOutMs,
-					SemanticSummary:   truncatePlannerCandidateSummary(candidate.SemanticSummary),
-					SemanticScore:     candidate.SemanticScore,
-					DiversityScore:    candidate.DiversityScore,
-					SemanticQualified: candidate.SemanticQualified,
-					BatchUseCount:     candidate.BatchUseCount,
-					RecentUseCount:    candidate.RecentUseCount,
-					AssetID:           assetID,
-					ReuseKey:          reuseKey,
-					UseOriginalAudio:  candidate.DefaultUseOriginalAudio,
+					ID:               alias,
+					SourceType:       candidate.SourceType,
+					SourceInMs:       candidate.SourceInMs,
+					SourceOutMs:      candidate.SourceOutMs,
+					SemanticSummary:  truncatePlannerCandidateSummary(candidate.SemanticSummary),
+					SemanticScore:    candidate.SemanticScore,
+					AssetID:          assetID,
+					UseOriginalAudio: candidate.DefaultUseOriginalAudio,
 				})
 			}
 			if len(slot.Candidates) == 0 {
-				return modelgateway.EditPlanInput{}, modelgateway.EditPlanInput{}, fmt.Errorf(
+				return modelgateway.EditPlanInput{}, fmt.Errorf(
 					"%w: visual beat %d slot %d requires a %dms material for %q",
 					ErrNoEligibleAssetCandidate,
 					setIndex+1,
@@ -603,40 +547,17 @@ func buildPlannerInputs(productName string, scriptText string, sets []CandidateS
 			Slots:               slots,
 		})
 	}
-	allocationInput := modelgateway.EditPlanInput{
+	input := modelgateway.EditPlanInput{
 		ProductName:  productName,
 		ScriptText:   scriptText,
 		Requirements: requirements,
 	}
-	assignedMaterials, err := assignUniquePlannerMaterials(allocationInput.Requirements)
+	assignedMaterials, err := assignUniquePlannerMaterials(input.Requirements)
 	if err != nil {
-		return modelgateway.EditPlanInput{}, modelgateway.EditPlanInput{}, err
+		return modelgateway.EditPlanInput{}, err
 	}
-	plannerInput := clonePlannerInput(allocationInput)
-	trimPlannerSlotCandidates(plannerInput.Requirements, assignedMaterials)
-	return plannerInput, allocationInput, nil
-}
-
-func clonePlannerInput(input modelgateway.EditPlanInput) modelgateway.EditPlanInput {
-	cloned := input
-	cloned.Requirements = append([]modelgateway.EditPlanRequirement(nil), input.Requirements...)
-	for requirementIndex := range cloned.Requirements {
-		cloned.Requirements[requirementIndex].NarrationSegmentIDs = append(
-			[]string(nil),
-			input.Requirements[requirementIndex].NarrationSegmentIDs...,
-		)
-		cloned.Requirements[requirementIndex].Slots = append(
-			[]modelgateway.EditPlanSlot(nil),
-			input.Requirements[requirementIndex].Slots...,
-		)
-		for slotIndex := range cloned.Requirements[requirementIndex].Slots {
-			cloned.Requirements[requirementIndex].Slots[slotIndex].Candidates = append(
-				[]modelgateway.EditPlanCandidate(nil),
-				input.Requirements[requirementIndex].Slots[slotIndex].Candidates...,
-			)
-		}
-	}
-	return cloned
+	trimPlannerSlotCandidates(input.Requirements, assignedMaterials)
+	return input, nil
 }
 
 func buildDeterministicEditPlanSlots(requirement ShotRequirement, nextSlotID *int) ([]modelgateway.EditPlanSlot, error) {

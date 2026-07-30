@@ -138,6 +138,7 @@ export type FinishedWorkStatus = "generating" | "completed" | "failed";
 export type FinishedWork = {
   id: string;
   run_id: string;
+  generation_batch_id: string;
   product_id: string;
   product_name: string;
   created_by_user_id?: string;

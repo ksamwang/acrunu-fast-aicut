@@ -20,19 +20,14 @@ const (
 )
 
 type EditPlanCandidate struct {
-	ID                string  `json:"id"`
-	SourceType        string  `json:"source_type"`
-	SourceInMs        int     `json:"-"`
-	SourceOutMs       int     `json:"-"`
-	SemanticSummary   string  `json:"semantic_summary"`
-	SemanticScore     float64 `json:"semantic_score"`
-	DiversityScore    float64 `json:"diversity_score"`
-	SemanticQualified bool    `json:"semantic_qualified"`
-	BatchUseCount     int     `json:"batch_use_count"`
-	RecentUseCount    int     `json:"recent_use_count"`
-	AssetID           string  `json:"-"`
-	ReuseKey          string  `json:"-"`
-	UseOriginalAudio  bool    `json:"-"`
+	ID               string  `json:"id"`
+	SourceType       string  `json:"source_type"`
+	SourceInMs       int     `json:"-"`
+	SourceOutMs      int     `json:"-"`
+	SemanticSummary  string  `json:"semantic_summary"`
+	SemanticScore    float64 `json:"semantic_score"`
+	AssetID          string  `json:"-"`
+	UseOriginalAudio bool    `json:"-"`
 }
 
 const (

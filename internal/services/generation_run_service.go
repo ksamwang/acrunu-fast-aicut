@@ -1132,6 +1132,7 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	}
 	work.ID = run.ID
 	work.RunID = run.ID
+	work.GenerationBatchID = run.GenerationBatchID
 	work.Status = run.Status
 	work.StageLabel = generationRunStageLabel(run.Stage)
 	work.Progress = run.Progress

@@ -33,6 +33,20 @@ type FinishedWorkDateGroup = {
 
 const finishedLibraryBrowseStateKey = "aicut.finished-library-browse.v1";
 const finishedDetailOriginStateKey = "aicutFinishedDetailFromLibrary";
+const finishedBatchColors = ["#2f6fed", "#c2571a", "#008a78", "#a13d63", "#65752b", "#356f8f", "#8b5e34", "#6b5aa6"];
+
+function finishedBatchColor(batchID: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < batchID.length; index += 1) {
+    hash ^= batchID.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return finishedBatchColors[(hash >>> 0) % finishedBatchColors.length];
+}
+
+function shortBatchID(batchID: string) {
+  return batchID.slice(0, 8);
+}
 
 function defaultFinishedLibraryBrowseState(): FinishedLibraryBrowseState {
   return {
@@ -827,6 +841,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                       const isFailed = work.status === "failed";
                       const selectable = work.status !== "generating";
                       const selected = selectedWorkIDs.has(work.id);
+                      const batchID = work.generation_batch_id || work.run_id;
                       return (
                         <Dropdown
                           key={work.id}
@@ -859,6 +874,13 @@ export function FinishedLibraryPage({ token }: { token: string }) {
                               <FinishedWorkVisual work={work} compact />
                               <span className="finished-work-overlay-top">
                                 <span className="finished-work-overlay-labels">
+                                  <span
+                                    className="finished-work-batch-marker"
+                                    data-batch-id={batchID}
+                                    style={{ backgroundColor: finishedBatchColor(batchID) }}
+                                    title={`生成批次 ${shortBatchID(batchID)}`}
+                                    aria-label={`生成批次 ${shortBatchID(batchID)}`}
+                                  />
                                   <Tag className="finished-work-product">{work.product_name}</Tag>
                                   <span className="finished-work-creator"><UserRound size={12} />创建人：{work.created_by_name || "未知用户"}</span>
                                 </span>

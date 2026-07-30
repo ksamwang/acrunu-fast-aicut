@@ -11,6 +11,7 @@ const works = [
   {
     id: "work-newer",
     run_id: "work-newer",
+    generation_batch_id: "batch-shared",
     product_id: "product-1",
     product_name: "骑行车包",
     created_by_name: "测试用户",
@@ -27,6 +28,7 @@ const works = [
   {
     id: "work-older-date",
     run_id: "work-older-date",
+    generation_batch_id: "batch-older",
     product_id: "product-1",
     product_name: "骑行车包",
     created_by_name: "测试用户",
@@ -43,6 +45,7 @@ const works = [
   {
     id: "work-generating",
     run_id: "work-generating",
+    generation_batch_id: "batch-shared",
     product_id: "product-1",
     product_name: "骑行车包",
     created_by_name: "测试用户",
@@ -58,6 +61,7 @@ const works = [
   {
     id: "work-older",
     run_id: "work-older",
+    generation_batch_id: "batch-other",
     product_id: "product-1",
     product_name: "骑行车包",
     created_by_name: "测试用户",
@@ -122,6 +126,12 @@ test("groups finished works by creation date and selects one date", async ({ pag
   await expect(currentCards.nth(0)).toHaveAttribute("data-testid", "finished-work-work-newer");
   await expect(currentCards.nth(1)).toHaveAttribute("data-testid", "finished-work-work-generating");
   await expect(currentCards.nth(2)).toHaveAttribute("data-testid", "finished-work-work-older");
+
+  const sharedBatchMarkers = currentGroup.locator('[data-batch-id="batch-shared"]');
+  const otherBatchMarker = currentGroup.locator('[data-batch-id="batch-other"]');
+  await expect(sharedBatchMarkers).toHaveCount(2);
+  await expect(sharedBatchMarkers.nth(0)).toHaveCSS("background-color", await sharedBatchMarkers.nth(1).evaluate((element) => getComputedStyle(element).backgroundColor));
+  await expect(otherBatchMarker).not.toHaveCSS("background-color", await sharedBatchMarkers.nth(0).evaluate((element) => getComputedStyle(element).backgroundColor));
 
   await page.getByRole("button", { name: "批量选择" }).click();
   await currentGroup.getByText("选择该日", { exact: true }).click();

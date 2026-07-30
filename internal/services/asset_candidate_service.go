@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"math"
 	"sort"
 	"strings"
@@ -16,12 +15,8 @@ import (
 
 const (
 	defaultCandidatesPerNarrationSegment = 10
-	maxCandidatesPerNarrationSegment     = 40
-	semanticCandidateScoreWindow         = 0.08
-	semanticFallbackDiversityPenalty     = 1.0
-	batchAssetReusePenalty               = 0.10
-	recentAssetReusePenalty              = 0.015
-	stableDiversityJitterAmplitude       = 0.008
+	maxCandidatesPerNarrationSegment     = 12
+	assetReusePenalty                    = 0.12
 	maxCandidateSemanticSummaryRunes     = 320
 )
 
@@ -45,7 +40,6 @@ type ShotRequirement struct {
 type AssetCandidate struct {
 	ID                      string  `json:"id"`
 	AssetID                 string  `json:"asset_id"`
-	ReuseKey                string  `json:"-"`
 	SpeechSegmentID         string  `json:"speech_segment_id,omitempty"`
 	ObjectType              string  `json:"object_type"`
 	SourceType              string  `json:"source_type"`
@@ -56,9 +50,6 @@ type AssetCandidate struct {
 	SemanticSummary         string  `json:"semantic_summary"`
 	SemanticScore           float64 `json:"semantic_score"`
 	DiversityScore          float64 `json:"diversity_score"`
-	SemanticQualified       bool    `json:"semantic_qualified"`
-	BatchUseCount           int     `json:"batch_use_count"`
-	RecentUseCount          int     `json:"recent_use_count"`
 }
 
 type CandidateSet struct {
@@ -75,16 +66,6 @@ type CandidateSearchInput struct {
 	SourceTypes       []string
 	MinimumDurationMs int
 	Limit             int
-}
-
-type CandidateDiversityContext struct {
-	GenerationRunID   string
-	GenerationBatchID string
-}
-
-type assetUsageSnapshot struct {
-	batch  map[string]int
-	recent map[string]int
 }
 
 type CandidateSearchStore interface {
@@ -142,16 +123,6 @@ func (s *AssetCandidateService) WithStore(store CandidateSearchStore) *AssetCand
 }
 
 func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, requirements []ShotRequirement, limit int) ([]CandidateSet, error) {
-	return s.RetrieveWithDiversity(ctx, productID, requirements, limit, CandidateDiversityContext{})
-}
-
-func (s *AssetCandidateService) RetrieveWithDiversity(
-	ctx context.Context,
-	productID string,
-	requirements []ShotRequirement,
-	limit int,
-	diversity CandidateDiversityContext,
-) ([]CandidateSet, error) {
 	if s == nil || s.productAssetService == nil {
 		return nil, ErrCandidateSearchUnavailable
 	}
@@ -179,10 +150,7 @@ func (s *AssetCandidateService) RetrieveWithDiversity(
 	if err != nil {
 		return nil, err
 	}
-	usage, err := s.loadAssetUsage(ctx, productID, diversity)
-	if err != nil {
-		return nil, err
-	}
+	assetUseCounts := map[string]int{}
 	sets := make([]CandidateSet, 0, len(requirements))
 	for _, requirement := range requirements {
 		requirement.DurationClass = normalizeVisualBeatDurationClass(requirement.DurationClass)
@@ -219,12 +187,12 @@ func (s *AssetCandidateService) RetrieveWithDiversity(
 		if err != nil {
 			return nil, err
 		}
-		candidates = deduplicateCandidatesByReuseKey(candidates)
-		candidates = markCandidateSemanticQualification(candidates)
-		diversityKey := fmt.Sprintf("%d:%d:%s", requirement.StartMs, requirement.EndMs, strings.TrimSpace(requirement.VisualGoal))
-		candidates = rerankCandidatesForDiversity(candidates, usage, diversity, diversityKey)
+		candidates = rerankCandidatesForDiversity(candidates, assetUseCounts)
 		if len(candidates) > limit {
 			candidates = candidates[:limit]
+		}
+		if len(candidates) > 0 {
+			assetUseCounts[candidates[0].AssetID]++
 		}
 		sets = append(sets, CandidateSet{Requirement: requirement, Candidates: candidates})
 	}
@@ -424,51 +392,11 @@ func requirementSourceTypes(sourceType string) []string {
 	return []string{sourceType}
 }
 
-func deduplicateCandidatesByReuseKey(candidates []AssetCandidate) []AssetCandidate {
-	result := make([]AssetCandidate, 0, len(candidates))
-	seen := make(map[string]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		candidate.ReuseKey = candidateReuseKey(candidate)
-		if _, exists := seen[candidate.ReuseKey]; exists {
-			continue
-		}
-		seen[candidate.ReuseKey] = struct{}{}
-		result = append(result, candidate)
-	}
-	return result
-}
-
-func markCandidateSemanticQualification(candidates []AssetCandidate) []AssetCandidate {
-	if len(candidates) == 0 {
-		return candidates
-	}
-	bestScore := candidates[0].SemanticScore
-	for _, candidate := range candidates[1:] {
-		if candidate.SemanticScore > bestScore {
-			bestScore = candidate.SemanticScore
-		}
-	}
-	minimumScore := bestScore - semanticCandidateScoreWindow
+func rerankCandidatesForDiversity(candidates []AssetCandidate, assetUseCounts map[string]int) []AssetCandidate {
 	result := append([]AssetCandidate(nil), candidates...)
 	for index := range result {
-		result[index].SemanticQualified = result[index].SemanticScore >= minimumScore
-	}
-	return result
-}
-
-func rerankCandidatesForDiversity(candidates []AssetCandidate, usage assetUsageSnapshot, diversity CandidateDiversityContext, visualKey string) []AssetCandidate {
-	result := append([]AssetCandidate(nil), candidates...)
-	for index := range result {
-		result[index].ReuseKey = candidateReuseKey(result[index])
-		result[index].BatchUseCount = usage.batch[result[index].ReuseKey]
-		result[index].RecentUseCount = usage.recent[result[index].ReuseKey]
-		recentPenalty := recentAssetReusePenalty * math.Log1p(float64(result[index].RecentUseCount))
-		jitter := stableDiversityJitter(diversity.GenerationRunID, visualKey, result[index].ReuseKey)
-		result[index].DiversityScore = result[index].SemanticScore -
-			batchAssetReusePenalty*float64(result[index].BatchUseCount) - recentPenalty + jitter
-		if !result[index].SemanticQualified {
-			result[index].DiversityScore -= semanticFallbackDiversityPenalty
-		}
+		penalty := assetReusePenalty * float64(assetUseCounts[result[index].AssetID])
+		result[index].DiversityScore = result[index].SemanticScore - penalty
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].DiversityScore == result[j].DiversityScore {
@@ -477,95 +405,6 @@ func rerankCandidatesForDiversity(candidates []AssetCandidate, usage assetUsageS
 		return result[i].DiversityScore > result[j].DiversityScore
 	})
 	return result
-}
-
-func candidateReuseKey(candidate AssetCandidate) string {
-	reuseKey := strings.TrimSpace(candidate.ReuseKey)
-	if reuseKey != "" {
-		return strings.ToLower(reuseKey)
-	}
-	return strings.ToLower(strings.TrimSpace(candidate.AssetID))
-}
-
-func stableDiversityJitter(parts ...string) float64 {
-	hasher := fnv.New64a()
-	for _, part := range parts {
-		_, _ = hasher.Write([]byte(strings.TrimSpace(part)))
-		_, _ = hasher.Write([]byte{0})
-	}
-	unit := float64(hasher.Sum64()) / float64(^uint64(0))
-	return (unit*2 - 1) * stableDiversityJitterAmplitude
-}
-
-func (s *AssetCandidateService) loadAssetUsage(ctx context.Context, productID string, diversity CandidateDiversityContext) (assetUsageSnapshot, error) {
-	usage := assetUsageSnapshot{batch: map[string]int{}, recent: map[string]int{}}
-	if s == nil || s.pool == nil {
-		return usage, nil
-	}
-	batchID := strings.TrimSpace(diversity.GenerationBatchID)
-	runID := strings.TrimSpace(diversity.GenerationRunID)
-	if batchID != "" {
-		rows, err := s.pool.Query(ctx, `
-			SELECT selections.reuse_key, COUNT(*)::int
-			FROM generation_asset_selections selections
-			WHERE selections.generation_batch_id = $1::uuid
-			  AND (
-				NULLIF($2, '')::uuid IS NULL
-				OR selections.generation_run_id <> NULLIF($2, '')::uuid
-			  )
-			  AND (
-				selections.state = 'committed'
-				OR (selections.state = 'reserved' AND selections.expires_at > now())
-			  )
-			GROUP BY selections.reuse_key`, batchID, runID)
-		if err != nil {
-			return usage, err
-		}
-		for rows.Next() {
-			var reuseKey string
-			var count int
-			if err := rows.Scan(&reuseKey, &count); err != nil {
-				rows.Close()
-				return usage, err
-			}
-			usage.batch[reuseKey] = count
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return usage, err
-		}
-		rows.Close()
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT selections.reuse_key, COUNT(*)::int
-		FROM generation_asset_selections selections
-		JOIN generation_runs runs ON runs.id = selections.generation_run_id
-		WHERE runs.product_id = $1::uuid
-		  AND selections.state = 'committed'
-		  AND (
-			NULLIF($2, '')::uuid IS NULL
-			OR selections.generation_run_id <> NULLIF($2, '')::uuid
-		  )
-		  AND (
-			NULLIF($3, '')::uuid IS NULL
-			OR selections.generation_batch_id <> NULLIF($3, '')::uuid
-		  )
-		  AND selections.created_at >= now() - INTERVAL '30 days'
-		GROUP BY selections.reuse_key`, productID, runID, batchID)
-	if err != nil {
-		return usage, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var reuseKey string
-		var count int
-		if err := rows.Scan(&reuseKey, &count); err != nil {
-			return usage, err
-		}
-		usage.recent[reuseKey] = count
-	}
-	return usage, rows.Err()
 }
 
 type postgresCandidateSearchStore struct {
@@ -589,7 +428,6 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 		SELECT
 			e.id::text,
 			a.id::text,
-			COALESCE(NULLIF(LOWER(BTRIM(a.checksum)), ''), a.id::text),
 			'',
 			e.object_type,
 			e.text,
@@ -634,7 +472,6 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 		if err := rows.Scan(
 			&candidate.ID,
 			&candidate.AssetID,
-			&candidate.ReuseKey,
 			&candidate.SpeechSegmentID,
 			&candidate.ObjectType,
 			&candidate.SemanticSummary,

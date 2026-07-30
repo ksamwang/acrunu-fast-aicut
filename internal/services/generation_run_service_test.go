@@ -79,7 +79,7 @@ func TestGenerationRunKeepsPlanReadyWorkGenerating(t *testing.T) {
 	if work.Status != generationRunStatusGenerating || work.StageLabel != "编排完成，等待渲染" || work.Progress != 88 {
 		t.Fatalf("expected plan-ready work to remain generating, got %#v", work)
 	}
-	if work.ID != run.ID || len(work.VisualBeats) != 1 || len(work.EditPlan) != 1 || work.EditPlan[0].VisualBeatID != "visual-1" || work.EditPlan[0].AssetID != "asset-1" {
+	if work.ID != run.ID || work.GenerationBatchID != run.GenerationBatchID || len(work.VisualBeats) != 1 || len(work.EditPlan) != 1 || work.EditPlan[0].VisualBeatID != "visual-1" || work.EditPlan[0].AssetID != "asset-1" {
 		t.Fatalf("unexpected work projection %#v", work)
 	}
 	if work.VisualBeats[0].DurationClass != VisualBeatDurationLegacy {
