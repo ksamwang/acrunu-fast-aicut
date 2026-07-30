@@ -19,7 +19,7 @@ type PromptBundle struct {
 }
 
 const PromptVersion = "phase2-v6"
-const ScriptGenerationPromptVersion = "workbench-script-v6"
+const ScriptGenerationPromptVersion = "workbench-script-v7"
 const ScriptVisualIntentPromptVersion = "workbench-script-visual-intent-v1"
 const EditPlanPromptVersion = "workbench-edit-plan-v5"
 const VisualPlanPromptVersion = "workbench-visual-plan-v8"
@@ -95,14 +95,16 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 func BuildScriptGenerationPrompt(input ScriptGenerationInput) PromptBundle {
 	targetDuration, _ := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
 	minimumCharacters, maximumCharacters := ScriptSpokenCharacterRange(targetDuration)
+	minimumDurationMs, maximumDurationMs := ScriptPreferredDurationRangeMs(targetDuration)
 	inputJSON, _ := json.Marshal(map[string]any{
-		"product_name":                       input.ProductName,
-		"product_description":                input.ProductDescription,
-		"product_category":                   input.ProductCategory,
-		"selling_points":                     input.SellingPoints,
-		"variant_count":                      input.VariantCount,
-		"target_duration_seconds":            targetDuration,
-		"recommended_spoken_character_range": map[string]int{"minimum": minimumCharacters, "maximum": maximumCharacters},
+		"product_name":                         input.ProductName,
+		"product_description":                  input.ProductDescription,
+		"product_category":                     input.ProductCategory,
+		"selling_points":                       input.SellingPoints,
+		"variant_count":                        input.VariantCount,
+		"target_duration_seconds":              targetDuration,
+		"preferred_estimated_duration_seconds": map[string]float64{"minimum": float64(minimumDurationMs) / 1000, "maximum": float64(maximumDurationMs) / 1000},
+		"recommended_spoken_character_range":   map[string]int{"minimum": minimumCharacters, "maximum": maximumCharacters},
 	})
 
 	return PromptBundle{
@@ -118,7 +120,7 @@ func BuildScriptGenerationPrompt(input ScriptGenerationInput) PromptBundle {
 					"每个 variant 只能返回 variant_index、angle、selected_selling_points、hook、script_text。variant_index 从 1 开始；selected_selling_points 必须列出本条实际表达的卖点，并且只能逐字复制输入卖点名称。hook 必须是 script_text 完全一致的开头。常见信息流表达如‘闭眼入、一包两用、不用慌’可以自然使用，但不要在同一条里反复堆叠空泛推荐词。" +
 					"风格基准只用于模仿节奏、句式和信息密度，不得复制不属于当前产品的事实：‘还在找好用的骑行车头包？这款真的闭眼入！防水面料搭配压胶拉链，突发小雨不用慌。2升大容量，内带隔层。三点固定加魔术贴安装，牢牢固定不晃荡。自带肩带，骑完车直接变身斜挎包，一包两用。侧边弹力绳可外挂物品，反光标夜间骑行更安全！’" +
 					"反例：‘骑过颠簸路段还要分心看车包，节奏很容易被打乱。包体稳一些就能少受干扰。’这类句子虚构用户心理、绕弯且没有商品口播的信息密度，不要使用。" +
-					"target_duration_seconds 是大致篇幅目标，recommended_spoken_character_range 仅作为参考；优先保证口播自然紧凑，不得为了凑字数扩写场景、重复收益或加入空话。禁止出现画面里、镜头中、转到暗光、双手回到车把、俯拍、镜头切换、运镜等制作指令。只返回一个顶层键 variants。输入：" + string(inputJSON),
+					"target_duration_seconds 是希望接近的口播长度，优先让估算时长落在 preferred_estimated_duration_seconds；recommended_spoken_character_range 用于控制大致篇幅。文案偏短时，先把已选择但尚未充分说明的真实卖点和直接收益讲完整；不得为了凑时长扩写虚构场景、重复收益或加入空话。时长是质量目标，不能以牺牲自然表达或编造事实为代价。禁止出现画面里、镜头中、转到暗光、双手回到车把、俯拍、镜头切换、运镜等制作指令。只返回一个顶层键 variants。输入：" + string(inputJSON),
 			},
 		},
 	}

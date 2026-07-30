@@ -1024,7 +1024,9 @@ export function WorkbenchPage({ token }: { token: string }) {
                 <div className="workbench-script-toolbar">
                   <div>
                     <Typography.Text className="workbench-script-index">文案 {String(activeVariant.order).padStart(2, "0")}</Typography.Text>
-                    <Typography.Text type="secondary">预计 {formatDuration(activeVariant.estimated_duration_ms)}</Typography.Text>
+                    <Typography.Text type="secondary">
+                      预计 {formatDuration(activeVariant.estimated_duration_ms)} · 目标 {draft.target_duration_seconds} 秒
+                    </Typography.Text>
                   </div>
                   <div className="workbench-script-actions">
                     <Button

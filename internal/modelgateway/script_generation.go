@@ -21,10 +21,11 @@ const (
 	DefaultScriptTargetDuration          = 30
 	scriptSpokenCharactersPerSecond      = 5.0
 	scriptRecommendedCharactersPerSecond = 3.7
-	scriptMinimumCharacterRatio          = 0.85
+	scriptMinimumCharacterRatio          = 1.0
 	scriptMaximumCharacterRatio          = 1.15
-	scriptMinimumAcceptedDurationRatio   = 0.7
-	scriptMaximumAcceptedDurationRatio   = 1.4
+	scriptMinimumPreferredDurationRatio  = 0.7
+	scriptMaximumPreferredDurationRatio  = 1.4
+	minimumUsableScriptSpokenCharacters  = 30
 )
 
 var allowedScriptSourceTypes = map[string]struct{}{
@@ -172,7 +173,11 @@ func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, i
 		if initialValidationErr != nil {
 			repairIssues = append(repairIssues, initialValidationErr.Error())
 		}
-		repairInstruction := "上一次文案 JSON 需要优化。请完整重写一次并修复列出的全部问题，仍然只输出广告口播，不得增加镜头、beats、visual_goal、素材解说或制作指令。需要修复：" + strings.Join(repairIssues, "；") + "。上一次 JSON：" + string(previousJSON)
+		repairScope := "请完整重写一次并修复列出的全部问题。"
+		if initialValidationErr == nil {
+			repairScope = "只重写问题中列出的 variant；其余 variant 的所有字段必须原样返回。偏短时优先把已选择但尚未充分说明的真实卖点讲完整，不能加入空话或未提供的事实。"
+		}
+		repairInstruction := "上一次文案 JSON 需要优化。" + repairScope + "仍然只输出广告口播，不得增加镜头、beats、visual_goal、素材解说或制作指令。需要修复：" + strings.Join(repairIssues, "；") + "。上一次 JSON：" + string(previousJSON)
 		repaired, repairErr := g.requestScriptCopies(ctx, copyPrompt, repairInstruction, 0.2)
 		if repairErr != nil {
 			if initialValidationErr != nil {
@@ -182,8 +187,10 @@ func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, i
 			if initialValidationErr != nil {
 				return ScriptGenerationResult{}, repairedValidationErr
 			}
-		} else if initialValidationErr != nil || len(validateScriptCopyQualityIssues(repaired, input)) <= len(initialQualityIssues) {
+		} else if initialValidationErr != nil {
 			copies = repaired
+		} else {
+			copies = mergeScriptCopyQualityRepair(copies, repaired, input)
 		}
 	}
 	sort.Slice(copies.Variants, func(i, j int) bool {
@@ -319,7 +326,7 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 	if input.VariantCount < 1 || input.VariantCount > 8 {
 		return append(issues, "invalid expected variant count")
 	}
-	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
+	_, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
 	if !ok {
 		return append(issues, "target_duration_seconds is unsupported")
 	}
@@ -353,7 +360,7 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 			}
 			seenAngles[normalizedAngle] = struct{}{}
 		}
-		issues = append(issues, validateScriptNarration(index+1, &variant.Hook, &variant.ScriptText, targetDuration, seenHooks)...)
+		issues = append(issues, validateScriptNarration(index+1, &variant.Hook, &variant.ScriptText, seenHooks)...)
 		if len(variant.SelectedSellingPoints) < 1 {
 			issues = append(issues, fmt.Sprintf("copy variant %d must select at least one selling point", index+1))
 		}
@@ -508,7 +515,7 @@ func validateScriptGenerationResultIssues(result ScriptGenerationResult, input S
 			issues = append(issues, fmt.Sprintf("variant %d is incomplete", index+1))
 			continue
 		}
-		issues = append(issues, validateScriptNarration(index+1, &variant.Hook, &variant.ScriptText, targetDuration, seenHooks)...)
+		issues = append(issues, validateScriptNarration(index+1, &variant.Hook, &variant.ScriptText, seenHooks)...)
 		if len(variant.Beats) < minimumBeats || len(variant.Beats) > maximumBeats {
 			issues = append(issues, fmt.Sprintf("variant %d must contain %d to %d beats for %ds", index+1, minimumBeats, maximumBeats, targetDuration))
 		}
@@ -554,17 +561,16 @@ var abstractVisualGoalPhrases = []string{
 	"特写", "俯拍", "镜头切换", "运镜",
 }
 
-func validateScriptNarration(index int, hook *string, scriptText *string, targetDuration int, seenHooks map[string]struct{}) []string {
+func validateScriptNarration(index int, hook *string, scriptText *string, seenHooks map[string]struct{}) []string {
 	issues := make([]string, 0)
 	*hook = strings.TrimSpace(*hook)
 	*scriptText = strings.TrimSpace(*scriptText)
 	if *hook == "" || *scriptText == "" {
 		return append(issues, fmt.Sprintf("variant %d hook and script_text are required", index))
 	}
-	minimumDurationMs, maximumDurationMs := ScriptAcceptedDurationRangeMs(targetDuration)
-	estimatedDurationMs := EstimateScriptDurationMs(*scriptText)
-	if estimatedDurationMs < minimumDurationMs || estimatedDurationMs > maximumDurationMs {
-		issues = append(issues, fmt.Sprintf("variant %d estimated duration is %.1fs; target %ds accepts %.1fs to %.1fs", index, float64(estimatedDurationMs)/1000, targetDuration, float64(minimumDurationMs)/1000, float64(maximumDurationMs)/1000))
+	spokenCharacters := CountScriptSpokenCharacters(*scriptText)
+	if spokenCharacters < minimumUsableScriptSpokenCharacters {
+		issues = append(issues, fmt.Sprintf("variant %d has %d spoken characters; minimum usable copy is %d", index, spokenCharacters, minimumUsableScriptSpokenCharacters))
 	}
 	normalizedHook := normalizeScriptComparisonText(*hook)
 	if normalizedHook != "" {
@@ -580,18 +586,81 @@ func validateScriptNarration(index int, hook *string, scriptText *string, target
 }
 
 func validateScriptCopyQualityIssues(result ScriptCopyResult, input ScriptGenerationInput) []string {
-	_ = input
 	issues := make([]string, 0)
 	for index, variant := range result.Variants {
-		scriptText := strings.TrimSpace(variant.ScriptText)
-		if scriptText == "" {
-			continue
-		}
-		if phrase := firstScriptPhrase(scriptText, scriptProductionDirectionPhrases); phrase != "" {
-			issues = append(issues, fmt.Sprintf("variant %d contains production-direction phrase %q", index+1, phrase))
-		}
+		issues = append(issues, validateScriptCopyVariantQualityIssues(index+1, variant, input)...)
 	}
 	return issues
+}
+
+func validateScriptCopyVariantQualityIssues(index int, variant ScriptCopyVariant, input ScriptGenerationInput) []string {
+	scriptText := strings.TrimSpace(variant.ScriptText)
+	if scriptText == "" {
+		return nil
+	}
+	issues := make([]string, 0, 2)
+	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
+	if ok {
+		minimumDurationMs, maximumDurationMs := ScriptPreferredDurationRangeMs(targetDuration)
+		estimatedDurationMs := EstimateScriptDurationMs(scriptText)
+		if estimatedDurationMs < minimumDurationMs || estimatedDurationMs > maximumDurationMs {
+			issues = append(issues, fmt.Sprintf(
+				"variant %d estimated duration is %.1fs; target %ds prefers %.1fs to %.1fs",
+				index,
+				float64(estimatedDurationMs)/1000,
+				targetDuration,
+				float64(minimumDurationMs)/1000,
+				float64(maximumDurationMs)/1000,
+			))
+		}
+	}
+	if phrase := firstScriptPhrase(scriptText, scriptProductionDirectionPhrases); phrase != "" {
+		issues = append(issues, fmt.Sprintf("variant %d contains production-direction phrase %q", index, phrase))
+	}
+	return issues
+}
+
+func mergeScriptCopyQualityRepair(original ScriptCopyResult, repaired ScriptCopyResult, input ScriptGenerationInput) ScriptCopyResult {
+	repairedByIndex := make(map[int]ScriptCopyVariant, len(repaired.Variants))
+	for _, variant := range repaired.Variants {
+		repairedByIndex[variant.VariantIndex] = variant
+	}
+	merged := ScriptCopyResult{Variants: append([]ScriptCopyVariant(nil), original.Variants...)}
+	for index, originalVariant := range merged.Variants {
+		originalIssues := validateScriptCopyVariantQualityIssues(index+1, originalVariant, input)
+		if len(originalIssues) == 0 {
+			continue
+		}
+		repairedVariant, exists := repairedByIndex[originalVariant.VariantIndex]
+		if !exists {
+			continue
+		}
+		repairedIssues := validateScriptCopyVariantQualityIssues(index+1, repairedVariant, input)
+		if len(repairedIssues) < len(originalIssues) ||
+			(len(repairedIssues) == len(originalIssues) && scriptCopyDurationDistanceMs(repairedVariant, input) <= scriptCopyDurationDistanceMs(originalVariant, input)) {
+			merged.Variants[index] = repairedVariant
+		}
+	}
+	if err := ValidateScriptCopyResult(merged, input); err != nil {
+		return original
+	}
+	return merged
+}
+
+func scriptCopyDurationDistanceMs(variant ScriptCopyVariant, input ScriptGenerationInput) int {
+	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
+	if !ok {
+		return 0
+	}
+	minimumDurationMs, maximumDurationMs := ScriptPreferredDurationRangeMs(targetDuration)
+	estimatedDurationMs := EstimateScriptDurationMs(variant.ScriptText)
+	if estimatedDurationMs < minimumDurationMs {
+		return minimumDurationMs - estimatedDurationMs
+	}
+	if estimatedDurationMs > maximumDurationMs {
+		return estimatedDurationMs - maximumDurationMs
+	}
+	return 0
 }
 
 func validateScriptVisualGoal(variantIndex int, beatIndex int, visualGoal string) []string {
@@ -653,13 +722,13 @@ func ScriptSpokenCharacterRange(targetDurationSeconds int) (int, int) {
 	return int(math.Ceil(target * scriptMinimumCharacterRatio)), int(math.Floor(target * scriptMaximumCharacterRatio))
 }
 
-func ScriptAcceptedDurationRangeMs(targetDurationSeconds int) (int, int) {
+func ScriptPreferredDurationRangeMs(targetDurationSeconds int) (int, int) {
 	targetDurationSeconds, ok := NormalizeScriptTargetDuration(targetDurationSeconds)
 	if !ok {
 		return 0, 0
 	}
 	targetMs := float64(targetDurationSeconds * 1000)
-	return int(math.Ceil(targetMs * scriptMinimumAcceptedDurationRatio)), int(math.Floor(targetMs * scriptMaximumAcceptedDurationRatio))
+	return int(math.Ceil(targetMs * scriptMinimumPreferredDurationRatio)), int(math.Floor(targetMs * scriptMaximumPreferredDurationRatio))
 }
 
 func CountScriptSpokenCharacters(text string) int {
