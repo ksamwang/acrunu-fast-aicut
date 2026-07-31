@@ -390,7 +390,7 @@ func ValidateScriptVisualIntentResult(result ScriptVisualIntentResult, copies Sc
 
 func validateScriptVisualIntentResultIssues(result ScriptVisualIntentResult, copies ScriptCopyResult, input ScriptGenerationInput) []string {
 	issues := make([]string, 0)
-	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
+	_, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
 	if !ok {
 		return append(issues, "target_duration_seconds is unsupported")
 	}
@@ -417,10 +417,6 @@ func validateScriptVisualIntentResultIssues(result ScriptVisualIntentResult, cop
 		}
 		if plan.EditingIntent == "" {
 			issues = append(issues, fmt.Sprintf("visual plan %d editing_intent is required", planIndex+1))
-		}
-		minimumBeats, maximumBeats := ScriptVisualBeatCountRange(targetDuration, len(copyVariant.SelectedSellingPoints))
-		if len(plan.Beats) < minimumBeats || len(plan.Beats) > maximumBeats {
-			issues = append(issues, fmt.Sprintf("visual plan %d must contain %d to %d beats", planIndex+1, minimumBeats, maximumBeats))
 		}
 		allowedSellingPoints := make(map[string]struct{}, len(copyVariant.SelectedSellingPoints))
 		for _, sellingPoint := range copyVariant.SelectedSellingPoints {
@@ -495,14 +491,13 @@ func validateScriptGenerationResultIssues(result ScriptGenerationResult, input S
 	if input.VariantCount < 1 || input.VariantCount > 8 {
 		return append(issues, "invalid expected variant count")
 	}
-	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
+	_, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
 	if !ok {
 		return append(issues, "target_duration_seconds is unsupported")
 	}
 	if len(result.Variants) != input.VariantCount {
 		issues = append(issues, fmt.Sprintf("expected %d script variants, got %d", input.VariantCount, len(result.Variants)))
 	}
-	minimumBeats, maximumBeats := ScriptVisualBeatCountRange(targetDuration, len(input.SellingPoints))
 	seenHooks := map[string]struct{}{}
 	allowedSellingPoints := scriptSellingPointSet(input.SellingPoints)
 	coveredSellingPoints := make(map[string]struct{}, len(input.SellingPoints))
@@ -516,9 +511,6 @@ func validateScriptGenerationResultIssues(result ScriptGenerationResult, input S
 			continue
 		}
 		issues = append(issues, validateScriptNarration(index+1, &variant.Hook, &variant.ScriptText, seenHooks)...)
-		if len(variant.Beats) < minimumBeats || len(variant.Beats) > maximumBeats {
-			issues = append(issues, fmt.Sprintf("variant %d must contain %d to %d beats for %ds", index+1, minimumBeats, maximumBeats, targetDuration))
-		}
 		for beatIndex := range variant.Beats {
 			beat := &variant.Beats[beatIndex]
 			beat.Label = strings.TrimSpace(beat.Label)

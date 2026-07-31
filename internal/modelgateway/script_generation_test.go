@@ -409,6 +409,27 @@ func TestValidateScriptVisualIntentRejectsSellingPointOutsideApprovedCopy(t *tes
 	}
 }
 
+func TestScriptVisualIntentBeatCountIsNotAHardValidationRule(t *testing.T) {
+	input := ScriptGenerationInput{
+		VariantCount:          1,
+		TargetDurationSeconds: 45,
+		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
+	}
+	copies := validScriptCopyResult()
+	visuals := validScriptVisualIntentResult()
+	visuals.Plans[0].Beats = visuals.Plans[0].Beats[:1]
+	if err := ValidateScriptVisualIntentResult(visuals, copies, input); err != nil {
+		t.Fatalf("visual intent beat count must not fail validation: %v", err)
+	}
+	result, err := mergeScriptGenerationResult(copies, visuals)
+	if err != nil {
+		t.Fatalf("merge script generation result: %v", err)
+	}
+	if err := ValidateScriptGenerationResult(result, input); err != nil {
+		t.Fatalf("final script beat count must not fail validation: %v", err)
+	}
+}
+
 func TestValidateScriptGenerationResultRejectsUnsupportedAndMissingSellingPoints(t *testing.T) {
 	result := validGatewayScriptResult()
 	for index := range result.Variants[0].Beats {
