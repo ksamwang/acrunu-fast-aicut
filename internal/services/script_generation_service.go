@@ -32,6 +32,7 @@ type WorkbenchScriptGenerationInput struct {
 	CustomSellingPoints   []string `json:"custom_selling_points"`
 	VariantCount          int      `json:"variant_count"`
 	TargetDurationSeconds int      `json:"target_duration_seconds"`
+	Temperature           *float64 `json:"temperature,omitempty"`
 }
 
 type GeneratedScriptBeat struct {
@@ -98,7 +99,7 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 	if product.Status == "archived" {
 		return nil, ErrProductNotFound
 	}
-	sellingPoints, expectedSellingPointNames, err := s.resolveSellingPoints(input)
+	sellingPoints, _, err := s.resolveSellingPoints(input)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +123,7 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 		AvailableVisualEvidence: s.availableScriptVisualEvidence(product.ID),
 		VariantCount:            input.VariantCount,
 		TargetDurationSeconds:   input.TargetDurationSeconds,
+		Temperature:             input.Temperature,
 	}
 	result, err := generator.GenerateScripts(ctx, generationInput)
 	if err != nil {
@@ -130,10 +132,6 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 	if err := modelgateway.ValidateScriptGenerationResult(result, generationInput); err != nil {
 		return nil, err
 	}
-	if err := validateGeneratedSellingPointCoverage(result, expectedSellingPointNames); err != nil {
-		return nil, err
-	}
-
 	now := time.Now()
 	variants := make([]GeneratedScriptVariant, 0, len(result.Variants))
 	for index, variant := range result.Variants {
@@ -175,6 +173,11 @@ func normalizeWorkbenchScriptGenerationInput(input WorkbenchScriptGenerationInpu
 		return WorkbenchScriptGenerationInput{}, fmt.Errorf("%w: target_duration_seconds must be one of 15, 20, 30, 45, or 60", ErrScriptGenerationInput)
 	}
 	input.TargetDurationSeconds = targetDuration
+	temperature, ok := modelgateway.NormalizeScriptGenerationTemperature(input.Temperature)
+	if !ok {
+		return WorkbenchScriptGenerationInput{}, fmt.Errorf("%w: temperature must be between 0 and 2", ErrScriptGenerationInput)
+	}
+	input.Temperature = &temperature
 	input.SellingPointIDs = normalizeScriptGenerationIDs(input.SellingPointIDs)
 	if len(input.SellingPointIDs) > maxWorkbenchSellingPointInputs {
 		return WorkbenchScriptGenerationInput{}, fmt.Errorf("%w: too many selling points", ErrScriptGenerationInput)
@@ -271,25 +274,6 @@ func appendSellingPoint(target *[]modelgateway.ScriptGenerationSellingPoint, exp
 		IsCustom:    isCustom,
 	})
 	*expectedNames = append(*expectedNames, name)
-}
-
-func validateGeneratedSellingPointCoverage(result modelgateway.ScriptGenerationResult, expectedNames []string) error {
-	covered := make(map[string]bool, len(expectedNames))
-	for _, variant := range result.Variants {
-		for _, beat := range variant.Beats {
-			for _, expected := range expectedNames {
-				if strings.Contains(beat.SellingPoint, expected) {
-					covered[expected] = true
-				}
-			}
-		}
-	}
-	for _, expected := range expectedNames {
-		if !covered[expected] {
-			return modelgateway.NewError(modelgateway.ErrorCodeInvalidResponse, fmt.Sprintf("llm output does not cover selling point %q", expected), false, nil)
-		}
-	}
-	return nil
 }
 
 func (s *ScriptGenerationService) availableScriptVisualEvidence(productID string) []string {

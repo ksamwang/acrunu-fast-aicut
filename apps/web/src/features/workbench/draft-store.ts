@@ -12,6 +12,7 @@ const emptyDraft: WorkbenchDraft = {
   subtitle_preset_id: "",
   variant_count: 3,
   target_duration_seconds: 30,
+  temperature: 0.75,
   variants: [],
   active_variant_id: ""
 };
@@ -38,6 +39,7 @@ export function loadWorkbenchDraft(): WorkbenchDraft {
   const sourceKey = hasCurrentDraft ? draftStorageKey : legacyDraftStorageKey;
   const draft = { ...emptyDraft, ...readJSON<Partial<WorkbenchDraft>>(sourceKey, emptyDraft) };
   draft.target_duration_seconds = normalizeTargetDuration(draft.target_duration_seconds);
+  draft.temperature = normalizeTemperature(draft.temperature);
   draft.variants = (draft.variants ?? []).map(normalizeVariant);
   if (!draft.script_generation?.job_id || !draft.script_generation.base_revision) {
     delete draft.script_generation;
@@ -50,6 +52,10 @@ export function loadWorkbenchDraft(): WorkbenchDraft {
 
 function normalizeTargetDuration(value: number): ScriptTargetDuration {
   return value === 15 || value === 20 || value === 30 || value === 45 || value === 60 ? value : 30;
+}
+
+function normalizeTemperature(value: number): number {
+  return Number.isFinite(value) && value >= 0 && value <= 2 ? value : 0.75;
 }
 
 function normalizeVariant(variant: ScriptVariant): ScriptVariant {

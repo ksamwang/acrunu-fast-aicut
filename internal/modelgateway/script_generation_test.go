@@ -20,20 +20,24 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 		AvailableVisualEvidence: []string{"动作：双手压紧魔术贴完成固定"},
 		SellingPoints:           []ScriptGenerationSellingPoint{{Name: "魔术贴固定"}},
 	})
-	if bundle.Version != "workbench-script-v8" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
+	if bundle.Version != "workbench-script-v10" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
 		t.Fatalf("unexpected copy prompt bundle %#v", bundle)
 	}
 	prompt := bundle.Prompts[0].System + " " + bundle.Prompts[0].User
 	for _, expected := range []string{
-		"商品信息流口播", "selected_selling_points", "recommended_spoken_character_range",
-		"111", "127", "还在找好用的骑行车头包", "不限制每条卖点数量", "唯一允许使用的商品事实",
-		"事实边界", "促进血液循环", "不要求采用不同广告角度", "允许不同 variant 使用相同 angle", "允许明显短于目标",
+		"精通抖音信息流广告的口播策划师", "selected_selling_points", "recommended_spoken_character_range",
+		"111", "127", "每个版本必须实际表达全部输入卖点", "第一段：黄金开头",
+		"第二段：产品解决方案", "第三段：结果与收束", "具体功能或操作 + 直接结果",
+		"target_duration_seconds 是实际篇幅目标", "所有参数、材质、效果和场景必须来自输入事实",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected copy prompt to contain %q, got %s", expected, prompt)
 		}
 	}
-	for _, forbidden := range []string{"preferred_estimated_duration_seconds", "maximum_selling_points_per_variant", "semantic_clause_range", "不要把一条文案写成完整功能清单"} {
+	for _, forbidden := range []string{
+		"preferred_estimated_duration_seconds", "maximum_selling_points_per_variant", "semantic_clause_range",
+		"还在找好用的骑行车头包", "促进血液循环", "允许明显短于目标", "全部 variants 合计必须覆盖",
+	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("copy prompt must not contain legacy restriction %q: %s", forbidden, prompt)
 		}
@@ -73,6 +77,7 @@ func TestBuildScriptVisualIntentPromptUsesApprovedCopyAndEvidence(t *testing.T) 
 func TestOpenAICompatibleScriptGeneratorUsesSeparatedCopyAndVisualRequests(t *testing.T) {
 	requests := 0
 	copyRequests := 0
+	requestedTemperature := 1.35
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		if r.URL.Path != "/v1/chat/completions" {
@@ -100,12 +105,22 @@ func TestOpenAICompatibleScriptGeneratorUsesSeparatedCopyAndVisualRequests(t *te
 		userMessage := stringifyChatMessage(messages[1])
 		var content []byte
 		if strings.Contains(userMessage, "approved_copy_variants") {
+			if request["temperature"] != 0.3 {
+				t.Fatalf("visual planning must use fixed temperature 0.3, got %#v", request["temperature"])
+			}
 			if !strings.Contains(userMessage, "available_visual_evidence") || !strings.Contains(userMessage, validScriptCopyResult().Variants[0].ScriptText) {
 				t.Fatalf("visual request is missing approved copy or evidence: %s", userMessage)
 			}
 			content, _ = json.Marshal(validScriptVisualIntentResult())
 		} else {
 			copyRequests++
+			expectedTemperature := requestedTemperature
+			if copyRequests > 1 {
+				expectedTemperature = 0.2
+			}
+			if request["temperature"] != expectedTemperature {
+				t.Fatalf("unexpected copy request temperature: got %#v want %v", request["temperature"], expectedTemperature)
+			}
 			if strings.Contains(userMessage, "available_visual_evidence") || strings.Contains(userMessage, "双手将束裤带") {
 				t.Fatalf("copy request leaked raw visual evidence: %s", userMessage)
 			}
@@ -135,6 +150,7 @@ func TestOpenAICompatibleScriptGeneratorUsesSeparatedCopyAndVisualRequests(t *te
 		ProductName:             "束裤带",
 		VariantCount:            1,
 		TargetDurationSeconds:   15,
+		Temperature:             &requestedTemperature,
 		AvailableVisualEvidence: []string{"动作：双手将束裤带绕过脚踝并压紧魔术贴"},
 		SellingPoints:           []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
 	})
@@ -302,6 +318,10 @@ func TestMergeScriptCopyQualityRepairKeepsQualifiedVariantsUnchanged(t *testing.
 		scriptCopyResultWithBodyLength(1, "骑行裤脚安全", "骑车裤脚容易蹭到链条", "避免蹭链条", "牢", 40).Variants[0],
 		scriptCopyResultWithBodyLength(2, "被模型改写的合格版本", "模型改写了本来合格的版本", "方便收纳", "改", 185).Variants[0],
 	}}
+	for index := range original.Variants {
+		original.Variants[index].SelectedSellingPoints = []string{"避免蹭链条", "方便收纳"}
+		repaired.Variants[index].SelectedSellingPoints = []string{"避免蹭链条", "方便收纳"}
+	}
 	if issues := validateScriptCopyVariantQualityIssues(1, original.Variants[0], input); !strings.Contains(strings.Join(issues, "; "), "production-direction") {
 		t.Fatalf("first original variant must require production-direction repair, got %#v", issues)
 	}
@@ -383,6 +403,22 @@ func TestValidateScriptCopyResultAllowsRepeatedAngles(t *testing.T) {
 	}
 }
 
+func TestValidateScriptCopyResultDoesNotFailOnSellingPointCoverage(t *testing.T) {
+	input := ScriptGenerationInput{
+		VariantCount:          2,
+		TargetDurationSeconds: 30,
+		SellingPoints: []ScriptGenerationSellingPoint{
+			{Name: "避免蹭链条"},
+			{Name: "方便收纳"},
+		},
+	}
+	first := scriptCopyResultWithBodyLength(1, "固定裤脚", "骑车时裤脚容易靠近链条", "避免蹭链条", "稳", 40).Variants[0]
+	second := scriptCopyResultWithBodyLength(2, "便携收纳", "骑完以后束裤带可以轻松收好", "方便收纳", "收", 40).Variants[0]
+	if err := ValidateScriptCopyResult(ScriptCopyResult{Variants: []ScriptCopyVariant{first, second}}, input); err != nil {
+		t.Fatalf("selling point coverage must remain a prompt instruction rather than a hard validation: %v", err)
+	}
+}
+
 func TestDenseProductPitchSupportsAllSellingPointsAndVisualBeats(t *testing.T) {
 	input, copies := denseHandlebarBagCopyFixture()
 	if err := ValidateScriptCopyResult(copies, input); err != nil {
@@ -433,6 +469,15 @@ func TestValidateScriptVisualIntentRejectsSellingPointOutsideApprovedCopy(t *tes
 	}
 }
 
+func TestValidateScriptVisualIntentDoesNotFailOnSellingPointCoverage(t *testing.T) {
+	copies := validScriptCopyResult()
+	copies.Variants[0].SelectedSellingPoints = []string{"避免蹭链条", "方便收纳"}
+	visuals := validScriptVisualIntentResult()
+	if err := ValidateScriptVisualIntentResult(visuals, copies, ScriptGenerationInput{TargetDurationSeconds: 15}); err != nil {
+		t.Fatalf("visual selling point coverage must remain a prompt instruction rather than a hard validation: %v", err)
+	}
+}
+
 func TestScriptVisualIntentBeatCountIsNotAHardValidationRule(t *testing.T) {
 	input := ScriptGenerationInput{
 		VariantCount:          1,
@@ -454,7 +499,7 @@ func TestScriptVisualIntentBeatCountIsNotAHardValidationRule(t *testing.T) {
 	}
 }
 
-func TestValidateScriptGenerationResultRejectsUnsupportedAndMissingSellingPoints(t *testing.T) {
+func TestValidateScriptGenerationResultRejectsUnsupportedSellingPoints(t *testing.T) {
 	result := validGatewayScriptResult()
 	for index := range result.Variants[0].Beats {
 		result.Variants[0].Beats[index].SellingPoint = "模型自造卖点"
@@ -464,8 +509,56 @@ func TestValidateScriptGenerationResultRejectsUnsupportedAndMissingSellingPoints
 		TargetDurationSeconds: 15,
 		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "unsupported selling_point") || !strings.Contains(err.Error(), "does not cover selling_point") {
-		t.Fatalf("expected selling point validation errors, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "unsupported selling_point") {
+		t.Fatalf("expected unsupported selling point validation error, got %v", err)
+	}
+	if strings.Contains(err.Error(), "does not cover selling_point") {
+		t.Fatalf("selling point coverage must not be a hard validation: %v", err)
+	}
+}
+
+func TestValidateScriptGenerationResultDoesNotFailOnSellingPointCoverage(t *testing.T) {
+	makeVariant := func(hook string, fill string, sellingPoint string) ScriptGenerationVariant {
+		return ScriptGenerationVariant{
+			Hook:          hook,
+			ScriptText:    hook + "，" + strings.Repeat(fill, 40) + "。",
+			EditingIntent: "直接呈现对应产品卖点。",
+			Beats: []ScriptGenerationBeat{{
+				Label:        sellingPoint,
+				SellingPoint: sellingPoint,
+				VisualGoal:   "双手操作产品并展示使用状态",
+				SourceType:   TTSVisualSourceType,
+			}},
+		}
+	}
+	result := ScriptGenerationResult{Variants: []ScriptGenerationVariant{
+		makeVariant("骑车时裤脚容易靠近链条", "稳", "避免蹭链条"),
+		makeVariant("骑完以后束裤带可以轻松收好", "收", "方便收纳"),
+	}}
+	if err := ValidateScriptGenerationResult(result, ScriptGenerationInput{
+		VariantCount:          2,
+		TargetDurationSeconds: 30,
+		SellingPoints: []ScriptGenerationSellingPoint{
+			{Name: "避免蹭链条"},
+			{Name: "方便收纳"},
+		},
+	}); err != nil {
+		t.Fatalf("selling point coverage must remain a prompt instruction rather than a hard validation: %v", err)
+	}
+}
+
+func TestNormalizeScriptGenerationTemperature(t *testing.T) {
+	if value, ok := NormalizeScriptGenerationTemperature(nil); !ok || value != DefaultScriptGenerationTemperature {
+		t.Fatalf("expected omitted temperature to default to %v, got %v valid=%v", DefaultScriptGenerationTemperature, value, ok)
+	}
+	zero := 0.0
+	if value, ok := NormalizeScriptGenerationTemperature(&zero); !ok || value != 0 {
+		t.Fatalf("expected explicit zero temperature to remain valid, got %v valid=%v", value, ok)
+	}
+	for _, invalid := range []float64{-0.01, 2.01} {
+		if _, ok := NormalizeScriptGenerationTemperature(&invalid); ok {
+			t.Fatalf("expected temperature %v to be rejected", invalid)
+		}
 	}
 }
 

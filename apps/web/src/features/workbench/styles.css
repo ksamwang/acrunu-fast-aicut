@@ -20,7 +20,7 @@
 
 .workbench-brief {
   display: grid;
-  grid-template-columns: minmax(140px, 0.68fr) minmax(180px, 0.94fr) minmax(175px, 0.9fr) 64px 86px 118px minmax(160px, 0.78fr) minmax(175px, 0.82fr) auto;
+  grid-template-columns: minmax(140px, 0.68fr) minmax(180px, 0.94fr) minmax(175px, 0.9fr) 64px 86px 72px 118px minmax(160px, 0.78fr) minmax(175px, 0.82fr) auto;
   gap: 12px;
   align-items: start;
   padding: 14px 16px;

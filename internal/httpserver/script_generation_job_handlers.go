@@ -16,6 +16,7 @@ type createScriptGenerationJobRequest struct {
 	CustomSellingPoints   []string `json:"custom_selling_points"`
 	VariantCount          int      `json:"variant_count"`
 	TargetDurationSeconds int      `json:"target_duration_seconds"`
+	Temperature           *float64 `json:"temperature"`
 	Mode                  string   `json:"mode"`
 	TargetVariantID       string   `json:"target_variant_id"`
 	BaseRevision          string   `json:"base_revision"`
@@ -47,6 +48,7 @@ func (s *Server) handleCreateScriptGenerationJob(c *gin.Context) {
 			CustomSellingPoints:   request.CustomSellingPoints,
 			VariantCount:          request.VariantCount,
 			TargetDurationSeconds: request.TargetDurationSeconds,
+			Temperature:           request.Temperature,
 		},
 	})
 	if err != nil {

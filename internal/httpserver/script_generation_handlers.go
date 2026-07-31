@@ -15,6 +15,7 @@ type generateWorkbenchScriptsRequest struct {
 	CustomSellingPoints   []string `json:"custom_selling_points"`
 	VariantCount          int      `json:"variant_count"`
 	TargetDurationSeconds int      `json:"target_duration_seconds"`
+	Temperature           *float64 `json:"temperature"`
 }
 
 func (s *Server) handleGenerateWorkbenchScripts(c *gin.Context) {
@@ -29,6 +30,7 @@ func (s *Server) handleGenerateWorkbenchScripts(c *gin.Context) {
 		CustomSellingPoints:   request.CustomSellingPoints,
 		VariantCount:          request.VariantCount,
 		TargetDurationSeconds: request.TargetDurationSeconds,
+		Temperature:           request.Temperature,
 	})
 	if err != nil {
 		handleScriptGenerationError(c, err)

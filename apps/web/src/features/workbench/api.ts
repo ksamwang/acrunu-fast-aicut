@@ -16,6 +16,7 @@ type GenerateWorkbenchScriptsInput = {
   custom_selling_points: string[];
   variant_count: number;
   target_duration_seconds: ScriptGenerationJobInput["target_duration_seconds"];
+  temperature: number;
 };
 
 export function generateWorkbenchScripts(input: GenerateWorkbenchScriptsInput, token: string) {

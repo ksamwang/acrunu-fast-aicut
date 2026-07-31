@@ -587,6 +587,10 @@ func containsString(values []string, target string) bool {
 func cloneWorkbenchScriptGenerationInput(input WorkbenchScriptGenerationInput) WorkbenchScriptGenerationInput {
 	input.SellingPointIDs = append([]string(nil), input.SellingPointIDs...)
 	input.CustomSellingPoints = append([]string(nil), input.CustomSellingPoints...)
+	if input.Temperature != nil {
+		value := *input.Temperature
+		input.Temperature = &value
+	}
 	return input
 }
 

@@ -38,10 +38,11 @@ func TestScriptGenerationJobHandlersCreateRecoverCancelAndIsolate(t *testing.T) 
 		"custom_selling_points":[],
 		"variant_count":1,
 		"target_duration_seconds":45,
+		"temperature":1.2,
 		"mode":"replace_all",
 		"base_revision":"draft-v1"
 	}`, http.StatusCreated)
-	if created.ID == "" || created.Status != services.ScriptGenerationJobStatusQueued || created.BaseRevision != "draft-v1" || created.Input.TargetDurationSeconds != 45 {
+	if created.ID == "" || created.Status != services.ScriptGenerationJobStatusQueued || created.BaseRevision != "draft-v1" || created.Input.TargetDurationSeconds != 45 || created.Input.Temperature == nil || *created.Input.Temperature != 1.2 {
 		t.Fatalf("unexpected created job %#v", created)
 	}
 

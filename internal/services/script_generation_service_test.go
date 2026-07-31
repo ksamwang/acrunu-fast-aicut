@@ -56,7 +56,7 @@ func TestScriptGenerationServiceUsesStoredProductAndSellingPoints(t *testing.T) 
 	if err != nil {
 		t.Fatalf("generate scripts: %v", err)
 	}
-	if generator.input.ProductName != product.Name || len(generator.input.SellingPoints) != 2 || generator.input.TargetDurationSeconds != 30 {
+	if generator.input.ProductName != product.Name || len(generator.input.SellingPoints) != 2 || generator.input.TargetDurationSeconds != 30 || generator.input.Temperature == nil || *generator.input.Temperature != modelgateway.DefaultScriptGenerationTemperature {
 		t.Fatalf("unexpected generator input %#v", generator.input)
 	}
 	if len(generator.input.AvailableVisualEvidence) != 1 || !strings.Contains(generator.input.AvailableVisualEvidence[0], "压紧束裤带魔术贴") {
@@ -90,6 +90,46 @@ func TestScriptGenerationServiceRejectsUnsupportedTargetDuration(t *testing.T) {
 	})
 	if !errors.Is(err, ErrScriptGenerationInput) {
 		t.Fatalf("expected invalid target duration error, got %v", err)
+	}
+}
+
+func TestScriptGenerationServicePreservesExplicitZeroTemperature(t *testing.T) {
+	products := NewProductAssetService()
+	product := products.CreateProduct(CreateProductInput{Name: "束裤带"})
+	zero := 0.0
+	generator := &recordingScriptGenerator{result: validScriptGenerationResult("避免蹭链条", "避免蹭链条")}
+	service := NewScriptGenerationService(products, NewSystemConfigService(), NewModelProviderService(), config.Config{}).WithGenerator(generator)
+
+	_, err := service.Generate(context.Background(), WorkbenchScriptGenerationInput{
+		ProductID:           product.ID,
+		CustomSellingPoints: []string{"避免蹭链条"},
+		VariantCount:        1,
+		Temperature:         &zero,
+	})
+	if err != nil {
+		t.Fatalf("explicit zero temperature must be accepted: %v", err)
+	}
+	if generator.input.Temperature == nil || *generator.input.Temperature != 0 {
+		t.Fatalf("expected explicit zero temperature to reach generator, got %#v", generator.input.Temperature)
+	}
+}
+
+func TestScriptGenerationServiceRejectsOutOfRangeTemperature(t *testing.T) {
+	products := NewProductAssetService()
+	product := products.CreateProduct(CreateProductInput{Name: "束裤带"})
+	invalid := 2.01
+	service := NewScriptGenerationService(products, NewSystemConfigService(), NewModelProviderService(), config.Config{}).WithGenerator(
+		&recordingScriptGenerator{result: validScriptGenerationResult("避免蹭链条", "避免蹭链条")},
+	)
+
+	_, err := service.Generate(context.Background(), WorkbenchScriptGenerationInput{
+		ProductID:           product.ID,
+		CustomSellingPoints: []string{"避免蹭链条"},
+		VariantCount:        1,
+		Temperature:         &invalid,
+	})
+	if !errors.Is(err, ErrScriptGenerationInput) {
+		t.Fatalf("expected invalid temperature error, got %v", err)
 	}
 }
 
@@ -130,7 +170,7 @@ func TestScriptGenerationServiceRejectsUnavailableSellingPoint(t *testing.T) {
 	}
 }
 
-func TestScriptGenerationServiceRejectsMissingSellingPointCoverage(t *testing.T) {
+func TestScriptGenerationServiceRejectsUnsupportedGeneratedSellingPoint(t *testing.T) {
 	products := NewProductAssetService()
 	product := products.CreateProduct(CreateProductInput{Name: "束裤带"})
 	point, err := products.CreateSellingPoint(product.ID, CreateSellingPointInput{Title: "避免蹭链条", Priority: 1})

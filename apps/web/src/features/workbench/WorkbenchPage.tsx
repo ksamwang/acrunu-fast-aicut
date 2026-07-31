@@ -67,6 +67,7 @@ function workbenchDraftRevision(draft: WorkbenchDraft) {
     custom_selling_points: draft.custom_selling_points,
     variant_count: draft.variant_count,
     target_duration_seconds: draft.target_duration_seconds,
+    temperature: draft.temperature,
     variants: draft.variants.map((variant) => ({
       id: variant.id,
       order: variant.order,
@@ -146,6 +147,7 @@ function applyScriptGenerationResult(
     custom_selling_points: strategy === "replace" ? [...job.input.custom_selling_points] : draft.custom_selling_points,
     variant_count: strategy === "replace" && job.mode === "replace_all" ? job.input.variant_count : draft.variant_count,
     target_duration_seconds: strategy === "replace" ? (job.input.target_duration_seconds ?? 30) : draft.target_duration_seconds,
+    temperature: strategy === "replace" ? (job.input.temperature ?? 0.75) : draft.temperature,
     variants,
     active_variant_id: activeVariantID,
     script_generation: {
@@ -507,7 +509,8 @@ export function WorkbenchPage({ token }: { token: string }) {
       selling_point_ids: current.selling_point_ids,
       custom_selling_points: current.custom_selling_points,
       variant_count: mode === "replace_variant" ? 1 : current.variant_count,
-      target_duration_seconds: current.target_duration_seconds
+      target_duration_seconds: current.target_duration_seconds,
+      temperature: current.temperature
     };
     const baseRevision = workbenchDraftRevision(current);
     setCreatingScriptGeneration({ mode, target_variant_id: targetVariantID });
@@ -849,6 +852,18 @@ export function WorkbenchPage({ token }: { token: string }) {
             value={draft.target_duration_seconds}
             options={[15, 20, 30, 45, 60].map((seconds) => ({ value: seconds as ScriptTargetDuration, label: `${seconds} 秒` }))}
             onChange={(targetDuration) => setDraft((current) => ({ ...current, target_duration_seconds: targetDuration }))}
+          />
+        </div>
+        <div className="workbench-field workbench-temperature-field">
+          <Typography.Text className="workbench-field-label">温度</Typography.Text>
+          <InputNumber
+            data-testid="workbench-temperature"
+            min={0}
+            max={2}
+            step={0.1}
+            precision={2}
+            value={draft.temperature}
+            onChange={(value) => setDraft((current) => ({ ...current, temperature: Number(value ?? 0.75) }))}
           />
         </div>
         <div className="workbench-field workbench-ratio-field">

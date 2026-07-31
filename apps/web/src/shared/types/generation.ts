@@ -72,6 +72,7 @@ export type ScriptGenerationJobInput = {
   custom_selling_points: string[];
   variant_count: number;
   target_duration_seconds: ScriptTargetDuration;
+  temperature: number;
 };
 
 export type ScriptGenerationJob = {
@@ -107,6 +108,7 @@ export type WorkbenchDraft = {
   subtitle_preset_id: string;
   variant_count: number;
   target_duration_seconds: ScriptTargetDuration;
+  temperature: number;
   variants: ScriptVariant[];
   active_variant_id: string;
   script_generation?: ScriptGenerationJobReference;

@@ -45,6 +45,9 @@ func TestScriptGenerationJobLifecyclePersistsResult(t *testing.T) {
 	service, product, point := newScriptGenerationJobTestService(t, generator)
 	userID := uuid.NewString()
 	job := createScriptGenerationJobForTest(t, service, userID, product, point)
+	if job.Input.Temperature == nil || *job.Input.Temperature != modelgateway.DefaultScriptGenerationTemperature {
+		t.Fatalf("expected job input to persist default temperature, got %#v", job.Input.Temperature)
+	}
 
 	if err := service.Process(context.Background(), job.ID); err != nil {
 		t.Fatalf("process script generation job: %v", err)

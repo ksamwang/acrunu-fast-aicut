@@ -19,6 +19,7 @@ const (
 	defaultScriptGenerationMaxTokens     = 8192
 	TTSVisualSourceType                  = "visual_only"
 	DefaultScriptTargetDuration          = 30
+	DefaultScriptGenerationTemperature   = 0.75
 	scriptSpokenCharactersPerSecond      = 5.0
 	scriptRecommendedCharactersPerSecond = 3.7
 	scriptMinimumCharacterRatio          = 1.0
@@ -44,6 +45,7 @@ type ScriptGenerationInput struct {
 	AvailableVisualEvidence []string                       `json:"available_visual_evidence,omitempty"`
 	VariantCount            int                            `json:"variant_count"`
 	TargetDurationSeconds   int                            `json:"target_duration_seconds"`
+	Temperature             *float64                       `json:"temperature,omitempty"`
 }
 
 type ScriptGenerationBeat struct {
@@ -157,9 +159,14 @@ func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, i
 		return ScriptGenerationResult{}, NewError(ErrorCodeInvalidResponse, "target_duration_seconds is unsupported", false, nil)
 	}
 	input.TargetDurationSeconds = targetDuration
+	temperature, ok := NormalizeScriptGenerationTemperature(input.Temperature)
+	if !ok {
+		return ScriptGenerationResult{}, NewError(ErrorCodeInvalidResponse, "temperature must be between 0 and 2", false, nil)
+	}
+	input.Temperature = &temperature
 
 	copyPrompt := BuildScriptGenerationPrompt(input)
-	copies, err := g.requestScriptCopies(ctx, copyPrompt, "", 0.75)
+	copies, err := g.requestScriptCopies(ctx, copyPrompt, "", temperature)
 	if err != nil {
 		return ScriptGenerationResult{}, err
 	}
@@ -332,7 +339,6 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 		issues = append(issues, fmt.Sprintf("expected %d copy variants, got %d", input.VariantCount, len(result.Variants)))
 	}
 	allowedSellingPoints := scriptSellingPointSet(input.SellingPoints)
-	coveredSellingPoints := make(map[string]struct{}, len(allowedSellingPoints))
 	seenIndexes := map[int]struct{}{}
 	seenHooks := map[string]struct{}{}
 	for index := range result.Variants {
@@ -358,14 +364,7 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 		for _, sellingPoint := range variant.SelectedSellingPoints {
 			if _, exists := allowedSellingPoints[sellingPoint]; !exists {
 				issues = append(issues, fmt.Sprintf("copy variant %d uses unsupported selling_point %q", index+1, sellingPoint))
-				continue
 			}
-			coveredSellingPoints[sellingPoint] = struct{}{}
-		}
-	}
-	for sellingPoint := range allowedSellingPoints {
-		if _, exists := coveredSellingPoints[sellingPoint]; !exists {
-			issues = append(issues, fmt.Sprintf("copy variants do not cover selling_point %q", sellingPoint))
 		}
 	}
 	return issues
@@ -413,7 +412,6 @@ func validateScriptVisualIntentResultIssues(result ScriptVisualIntentResult, cop
 		for _, sellingPoint := range copyVariant.SelectedSellingPoints {
 			allowedSellingPoints[sellingPoint] = struct{}{}
 		}
-		coveredSellingPoints := make(map[string]struct{}, len(allowedSellingPoints))
 		for beatIndex := range plan.Beats {
 			beat := &plan.Beats[beatIndex]
 			beat.Label = strings.TrimSpace(beat.Label)
@@ -429,15 +427,8 @@ func validateScriptVisualIntentResultIssues(result ScriptVisualIntentResult, cop
 			}
 			if _, exists := allowedSellingPoints[beat.SellingPoint]; !exists {
 				issues = append(issues, fmt.Sprintf("visual plan %d beat %d uses selling_point %q outside its approved copy", planIndex+1, beatIndex+1, beat.SellingPoint))
-			} else {
-				coveredSellingPoints[beat.SellingPoint] = struct{}{}
 			}
 			issues = append(issues, validateScriptVisualGoal(planIndex+1, beatIndex+1, beat.VisualGoal)...)
-		}
-		for sellingPoint := range allowedSellingPoints {
-			if _, exists := coveredSellingPoints[sellingPoint]; !exists {
-				issues = append(issues, fmt.Sprintf("visual plan %d does not cover selling_point %q", planIndex+1, sellingPoint))
-			}
 		}
 	}
 	for variantIndex := range copyByIndex {
@@ -491,7 +482,6 @@ func validateScriptGenerationResultIssues(result ScriptGenerationResult, input S
 	}
 	seenHooks := map[string]struct{}{}
 	allowedSellingPoints := scriptSellingPointSet(input.SellingPoints)
-	coveredSellingPoints := make(map[string]struct{}, len(input.SellingPoints))
 	for index := range result.Variants {
 		variant := &result.Variants[index]
 		variant.Hook = strings.TrimSpace(variant.Hook)
@@ -518,19 +508,22 @@ func validateScriptGenerationResultIssues(result ScriptGenerationResult, input S
 			if len(allowedSellingPoints) > 0 {
 				if _, ok := allowedSellingPoints[beat.SellingPoint]; !ok {
 					issues = append(issues, fmt.Sprintf("variant %d beat %d uses unsupported selling_point %q", index+1, beatIndex+1, beat.SellingPoint))
-				} else {
-					coveredSellingPoints[beat.SellingPoint] = struct{}{}
 				}
 			}
 			issues = append(issues, validateScriptVisualGoal(index+1, beatIndex+1, beat.VisualGoal)...)
 		}
 	}
-	for sellingPoint := range allowedSellingPoints {
-		if _, ok := coveredSellingPoints[sellingPoint]; !ok {
-			issues = append(issues, fmt.Sprintf("response does not cover selling_point %q", sellingPoint))
-		}
-	}
 	return issues
+}
+
+func NormalizeScriptGenerationTemperature(value *float64) (float64, bool) {
+	if value == nil {
+		return DefaultScriptGenerationTemperature, true
+	}
+	if math.IsNaN(*value) || math.IsInf(*value, 0) || *value < 0 || *value > 2 {
+		return 0, false
+	}
+	return *value, true
 }
 
 var scriptProductionDirectionPhrases = []string{

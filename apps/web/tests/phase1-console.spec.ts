@@ -464,7 +464,8 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
             selling_point_ids: body.selling_point_ids,
             custom_selling_points: body.custom_selling_points,
             variant_count: body.variant_count,
-            target_duration_seconds: body.target_duration_seconds
+            target_duration_seconds: body.target_duration_seconds,
+            temperature: body.temperature
           },
           result_variants: [{
             id: `script-generated-${scriptGenerationSequence}`,
@@ -1329,12 +1330,16 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
 
   await expect(page.getByTestId("workbench-generate")).toBeEnabled();
   await expect(page.getByTestId("workbench-target-duration")).toContainText("30 秒");
+  const temperatureInput = page.locator('input[data-testid="workbench-temperature"], [data-testid="workbench-temperature"] input');
+  await temperatureInput.fill("1.1");
   await page.getByTestId("workbench-generate").click();
   expect(scriptGenerationJob?.input.target_duration_seconds).toBe(30);
+  expect(scriptGenerationJob?.input.temperature).toBe(1.1);
   await expect(page.getByTestId("workbench-generation-job")).toContainText("正在后台生成文案");
   await page.getByRole("menuitem", { name: "成品库" }).click();
   await page.reload();
   await page.getByRole("menuitem", { name: "工作台" }).click();
+  await expect(temperatureInput).toHaveValue(/1\.1/);
   await expect(page.getByText("文案 01")).toBeVisible();
   await page.getByRole("button", { name: "重新生成当前文案" }).click();
   await expect(page.getByTestId("workbench-generation-job")).toContainText("正在重新生成当前文案");
