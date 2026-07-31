@@ -414,16 +414,28 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 	}
 }
 
-func TestSelectPlannerAssetCandidatesAppliesDurationBeforeFivePointBand(t *testing.T) {
+func TestSelectPlannerAssetCandidatesAppliesDurationBeforeAbsoluteThreshold(t *testing.T) {
 	candidates := []AssetCandidate{
 		{AssetID: "too-short", SourceOutMs: 799, SemanticScore: 0.95},
 		{AssetID: "top", SourceOutMs: 1000, SemanticScore: 0.80},
-		{AssetID: "boundary", SourceOutMs: 1000, SemanticScore: 0.75},
-		{AssetID: "outside", SourceOutMs: 1000, SemanticScore: 0.749},
+		{AssetID: "boundary", SourceOutMs: 1000, SemanticScore: 0.76},
+		{AssetID: "outside", SourceOutMs: 1000, SemanticScore: 0.759},
 	}
 	selected := selectPlannerAssetCandidates(candidates, 800, 1)
 	if len(selected) != 2 || selected[0].AssetID != "top" || selected[1].AssetID != "boundary" {
-		t.Fatalf("expected duration-aware [0.75, 0.80] semantic band, got %#v", selected)
+		t.Fatalf("expected candidates at or above the 0.76 threshold, got %#v", selected)
+	}
+}
+
+func TestSelectPlannerAssetCandidatesFallsBackToTopScoreBelowThreshold(t *testing.T) {
+	candidates := []AssetCandidate{
+		{AssetID: "lower", SourceOutMs: 1000, SemanticScore: 0.72, BatchUseCount: 0},
+		{AssetID: "top-b", SourceOutMs: 1000, SemanticScore: 0.74, BatchUseCount: 1},
+		{AssetID: "top-a", SourceOutMs: 1000, SemanticScore: 0.74, BatchUseCount: 1},
+	}
+	selected := selectPlannerAssetCandidates(candidates, 800, 1)
+	if len(selected) != 2 || selected[0].AssetID != "top-a" || selected[1].AssetID != "top-b" {
+		t.Fatalf("expected only the tied top-score fallback candidates, got %#v", selected)
 	}
 }
 
@@ -518,7 +530,7 @@ func TestBuildPlannerInputFallsBackWhenToleranceBreaksUniqueAssignment(t *testin
 			Requirement: ShotRequirement{VisualBeatID: "visual-action", NarrationSegmentID: "narration-action", StartMs: 0, EndMs: 2800, DurationClass: VisualBeatDurationAction, NarrationText: "完整动作。", VisualGoal: "完整展示动作", SourceType: "visual_only"},
 			Candidates: []AssetCandidate{
 				{AssetID: "asset-shared", SourceType: "visual_only", SourceOutMs: 2700, SemanticScore: 0.90},
-				{AssetID: "asset-exact", SourceType: "visual_only", SourceOutMs: 2800, SemanticScore: 0.80},
+				{AssetID: "asset-exact", SourceType: "visual_only", SourceOutMs: 2800, SemanticScore: 0.70},
 			},
 		},
 		{

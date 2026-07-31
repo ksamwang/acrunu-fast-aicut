@@ -22,7 +22,7 @@ var (
 const (
 	editPlannerCandidatesPerVisualBeat          = 6
 	maximumPlannerCandidateSemanticSummaryRunes = 120
-	plannerCandidateSemanticScoreBand           = 0.05
+	plannerCandidateMinimumSemanticScore        = 0.76
 )
 
 type GenerateEditPlanInput struct {
@@ -654,32 +654,38 @@ func selectPlannerAssetCandidates(candidates []AssetCandidate, minimumDurationMs
 	if !hasTopScore {
 		return nil
 	}
-	minimumScore := topScore - plannerCandidateSemanticScoreBand
-	band := eligible[:0]
+	pool := eligible[:0]
 	for _, candidate := range eligible {
-		if candidate.SemanticScore+1e-9 >= minimumScore {
-			band = append(band, candidate)
+		if candidate.SemanticScore+1e-9 >= plannerCandidateMinimumSemanticScore {
+			pool = append(pool, candidate)
 		}
 	}
-	sort.SliceStable(band, func(i, j int) bool {
-		if band[i].BatchUseCount != band[j].BatchUseCount {
-			return band[i].BatchUseCount < band[j].BatchUseCount
+	if len(pool) == 0 {
+		for _, candidate := range eligible {
+			if candidate.SemanticScore == topScore {
+				pool = append(pool, candidate)
+			}
 		}
-		if band[i].SemanticScore != band[j].SemanticScore {
-			return band[i].SemanticScore > band[j].SemanticScore
+	}
+	sort.SliceStable(pool, func(i, j int) bool {
+		if pool[i].BatchUseCount != pool[j].BatchUseCount {
+			return pool[i].BatchUseCount < pool[j].BatchUseCount
 		}
-		return band[i].AssetID < band[j].AssetID
+		if pool[i].SemanticScore != pool[j].SemanticScore {
+			return pool[i].SemanticScore > pool[j].SemanticScore
+		}
+		return pool[i].AssetID < pool[j].AssetID
 	})
 	if variantIndex <= 0 {
 		variantIndex = 1
 	}
-	rotated := make([]AssetCandidate, 0, len(band))
-	for start := 0; start < len(band); {
+	rotated := make([]AssetCandidate, 0, len(pool))
+	for start := 0; start < len(pool); {
 		end := start + 1
-		for end < len(band) && band[end].BatchUseCount == band[start].BatchUseCount {
+		for end < len(pool) && pool[end].BatchUseCount == pool[start].BatchUseCount {
 			end++
 		}
-		group := band[start:end]
+		group := pool[start:end]
 		offset := (variantIndex - 1) % len(group)
 		rotated = append(rotated, group[offset:]...)
 		rotated = append(rotated, group[:offset]...)
