@@ -1338,6 +1338,7 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		return err
 	}
 	visualBeats := map[string]VisualBeat{}
+	visualBeatIndexes := map[string]int{}
 	expectedStartMs := 0
 	for index, beat := range plan.VisualBeats {
 		if normalizeID(beat.ID) == "" || normalizeID(beat.NarrationSegmentID) == "" || strings.TrimSpace(beat.Label) == "" || strings.TrimSpace(beat.VisualGoal) == "" {
@@ -1359,12 +1360,17 @@ func validateEditPlanForStorage(plan EditPlan) error {
 			return fmt.Errorf("visual beat %q is repeated", beat.ID)
 		}
 		visualBeats[beat.ID] = beat
+		visualBeatIndexes[beat.ID] = index
 		expectedStartMs = beat.EndMs
 	}
 	clipCounts := make(map[string]int, len(plan.VisualBeats))
 	longestClipByVisualBeat := make(map[string]int, len(plan.VisualBeats))
+	firstClipStartByVisualBeat := make(map[string]int, len(plan.VisualBeats))
+	lastClipEndByVisualBeat := make(map[string]int, len(plan.VisualBeats))
+	earlyTransitionByBoundary := make(map[int]int)
 	usedAssetIDs := make(map[string]int, len(plan.Clips))
 	expectedClipStartMs := 0
+	previousVisualBeatIndex := 0
 	for index, clip := range plan.Clips {
 		assetID := normalizeID(clip.AssetID)
 		if normalizeID(clip.VisualBeatID) == "" || normalizeID(clip.NarrationSegmentID) == "" || assetID == "" {
@@ -1374,13 +1380,34 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		if !exists || beat.NarrationSegmentID != clip.NarrationSegmentID {
 			return fmt.Errorf("clip %d does not match its visual beat", index+1)
 		}
+		beatIndex := visualBeatIndexes[clip.VisualBeatID]
+		if index > 0 && (beatIndex < previousVisualBeatIndex || beatIndex > previousVisualBeatIndex+1) {
+			return fmt.Errorf("clip %d visual beat order is invalid", index+1)
+		}
 		if clip.SourceInMs < 0 || clip.SourceOutMs <= clip.SourceInMs {
 			return fmt.Errorf("clip %d source range is invalid", index+1)
 		}
 		if clip.StartMs != expectedClipStartMs || clip.EndMs <= clip.StartMs || clip.TimelineDurationMs != clip.EndMs-clip.StartMs {
 			return fmt.Errorf("clip %d timeline range is invalid", index+1)
 		}
-		if clip.StartMs < beat.StartMs || clip.EndMs > beat.EndMs {
+		firstClipForBeat := clipCounts[clip.VisualBeatID] == 0
+		if clip.StartMs < beat.StartMs {
+			leadMs := beat.StartMs - clip.StartMs
+			if !firstClipForBeat || beatIndex == 0 || index == 0 || leadMs > modelgateway.MaximumEditPlanEarlyTransitionMs {
+				return fmt.Errorf("clip %d crosses its visual beat boundary", index+1)
+			}
+			previousClip := plan.Clips[index-1]
+			previousBeat := plan.VisualBeats[beatIndex-1]
+			previousShortfallMs := previousBeat.EndMs - previousClip.EndMs
+			if visualBeatIndexes[previousClip.VisualBeatID] != beatIndex-1 || previousShortfallMs != leadMs {
+				return fmt.Errorf("clip %d early start does not match the previous visual beat shortfall", index+1)
+			}
+			if earlyTransitionByBoundary[beatIndex-2] > 0 {
+				return fmt.Errorf("clip %d creates adjacent early transitions", index+1)
+			}
+			earlyTransitionByBoundary[beatIndex-1] = leadMs
+		}
+		if clip.EndMs > beat.EndMs {
 			return fmt.Errorf("clip %d crosses its visual beat boundary", index+1)
 		}
 		if clip.SourceOutMs-clip.SourceInMs != clip.TimelineDurationMs {
@@ -1399,7 +1426,11 @@ func validateEditPlanForStorage(plan EditPlan) error {
 		if clip.SourceType != "visual_only" && clip.SourceType != "talking_head" {
 			return fmt.Errorf("clip %d source type is invalid", index+1)
 		}
+		if firstClipForBeat {
+			firstClipStartByVisualBeat[clip.VisualBeatID] = clip.StartMs
+		}
 		clipCounts[clip.VisualBeatID]++
+		lastClipEndByVisualBeat[clip.VisualBeatID] = clip.EndMs
 		if clip.TimelineDurationMs > longestClipByVisualBeat[clip.VisualBeatID] {
 			longestClipByVisualBeat[clip.VisualBeatID] = clip.TimelineDurationMs
 		}
@@ -1407,17 +1438,27 @@ func validateEditPlanForStorage(plan EditPlan) error {
 			return fmt.Errorf("visual beat %q has too many clips", clip.VisualBeatID)
 		}
 		expectedClipStartMs = clip.EndMs
+		previousVisualBeatIndex = beatIndex
 	}
 	if plan.Status == "ready" {
 		if expectedClipStartMs != expectedStartMs {
 			return fmt.Errorf("clip segments do not cover the visual timeline")
 		}
-		for beatID := range visualBeats {
+		for beatIndex, beat := range plan.VisualBeats {
+			beatID := beat.ID
 			if clipCounts[beatID] == 0 {
 				return fmt.Errorf("visual beat %q has no clips", beatID)
 			}
-			beat := visualBeats[beatID]
-			if beat.DurationClass == VisualBeatDurationAction && longestClipByVisualBeat[beatID] < 2800 {
+			incomingLeadMs := earlyTransitionByBoundary[beatIndex-1]
+			outgoingShortfallMs := earlyTransitionByBoundary[beatIndex]
+			if firstClipStartByVisualBeat[beatID] != beat.StartMs-incomingLeadMs || lastClipEndByVisualBeat[beatID] != beat.EndMs-outgoingShortfallMs {
+				return fmt.Errorf("visual beat %q clip coverage is invalid", beatID)
+			}
+			if beat.DurationClass == VisualBeatDurationAction && longestClipByVisualBeat[beatID] < modelgateway.MinimumActionEditPlanClipDurationMs {
+				minimumEarlyActionDurationMs := modelgateway.MinimumActionEditPlanClipDurationMs - modelgateway.MaximumEditPlanEarlyTransitionMs
+				if clipCounts[beatID] == 1 && outgoingShortfallMs > 0 && longestClipByVisualBeat[beatID] >= minimumEarlyActionDurationMs {
+					continue
+				}
 				return fmt.Errorf("action visual beat %q has no complete action clip", beatID)
 			}
 		}

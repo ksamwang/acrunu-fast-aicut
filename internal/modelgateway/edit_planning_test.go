@@ -213,6 +213,69 @@ func TestValidateEditPlanInputRejectsCandidateShorterThanSlot(t *testing.T) {
 	}
 }
 
+func TestValidateEditPlanResultAcceptsPairedEarlyTransition(t *testing.T) {
+	outgoing := testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 2800)
+	outgoing.DurationClass = VisualDurationClassAction
+	outgoing.Slots[0].Role = EditPlanSlotRoleActionPrimary
+	outgoing.Slots[0].MaximumEarlyEndMs = 100
+	outgoing.Slots[0].Candidates[0].SourceOutMs = 2700
+	incoming := testEditRequirement("visual-2", "narration-2", "s002", "m002", 2800, 4800)
+	incoming.Slots[0].MaximumLeadingExtensionMs = 100
+	incoming.Slots[0].Candidates[0].SourceOutMs = 2100
+
+	err := ValidateEditPlanResult(EditPlanResult{Clips: []EditPlanClipChoice{
+		{SlotID: "s001", CandidateID: "m001"},
+		{SlotID: "s002", CandidateID: "m002"},
+	}}, []EditPlanRequirement{outgoing, incoming})
+	if err != nil {
+		t.Fatalf("expected paired early transition to be valid: %v", err)
+	}
+}
+
+func TestValidateEditPlanInputRejectsMoreThanThreeHundredMillisecondShortfall(t *testing.T) {
+	outgoing := testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 2800)
+	outgoing.DurationClass = VisualDurationClassAction
+	outgoing.Slots[0].Role = EditPlanSlotRoleActionPrimary
+	outgoing.Slots[0].MaximumEarlyEndMs = MaximumEditPlanEarlyTransitionMs
+	outgoing.Slots[0].Candidates[0].SourceOutMs = 2499
+	incoming := testEditRequirement("visual-2", "narration-2", "s002", "m002", 2800, 4800)
+	incoming.Slots[0].MaximumLeadingExtensionMs = MaximumEditPlanEarlyTransitionMs
+	incoming.Slots[0].Candidates[0].SourceOutMs = 2300
+
+	err := validateEditPlanInput(EditPlanInput{ProductName: "束裤带", ScriptText: "展示。", Requirements: []EditPlanRequirement{outgoing, incoming}})
+	if err == nil || !strings.Contains(err.Error(), "cannot cover its duration") {
+		t.Fatalf("expected 301ms shortage to be rejected, got %v", err)
+	}
+}
+
+func TestValidateEditPlanInputRejectsEarlyFinalClip(t *testing.T) {
+	final := testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000)
+	final.Slots[0].MaximumEarlyEndMs = 100
+	final.Slots[0].Candidates[0].SourceOutMs = 900
+	err := validateEditPlanInput(EditPlanInput{ProductName: "束裤带", ScriptText: "展示。", Requirements: []EditPlanRequirement{final}})
+	if err == nil || !strings.Contains(err.Error(), "cannot end early") {
+		t.Fatalf("expected final slot tolerance to be rejected, got %v", err)
+	}
+}
+
+func TestValidateEditPlanInputRejectsAdjacentEarlyTransitions(t *testing.T) {
+	first := testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000)
+	first.Slots[0].MaximumEarlyEndMs = 100
+	first.Slots[0].Candidates[0].SourceOutMs = 900
+	middle := testEditRequirement("visual-2", "narration-2", "s002", "m002", 1000, 3000)
+	middle.Slots = []EditPlanSlot{
+		{ID: "s002", StartMs: 1000, EndMs: 2000, DurationMs: 1000, Role: EditPlanSlotRolePrimary, MaximumLeadingExtensionMs: 100, Candidates: []EditPlanCandidate{{ID: "m002", SourceOutMs: 1100}}},
+		{ID: "s003", StartMs: 2000, EndMs: 3000, DurationMs: 1000, Role: EditPlanSlotRoleSupport, MaximumEarlyEndMs: 100, Candidates: []EditPlanCandidate{{ID: "m003", SourceOutMs: 900}}},
+	}
+	last := testEditRequirement("visual-3", "narration-3", "s004", "m004", 3000, 4000)
+	last.Slots[0].MaximumLeadingExtensionMs = 100
+	last.Slots[0].Candidates[0].SourceOutMs = 1100
+	err := validateEditPlanInput(EditPlanInput{ProductName: "束裤带", ScriptText: "展示。", Requirements: []EditPlanRequirement{first, middle, last}})
+	if err == nil || !strings.Contains(err.Error(), "adjacent visual beat boundaries") {
+		t.Fatalf("expected adjacent early transitions to be rejected, got %v", err)
+	}
+}
+
 func testEditRequirement(visualBeatID string, narrationID string, slotID string, candidateID string, startMs int, endMs int) EditPlanRequirement {
 	return EditPlanRequirement{
 		VisualBeatID: visualBeatID, NarrationSegmentID: narrationID, StartMs: startMs, EndMs: endMs,

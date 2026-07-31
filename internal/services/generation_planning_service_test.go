@@ -19,15 +19,19 @@ type planningCandidateStore struct {
 func (s *planningCandidateStore) SearchCandidates(_ context.Context, input CandidateSearchInput) ([]AssetCandidate, error) {
 	s.call++
 	s.inputs = append(s.inputs, input)
+	assetIndex := 1
+	if input.MinimumDurationMs >= modelgateway.MinimumActionEditPlanClipDurationMs {
+		assetIndex = 2
+	}
 	return []AssetCandidate{{
-		ID:                      fmt.Sprintf("candidate-%d", s.call),
-		AssetID:                 fmt.Sprintf("asset-%d", s.call),
+		ID:                      fmt.Sprintf("candidate-%d", assetIndex),
+		AssetID:                 fmt.Sprintf("asset-%d", assetIndex),
 		ObjectType:              "shot",
 		SourceType:              "visual_only",
 		SourceInMs:              0,
 		SourceOutMs:             10_000,
 		AssetDurationMs:         10_000,
-		DefaultUseOriginalAudio: s.call == 2,
+		DefaultUseOriginalAudio: assetIndex == 2,
 		SemanticScore:           0.9,
 	}}, nil
 }
@@ -224,12 +228,12 @@ func TestGenerationPlanningServicePersistsMultiClipNarrationPlan(t *testing.T) {
 	if plan.Clips[0].AssetID != "asset-1" || plan.Clips[1].AssetID != "asset-2" || !plan.Clips[1].UseOriginalAudio {
 		t.Fatalf("candidate mapping or audio policy was not retained %#v", plan.Clips)
 	}
-	if len(store.inputs) != 2 {
-		t.Fatalf("expected one candidate query per visual beat, got %d", len(store.inputs))
+	if len(store.inputs) != 4 {
+		t.Fatalf("expected duration-aware candidate queries, got %d", len(store.inputs))
 	}
 	for _, candidateInput := range store.inputs {
-		if candidateInput.Limit != maxCandidatesPerNarrationSegment {
-			t.Fatalf("expected retrieval candidate limit %d, got %#v", maxCandidatesPerNarrationSegment, candidateInput)
+		if candidateInput.Limit != planningCandidateRetrievalPoolSize {
+			t.Fatalf("expected retrieval pool limit %d, got %#v", planningCandidateRetrievalPoolSize, candidateInput)
 		}
 	}
 	var artifacts struct {
@@ -361,6 +365,7 @@ func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
 			SourceOutMs:     1600,
 			SemanticSummary: "画面描述：手部将束裤带魔术贴快速粘合。",
 			SemanticScore:   0.92,
+			BatchUseCount:   2,
 		}},
 	}})
 	if err != nil {
@@ -368,7 +373,7 @@ func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
 	}
 
 	candidate := input.Requirements[0].Slots[0].Candidates[0]
-	if input.Requirements[0].VisualBeatID != "visual-1" || candidate.SemanticSummary != "画面描述：手部将束裤带魔术贴快速粘合。" || candidate.SemanticScore != 0.92 {
+	if input.Requirements[0].VisualBeatID != "visual-1" || candidate.SemanticSummary != "画面描述：手部将束裤带魔术贴快速粘合。" || candidate.SemanticScore != 0.92 || candidate.BatchUseCount != 2 {
 		t.Fatalf("candidate semantic evidence was not preserved %#v", candidate)
 	}
 }
@@ -407,6 +412,186 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 	if len([]rune(got[0].SemanticSummary)) != maximumPlannerCandidateSemanticSummaryRunes {
 		t.Fatalf("expected %d-rune summary, got %q", maximumPlannerCandidateSemanticSummaryRunes, got[0].SemanticSummary)
 	}
+}
+
+func TestSelectPlannerAssetCandidatesAppliesDurationBeforeFivePointBand(t *testing.T) {
+	candidates := []AssetCandidate{
+		{AssetID: "too-short", SourceOutMs: 799, SemanticScore: 0.95},
+		{AssetID: "top", SourceOutMs: 1000, SemanticScore: 0.80},
+		{AssetID: "boundary", SourceOutMs: 1000, SemanticScore: 0.75},
+		{AssetID: "outside", SourceOutMs: 1000, SemanticScore: 0.749},
+	}
+	selected := selectPlannerAssetCandidates(candidates, 800, 1)
+	if len(selected) != 2 || selected[0].AssetID != "top" || selected[1].AssetID != "boundary" {
+		t.Fatalf("expected duration-aware [0.75, 0.80] semantic band, got %#v", selected)
+	}
+}
+
+func TestSelectPlannerAssetCandidatesUsesBatchCountAndStableVariantRotation(t *testing.T) {
+	candidates := []AssetCandidate{
+		{AssetID: "used-top", SourceOutMs: 1000, SemanticScore: 0.80, BatchUseCount: 1},
+		{AssetID: "fresh-high", SourceOutMs: 1000, SemanticScore: 0.79, BatchUseCount: 0},
+		{AssetID: "fresh-low", SourceOutMs: 1000, SemanticScore: 0.78, BatchUseCount: 0},
+	}
+	first := selectPlannerAssetCandidates(candidates, 800, 1)
+	second := selectPlannerAssetCandidates(candidates, 800, 2)
+	if len(first) != 3 || first[0].AssetID != "fresh-high" || first[1].AssetID != "fresh-low" || first[2].AssetID != "used-top" {
+		t.Fatalf("unexpected batch usage ordering %#v", first)
+	}
+	if len(second) != 3 || second[0].AssetID != "fresh-low" || second[1].AssetID != "fresh-high" || second[2].AssetID != "used-top" {
+		t.Fatalf("unexpected stable variant rotation %#v", second)
+	}
+}
+
+func TestPlanningCandidateMinimumDurationsIncludesTransitionThresholds(t *testing.T) {
+	thresholds, err := planningCandidateMinimumDurations([]ShotRequirement{
+		{VisualBeatID: "action", StartMs: 0, EndMs: 2800, DurationClass: VisualBeatDurationAction},
+		{VisualBeatID: "result", StartMs: 2800, EndMs: 4800, DurationClass: VisualBeatDurationStandard},
+	})
+	if err != nil {
+		t.Fatalf("build duration thresholds: %v", err)
+	}
+	if fmt.Sprint(thresholds["action"]) != "[2500 2800]" || fmt.Sprint(thresholds["result"]) != "[2000 2300]" {
+		t.Fatalf("unexpected duration thresholds %#v", thresholds)
+	}
+}
+
+func TestMaterializeEditPlanAbsorbsShortMaterialAtNextVisualBeat(t *testing.T) {
+	sets := earlyTransitionCandidateSets(2300)
+	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	if err != nil {
+		t.Fatalf("build planner input: %v", err)
+	}
+	outgoing := input.Requirements[0].Slots[0]
+	incoming := input.Requirements[1].Slots[0]
+	if outgoing.MaximumEarlyEndMs != 100 || incoming.MaximumLeadingExtensionMs != 100 {
+		t.Fatalf("expected paired 100ms transition allowance, got %#v %#v", outgoing, incoming)
+	}
+	shortAlias := plannerCandidateAliasForAsset(outgoing.Candidates, "asset-short")
+	incomingAlias := plannerCandidateAliasForAsset(incoming.Candidates, "asset-next")
+	clips, err := materializeEditPlan(modelgateway.EditPlanResult{Clips: []modelgateway.EditPlanClipChoice{
+		{SlotID: outgoing.ID, CandidateID: shortAlias},
+		{SlotID: incoming.ID, CandidateID: incomingAlias},
+	}}, input)
+	if err != nil {
+		t.Fatalf("materialize early transition: %v", err)
+	}
+	if len(clips) != 2 || clips[0].StartMs != 0 || clips[0].EndMs != 2700 || clips[0].TimelineDurationMs != 2700 ||
+		clips[1].StartMs != 2700 || clips[1].EndMs != 4800 || clips[1].TimelineDurationMs != 2100 || clips[1].SourceOutMs-clips[1].SourceInMs != 2100 {
+		t.Fatalf("unexpected early-transition clips %#v", clips)
+	}
+}
+
+func TestBuildPlannerInputAllowsShortOnlyMaterialWithAbsorber(t *testing.T) {
+	sets := earlyTransitionCandidateSets(2300)
+	sets[0].Candidates = sets[0].Candidates[1:]
+	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	if err != nil {
+		t.Fatalf("expected safe early transition without an exact outgoing candidate: %v", err)
+	}
+	if input.Requirements[0].Slots[0].MaximumEarlyEndMs != 100 || input.Requirements[1].Slots[0].MaximumLeadingExtensionMs != 100 {
+		t.Fatalf("expected paired 100ms transition allowance, got %#v", input.Requirements)
+	}
+}
+
+func TestBuildPlannerInputFallsBackToExactDurationWithoutAbsorber(t *testing.T) {
+	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", earlyTransitionCandidateSets(2000), plannerBuildOptions{
+		VariantIndex:          1,
+		AllowEarlyTransitions: true,
+	})
+	if err != nil {
+		t.Fatalf("build strict fallback: %v", err)
+	}
+	outgoing := input.Requirements[0].Slots[0]
+	incoming := input.Requirements[1].Slots[0]
+	if outgoing.MaximumEarlyEndMs != 0 || incoming.MaximumLeadingExtensionMs != 0 {
+		t.Fatalf("expected exact-duration fallback, got %#v %#v", outgoing, incoming)
+	}
+	if plannerCandidateAliasForAsset(outgoing.Candidates, "asset-short") != "" || plannerCandidateAliasForAsset(outgoing.Candidates, "asset-exact") == "" {
+		t.Fatalf("expected only complete outgoing material, got %#v", outgoing.Candidates)
+	}
+}
+
+func TestBuildPlannerInputFallsBackWhenToleranceBreaksUniqueAssignment(t *testing.T) {
+	sets := []CandidateSet{
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-action", NarrationSegmentID: "narration-action", StartMs: 0, EndMs: 2800, DurationClass: VisualBeatDurationAction, NarrationText: "完整动作。", VisualGoal: "完整展示动作", SourceType: "visual_only"},
+			Candidates: []AssetCandidate{
+				{AssetID: "asset-shared", SourceType: "visual_only", SourceOutMs: 2700, SemanticScore: 0.90},
+				{AssetID: "asset-exact", SourceType: "visual_only", SourceOutMs: 2800, SemanticScore: 0.80},
+			},
+		},
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-result", NarrationSegmentID: "narration-result", StartMs: 2800, EndMs: 4800, DurationClass: VisualBeatDurationStandard, NarrationText: "展示结果。", VisualGoal: "展示结果", SourceType: "visual_only"},
+			Candidates: []AssetCandidate{
+				{AssetID: "asset-shared", SourceType: "visual_only", SourceOutMs: 2700, SemanticScore: 0.90},
+				{AssetID: "asset-result", SourceType: "visual_only", SourceOutMs: 2000, SemanticScore: 0.90},
+			},
+		},
+	}
+	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	if err != nil {
+		t.Fatalf("expected strict unique-assignment fallback: %v", err)
+	}
+	if input.Requirements[0].Slots[0].MaximumEarlyEndMs != 0 || input.Requirements[1].Slots[0].MaximumLeadingExtensionMs != 0 {
+		t.Fatalf("expected tolerance to be disabled after matching fallback, got %#v", input.Requirements)
+	}
+	if plannerCandidateAliasForAsset(input.Requirements[0].Slots[0].Candidates, "asset-exact") == "" ||
+		plannerCandidateAliasForAsset(input.Requirements[0].Slots[0].Candidates, "asset-shared") != "" {
+		t.Fatalf("expected exact outgoing material after fallback, got %#v", input.Requirements[0].Slots[0].Candidates)
+	}
+}
+
+func TestBuildPlannerInputDoesNotConfigureAdjacentEarlyTransitions(t *testing.T) {
+	sets := []CandidateSet{
+		{
+			Requirement: ShotRequirement{VisualBeatID: "v1", NarrationSegmentID: "n1", StartMs: 0, EndMs: 1000, NarrationText: "第一段", VisualGoal: "第一段", SourceType: "visual_only"},
+			Candidates:  []AssetCandidate{{AssetID: "v1-exact", SourceOutMs: 1000, SemanticScore: 0.8}, {AssetID: "v1-short", SourceOutMs: 900, SemanticScore: 0.8}},
+		},
+		{
+			Requirement: ShotRequirement{VisualBeatID: "v2", NarrationSegmentID: "n2", StartMs: 1000, EndMs: 2000, NarrationText: "第二段", VisualGoal: "第二段", SourceType: "visual_only"},
+			Candidates:  []AssetCandidate{{AssetID: "v2-long", SourceOutMs: 1300, SemanticScore: 0.8}, {AssetID: "v2-short", SourceOutMs: 900, SemanticScore: 0.8}},
+		},
+		{
+			Requirement: ShotRequirement{VisualBeatID: "v3", NarrationSegmentID: "n3", StartMs: 2000, EndMs: 3000, NarrationText: "第三段", VisualGoal: "第三段", SourceType: "visual_only"},
+			Candidates:  []AssetCandidate{{AssetID: "v3-long", SourceOutMs: 1300, SemanticScore: 0.8}},
+		},
+	}
+	input, err := buildPlannerInputWithOptions("束裤带", "三段。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	if err != nil {
+		t.Fatalf("build planner input: %v", err)
+	}
+	if input.Requirements[0].Slots[0].MaximumEarlyEndMs != 100 || input.Requirements[1].Slots[0].MaximumLeadingExtensionMs != 100 {
+		t.Fatalf("expected first boundary tolerance, got %#v", input.Requirements)
+	}
+	if input.Requirements[1].Slots[0].MaximumEarlyEndMs != 0 || input.Requirements[2].Slots[0].MaximumLeadingExtensionMs != 0 {
+		t.Fatalf("adjacent boundary must remain exact, got %#v", input.Requirements)
+	}
+}
+
+func earlyTransitionCandidateSets(nextDurationMs int) []CandidateSet {
+	return []CandidateSet{
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-action", NarrationSegmentID: "narration-action", StartMs: 0, EndMs: 2800, DurationClass: VisualBeatDurationAction, NarrationText: "完整动作。", VisualGoal: "完整展示动作", SourceType: "visual_only"},
+			Candidates: []AssetCandidate{
+				{AssetID: "asset-exact", SourceType: "visual_only", SourceOutMs: 2800, SemanticScore: 0.80},
+				{AssetID: "asset-short", SourceType: "visual_only", SourceOutMs: 2700, SemanticScore: 0.80},
+			},
+		},
+		{
+			Requirement: ShotRequirement{VisualBeatID: "visual-result", NarrationSegmentID: "narration-result", StartMs: 2800, EndMs: 4800, DurationClass: VisualBeatDurationStandard, NarrationText: "展示结果。", VisualGoal: "展示动作结果", SourceType: "visual_only"},
+			Candidates:  []AssetCandidate{{AssetID: "asset-next", SourceType: "visual_only", SourceOutMs: nextDurationMs, SemanticScore: 0.80}},
+		},
+	}
+}
+
+func plannerCandidateAliasForAsset(candidates []modelgateway.EditPlanCandidate, assetID string) string {
+	for _, candidate := range candidates {
+		if candidate.AssetID == assetID {
+			return candidate.ID
+		}
+	}
+	return ""
 }
 
 func TestPlannerCandidateSummaryKeepsActionBeforeTruncation(t *testing.T) {

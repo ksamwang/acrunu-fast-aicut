@@ -158,6 +158,91 @@ func TestGenerationRunRejectsRepeatedAssetInEditPlan(t *testing.T) {
 	}
 }
 
+func TestGenerationRunAcceptsPairedEarlyVisualTransition(t *testing.T) {
+	service := NewGenerationRunService(nil)
+	run, err := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	if err != nil {
+		t.Fatalf("create generation run: %v", err)
+	}
+	plan := pairedEarlyTransitionPlan(run.ID)
+	stored, err := service.SaveEditPlan(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("save paired early transition: %v", err)
+	}
+	if len(stored.Clips) != 2 || stored.Clips[0].EndMs != 2700 || stored.Clips[1].StartMs != 2700 || stored.Clips[1].EndMs != 4800 {
+		t.Fatalf("unexpected stored early transition %#v", stored.Clips)
+	}
+}
+
+func TestGenerationRunRejectsEarlyTransitionOverThreeHundredMilliseconds(t *testing.T) {
+	service := NewGenerationRunService(nil)
+	run, _ := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	plan := pairedEarlyTransitionPlan(run.ID)
+	plan.Clips[0].SourceOutMs = 2499
+	plan.Clips[0].EndMs = 2499
+	plan.Clips[0].TimelineDurationMs = 2499
+	plan.Clips[1].StartMs = 2499
+	plan.Clips[1].SourceOutMs = 2301
+	plan.Clips[1].TimelineDurationMs = 2301
+	_, err := service.SaveEditPlan(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "crosses its visual beat boundary") {
+		t.Fatalf("expected 301ms early transition to be rejected, got %v", err)
+	}
+}
+
+func TestGenerationRunRejectsShortFinalVisualBeat(t *testing.T) {
+	service := NewGenerationRunService(nil)
+	run, _ := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	plan := pairedEarlyTransitionPlan(run.ID)
+	plan.VisualBeats = plan.VisualBeats[:1]
+	plan.Clips = plan.Clips[:1]
+	_, err := service.SaveEditPlan(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "clip segments do not cover the visual timeline") {
+		t.Fatalf("expected final clip shortfall to be rejected, got %v", err)
+	}
+}
+
+func TestGenerationRunRejectsAdjacentEarlyTransitions(t *testing.T) {
+	service := NewGenerationRunService(nil)
+	run, _ := service.Create(context.Background(), CreateGenerationRunInput{ProductID: "product-1"})
+	_, err := service.SaveEditPlan(context.Background(), EditPlan{
+		GenerationRunID: run.ID,
+		ScriptVariantID: "script-1",
+		VoiceoverID:     "voiceover-1",
+		Status:          "ready",
+		VisualBeats: []VisualBeat{
+			{ID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, Label: "第一段", VisualGoal: "第一段", SourceType: "visual_only"},
+			{ID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, Label: "第二段", VisualGoal: "第二段", SourceType: "visual_only"},
+			{ID: "visual-3", NarrationSegmentID: "narration-3", StartMs: 2000, EndMs: 3000, Label: "第三段", VisualGoal: "第三段", SourceType: "visual_only"},
+		},
+		Clips: []EditPlanClip{
+			{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", AssetID: "asset-1", SourceInMs: 0, SourceOutMs: 900, StartMs: 0, EndMs: 900, TimelineDurationMs: 900, SourceType: "visual_only"},
+			{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", AssetID: "asset-2", SourceInMs: 0, SourceOutMs: 1000, StartMs: 900, EndMs: 1900, TimelineDurationMs: 1000, SourceType: "visual_only"},
+			{VisualBeatID: "visual-3", NarrationSegmentID: "narration-3", AssetID: "asset-3", SourceInMs: 0, SourceOutMs: 1100, StartMs: 1900, EndMs: 3000, TimelineDurationMs: 1100, SourceType: "visual_only"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "adjacent early transitions") {
+		t.Fatalf("expected adjacent early transitions to be rejected, got %v", err)
+	}
+}
+
+func pairedEarlyTransitionPlan(runID string) EditPlan {
+	return EditPlan{
+		GenerationRunID: runID,
+		ScriptVariantID: "script-1",
+		VoiceoverID:     "voiceover-1",
+		Status:          "ready",
+		VisualBeats: []VisualBeat{
+			{ID: "visual-action", NarrationSegmentID: "narration-action", StartMs: 0, EndMs: 2800, DurationClass: VisualBeatDurationAction, Label: "动作", VisualGoal: "完整动作", SourceType: "visual_only"},
+			{ID: "visual-result", NarrationSegmentID: "narration-result", StartMs: 2800, EndMs: 4800, DurationClass: VisualBeatDurationStandard, Label: "结果", VisualGoal: "动作结果", SourceType: "visual_only"},
+		},
+		Clips: []EditPlanClip{
+			{VisualBeatID: "visual-action", NarrationSegmentID: "narration-action", AssetID: "asset-action", SourceInMs: 0, SourceOutMs: 2700, StartMs: 0, EndMs: 2700, TimelineDurationMs: 2700, SourceType: "visual_only"},
+			{VisualBeatID: "visual-result", NarrationSegmentID: "narration-result", AssetID: "asset-result", SourceInMs: 0, SourceOutMs: 2100, StartMs: 2700, EndMs: 4800, TimelineDurationMs: 2100, SourceType: "visual_only"},
+		},
+	}
+}
+
 func TestGenerationRunSnapshotIsJSONText(t *testing.T) {
 	snapshot, err := generationRunSnapshotJSON(map[string]any{
 		"voice_profile_id": "profile-1",

@@ -16,7 +16,7 @@ import (
 const (
 	defaultCandidatesPerNarrationSegment = 10
 	maxCandidatesPerNarrationSegment     = 12
-	assetReusePenalty                    = 0.12
+	planningCandidateRetrievalPoolSize   = 24
 	maxCandidateSemanticSummaryRunes     = 320
 )
 
@@ -49,7 +49,7 @@ type AssetCandidate struct {
 	DefaultUseOriginalAudio bool    `json:"default_use_original_audio"`
 	SemanticSummary         string  `json:"semantic_summary"`
 	SemanticScore           float64 `json:"semantic_score"`
-	DiversityScore          float64 `json:"diversity_score"`
+	BatchUseCount           int     `json:"batch_use_count"`
 }
 
 type CandidateSet struct {
@@ -72,6 +72,16 @@ type CandidateSearchStore interface {
 	SearchCandidates(context.Context, CandidateSearchInput) ([]AssetCandidate, error)
 }
 
+type CandidateBatchUsageStore interface {
+	LoadBatchAssetUseCounts(context.Context, string, string) (map[string]int, error)
+}
+
+type PlanningCandidateRetrievalOptions struct {
+	GenerationBatchID            string
+	GenerationRunID              string
+	MinimumDurationsByVisualBeat map[string][]int
+}
+
 type candidateSearchFunc func(context.Context, CandidateSearchInput) ([]AssetCandidate, error)
 
 func (f candidateSearchFunc) SearchCandidates(ctx context.Context, input CandidateSearchInput) ([]AssetCandidate, error) {
@@ -85,6 +95,7 @@ type AssetCandidateService struct {
 	modelProviderService *ModelProviderService
 	fallbackConfig       config.Config
 	store                CandidateSearchStore
+	batchUsageStore      CandidateBatchUsageStore
 	embedder             modelgateway.TextEmbedder
 }
 
@@ -103,7 +114,9 @@ func NewAssetCandidateService(
 		fallbackConfig:       fallbackConfig,
 	}
 	if pool != nil {
-		service.store = postgresCandidateSearchStore{pool: pool}
+		store := postgresCandidateSearchStore{pool: pool}
+		service.store = store
+		service.batchUsageStore = store
 	}
 	return service
 }
@@ -118,11 +131,44 @@ func (s *AssetCandidateService) WithEmbedder(embedder modelgateway.TextEmbedder)
 func (s *AssetCandidateService) WithStore(store CandidateSearchStore) *AssetCandidateService {
 	if store != nil {
 		s.store = store
+		if usageStore, ok := store.(CandidateBatchUsageStore); ok {
+			s.batchUsageStore = usageStore
+		} else {
+			s.batchUsageStore = nil
+		}
+	}
+	return s
+}
+
+func (s *AssetCandidateService) WithBatchUsageStore(store CandidateBatchUsageStore) *AssetCandidateService {
+	if store != nil {
+		s.batchUsageStore = store
 	}
 	return s
 }
 
 func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, requirements []ShotRequirement, limit int) ([]CandidateSet, error) {
+	return s.retrieve(ctx, productID, requirements, limit, PlanningCandidateRetrievalOptions{}, false)
+}
+
+func (s *AssetCandidateService) RetrieveForPlanning(
+	ctx context.Context,
+	productID string,
+	requirements []ShotRequirement,
+	limit int,
+	options PlanningCandidateRetrievalOptions,
+) ([]CandidateSet, error) {
+	return s.retrieve(ctx, productID, requirements, limit, options, true)
+}
+
+func (s *AssetCandidateService) retrieve(
+	ctx context.Context,
+	productID string,
+	requirements []ShotRequirement,
+	limit int,
+	options PlanningCandidateRetrievalOptions,
+	keepMergedPool bool,
+) ([]CandidateSet, error) {
 	if s == nil || s.productAssetService == nil {
 		return nil, ErrCandidateSearchUnavailable
 	}
@@ -150,7 +196,17 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 	if err != nil {
 		return nil, err
 	}
-	assetUseCounts := map[string]int{}
+	batchUseCounts := map[string]int{}
+	if s.batchUsageStore != nil && strings.TrimSpace(options.GenerationBatchID) != "" && strings.TrimSpace(options.GenerationRunID) != "" {
+		batchUseCounts, err = s.batchUsageStore.LoadBatchAssetUseCounts(
+			ctx,
+			strings.TrimSpace(options.GenerationBatchID),
+			strings.TrimSpace(options.GenerationRunID),
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 	sets := make([]CandidateSet, 0, len(requirements))
 	for _, requirement := range requirements {
 		requirement.DurationClass = normalizeVisualBeatDurationClass(requirement.DurationClass)
@@ -173,30 +229,77 @@ func (s *AssetCandidateService) Retrieve(ctx context.Context, productID string, 
 			return nil, fmt.Errorf("candidate query embedding dimension mismatch: expected %d, got %d", queryDimension, len(embedding.Embedding))
 		}
 
-		searchInput := CandidateSearchInput{
-			ProductID:         productID,
-			ProviderID:        providerID,
-			Model:             model,
-			Dimension:         queryDimension,
-			QueryEmbedding:    embedding.Embedding,
-			SourceTypes:       requirementSourceTypes(requirement.SourceType),
-			MinimumDurationMs: minimumCandidateDuration(requirement.DurationClass),
-			Limit:             limit,
+		minimumDurations := candidateSearchMinimumDurations(requirement, options.MinimumDurationsByVisualBeat)
+		searchLimit := limit
+		if keepMergedPool && searchLimit < planningCandidateRetrievalPoolSize {
+			searchLimit = planningCandidateRetrievalPoolSize
 		}
-		candidates, err := s.store.SearchCandidates(ctx, searchInput)
-		if err != nil {
-			return nil, err
+		merged := make(map[string]AssetCandidate, searchLimit*len(minimumDurations))
+		for _, minimumDurationMs := range minimumDurations {
+			searchInput := CandidateSearchInput{
+				ProductID:         productID,
+				ProviderID:        providerID,
+				Model:             model,
+				Dimension:         queryDimension,
+				QueryEmbedding:    embedding.Embedding,
+				SourceTypes:       requirementSourceTypes(requirement.SourceType),
+				MinimumDurationMs: minimumDurationMs,
+				Limit:             searchLimit,
+			}
+			candidates, searchErr := s.store.SearchCandidates(ctx, searchInput)
+			if searchErr != nil {
+				return nil, searchErr
+			}
+			for _, candidate := range candidates {
+				assetID := strings.TrimSpace(candidate.AssetID)
+				if assetID == "" {
+					continue
+				}
+				candidate.BatchUseCount = batchUseCounts[assetID]
+				existing, exists := merged[assetID]
+				if !exists || candidate.SemanticScore > existing.SemanticScore ||
+					(candidate.SemanticScore == existing.SemanticScore && candidate.ID < existing.ID) {
+					merged[assetID] = candidate
+				}
+			}
 		}
-		candidates = rerankCandidatesForDiversity(candidates, assetUseCounts)
-		if len(candidates) > limit {
+		candidates := make([]AssetCandidate, 0, len(merged))
+		for _, candidate := range merged {
+			candidates = append(candidates, candidate)
+		}
+		sort.SliceStable(candidates, func(i, j int) bool {
+			if candidates[i].SemanticScore == candidates[j].SemanticScore {
+				return candidates[i].AssetID < candidates[j].AssetID
+			}
+			return candidates[i].SemanticScore > candidates[j].SemanticScore
+		})
+		if !keepMergedPool && len(candidates) > limit {
 			candidates = candidates[:limit]
-		}
-		if len(candidates) > 0 {
-			assetUseCounts[candidates[0].AssetID]++
 		}
 		sets = append(sets, CandidateSet{Requirement: requirement, Candidates: candidates})
 	}
 	return sets, nil
+}
+
+func candidateSearchMinimumDurations(requirement ShotRequirement, configured map[string][]int) []int {
+	values := configured[strings.TrimSpace(requirement.VisualBeatID)]
+	if len(values) == 0 {
+		values = []int{minimumCandidateDuration(requirement.DurationClass)}
+	}
+	seen := make(map[int]struct{}, len(values))
+	result := make([]int, 0, len(values))
+	for _, value := range values {
+		if value < modelgateway.MinimumEditPlanClipDurationMs {
+			value = modelgateway.MinimumEditPlanClipDurationMs
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Ints(result)
+	return result
 }
 
 func minimumCandidateDuration(_ string) int {
@@ -392,23 +495,35 @@ func requirementSourceTypes(sourceType string) []string {
 	return []string{sourceType}
 }
 
-func rerankCandidatesForDiversity(candidates []AssetCandidate, assetUseCounts map[string]int) []AssetCandidate {
-	result := append([]AssetCandidate(nil), candidates...)
-	for index := range result {
-		penalty := assetReusePenalty * float64(assetUseCounts[result[index].AssetID])
-		result[index].DiversityScore = result[index].SemanticScore - penalty
-	}
-	sort.SliceStable(result, func(i, j int) bool {
-		if result[i].DiversityScore == result[j].DiversityScore {
-			return result[i].ID < result[j].ID
-		}
-		return result[i].DiversityScore > result[j].DiversityScore
-	})
-	return result
-}
-
 type postgresCandidateSearchStore struct {
 	pool *pgxpool.Pool
+}
+
+func (s postgresCandidateSearchStore) LoadBatchAssetUseCounts(ctx context.Context, batchID string, runID string) (map[string]int, error) {
+	if s.pool == nil {
+		return map[string]int{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT selections.asset_id::text, COUNT(DISTINCT selections.generation_run_id)::int
+		FROM generation_asset_selections AS selections
+		WHERE selections.generation_batch_id = $1::uuid
+		  AND selections.generation_run_id <> $2::uuid
+		  AND selections.state = 'committed'
+		GROUP BY selections.asset_id`, batchID, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var assetID string
+		var count int
+		if err := rows.Scan(&assetID, &count); err != nil {
+			return nil, err
+		}
+		counts[assetID] = count
+	}
+	return counts, rows.Err()
 }
 
 func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, input CandidateSearchInput) ([]AssetCandidate, error) {
@@ -485,7 +600,6 @@ func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, inpu
 			return nil, err
 		}
 		candidate.SemanticSummary = candidateSemanticSummary(candidate.SemanticSummary)
-		candidate.DiversityScore = candidate.SemanticScore
 		items = append(items, candidate)
 	}
 	return items, rows.Err()

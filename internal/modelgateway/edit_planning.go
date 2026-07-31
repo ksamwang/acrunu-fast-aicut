@@ -17,6 +17,7 @@ const (
 	MaximumEditPlanClipDurationMs       = 3500
 	MinimumActionEditPlanClipDurationMs = 2800
 	MaximumEditPlanClipsPerBeat         = 4
+	MaximumEditPlanEarlyTransitionMs    = 300
 )
 
 type EditPlanCandidate struct {
@@ -26,6 +27,7 @@ type EditPlanCandidate struct {
 	SourceOutMs      int     `json:"-"`
 	SemanticSummary  string  `json:"semantic_summary"`
 	SemanticScore    float64 `json:"semantic_score"`
+	BatchUseCount    int     `json:"batch_use_count"`
 	AssetID          string  `json:"-"`
 	UseOriginalAudio bool    `json:"-"`
 }
@@ -37,12 +39,14 @@ const (
 )
 
 type EditPlanSlot struct {
-	ID         string              `json:"id"`
-	StartMs    int                 `json:"-"`
-	EndMs      int                 `json:"-"`
-	DurationMs int                 `json:"duration_ms"`
-	Role       string              `json:"role"`
-	Candidates []EditPlanCandidate `json:"candidates"`
+	ID                        string              `json:"id"`
+	StartMs                   int                 `json:"-"`
+	EndMs                     int                 `json:"-"`
+	DurationMs                int                 `json:"duration_ms"`
+	Role                      string              `json:"role"`
+	MaximumEarlyEndMs         int                 `json:"-"`
+	MaximumLeadingExtensionMs int                 `json:"-"`
+	Candidates                []EditPlanCandidate `json:"candidates"`
 }
 
 type EditPlanRequirement struct {
@@ -383,6 +387,17 @@ func validateEditPlanRequirements(requirements []EditPlanRequirement) error {
 			if slot.DurationMs < MinimumEditPlanClipDurationMs || slot.DurationMs > MaximumEditPlanClipDurationMs {
 				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q duration is outside %d-%dms", slot.ID, MinimumEditPlanClipDurationMs, MaximumEditPlanClipDurationMs), false, nil)
 			}
+			if slot.MaximumEarlyEndMs < 0 || slot.MaximumEarlyEndMs > MaximumEditPlanEarlyTransitionMs ||
+				slot.MaximumLeadingExtensionMs < 0 || slot.MaximumLeadingExtensionMs > MaximumEditPlanEarlyTransitionMs ||
+				(slot.MaximumEarlyEndMs > 0 && slot.MaximumLeadingExtensionMs > 0) {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q early-transition allowance is invalid", slot.ID), false, nil)
+			}
+			if slot.MaximumEarlyEndMs > 0 && (index == len(requirements)-1 || slotIndex != len(requirement.Slots)-1 || slot.DurationMs-slot.MaximumEarlyEndMs < MinimumEditPlanClipDurationMs) {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q cannot end early", slot.ID), false, nil)
+			}
+			if slot.MaximumLeadingExtensionMs > 0 && (index == 0 || slotIndex != 0 || slot.DurationMs+slot.MaximumLeadingExtensionMs > MaximumEditPlanClipDurationMs) {
+				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q cannot absorb an early transition", slot.ID), false, nil)
+			}
 			if slot.Role != EditPlanSlotRolePrimary && slot.Role != EditPlanSlotRoleActionPrimary && slot.Role != EditPlanSlotRoleSupport {
 				return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q role is invalid", slot.ID), false, nil)
 			}
@@ -395,7 +410,8 @@ func validateEditPlanRequirements(requirements []EditPlanRequirement) error {
 			seenCandidates := map[string]struct{}{}
 			for candidateIndex, candidate := range slot.Candidates {
 				candidateID := strings.TrimSpace(candidate.ID)
-				if candidateID == "" || candidate.SourceInMs < 0 || candidate.SourceOutMs-candidate.SourceInMs < slot.DurationMs {
+				requiredDurationMs := slot.DurationMs - slot.MaximumEarlyEndMs + slot.MaximumLeadingExtensionMs
+				if candidateID == "" || candidate.SourceInMs < 0 || candidate.SourceOutMs-candidate.SourceInMs < requiredDurationMs {
 					return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan slot %q candidate %d cannot cover its duration", slot.ID, candidateIndex+1), false, nil)
 				}
 				if _, exists := seenCandidates[candidateID]; exists {
@@ -417,6 +433,19 @@ func validateEditPlanRequirements(requirements []EditPlanRequirement) error {
 		}
 		seenVisualBeats[requirement.VisualBeatID] = struct{}{}
 		expectedStartMs = requirement.EndMs
+	}
+	previousBoundaryUsesTolerance := false
+	for index := 0; index < len(requirements)-1; index++ {
+		outgoing := requirements[index].Slots[len(requirements[index].Slots)-1]
+		incoming := requirements[index+1].Slots[0]
+		usesTolerance := outgoing.MaximumEarlyEndMs > 0 || incoming.MaximumLeadingExtensionMs > 0
+		if usesTolerance && (outgoing.MaximumEarlyEndMs == 0 || outgoing.MaximumEarlyEndMs != incoming.MaximumLeadingExtensionMs) {
+			return NewError(ErrorCodeConfiguration, fmt.Sprintf("edit plan boundary after visual beat %q has unmatched early-transition allowances", requirements[index].VisualBeatID), false, nil)
+		}
+		if usesTolerance && previousBoundaryUsesTolerance {
+			return NewError(ErrorCodeConfiguration, "edit plan cannot use early transitions at adjacent visual beat boundaries", false, nil)
+		}
+		previousBoundaryUsesTolerance = usesTolerance
 	}
 	return nil
 }

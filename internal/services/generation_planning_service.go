@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ var (
 const (
 	editPlannerCandidatesPerVisualBeat          = 6
 	maximumPlannerCandidateSemanticSummaryRunes = 120
+	plannerCandidateSemanticScoreBand           = 0.05
 )
 
 type GenerateEditPlanInput struct {
@@ -170,7 +172,21 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	candidateSets, err := s.candidateService.Retrieve(ctx, run.ProductID, requirements, maxCandidatesPerNarrationSegment)
+	minimumDurations, err := planningCandidateMinimumDurations(requirements)
+	if err != nil {
+		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
+	}
+	candidateSets, err := s.candidateService.RetrieveForPlanning(
+		ctx,
+		run.ProductID,
+		requirements,
+		maxCandidatesPerNarrationSegment,
+		PlanningCandidateRetrievalOptions{
+			GenerationBatchID:            run.GenerationBatchID,
+			GenerationRunID:              run.ID,
+			MinimumDurationsByVisualBeat: minimumDurations,
+		},
+	)
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -183,7 +199,10 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 	if err := validateCandidateSets(candidateSets); err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
-	plannerInput, err := buildPlannerInput(product.Name, work.ScriptText, candidateSets)
+	plannerInput, err := buildPlannerInputWithOptions(product.Name, work.ScriptText, candidateSets, plannerBuildOptions{
+		VariantIndex:          generationRunVariantIndex(run.ConfigSnapshot),
+		AllowEarlyTransitions: true,
+	})
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -486,50 +505,64 @@ func validateCandidateSets(sets []CandidateSet) error {
 	return nil
 }
 
+type plannerBuildOptions struct {
+	VariantIndex          int
+	AllowEarlyTransitions bool
+}
+
 func buildPlannerInput(productName string, scriptText string, sets []CandidateSet) (modelgateway.EditPlanInput, error) {
+	return buildPlannerInputWithOptions(productName, scriptText, sets, plannerBuildOptions{})
+}
+
+func buildPlannerInputWithOptions(productName string, scriptText string, sets []CandidateSet, options plannerBuildOptions) (modelgateway.EditPlanInput, error) {
+	requirements, err := buildPlannerRequirements(sets)
+	if err != nil {
+		return modelgateway.EditPlanInput{}, err
+	}
+	usesEarlyTransitions := false
+	if options.AllowEarlyTransitions {
+		usesEarlyTransitions = configurePlannerEarlyTransitions(requirements, sets, options.VariantIndex)
+	}
+	if err := populatePlannerSlotCandidates(requirements, sets, options.VariantIndex); err != nil {
+		if !usesEarlyTransitions {
+			return modelgateway.EditPlanInput{}, err
+		}
+		requirements, err = buildPlannerRequirements(sets)
+		if err != nil {
+			return modelgateway.EditPlanInput{}, err
+		}
+		if err := populatePlannerSlotCandidates(requirements, sets, options.VariantIndex); err != nil {
+			return modelgateway.EditPlanInput{}, err
+		}
+	}
+	assignedMaterials, err := assignUniquePlannerMaterials(requirements)
+	if err != nil && usesEarlyTransitions {
+		requirements, err = buildPlannerRequirements(sets)
+		if err == nil {
+			err = populatePlannerSlotCandidates(requirements, sets, options.VariantIndex)
+		}
+		if err == nil {
+			assignedMaterials, err = assignUniquePlannerMaterials(requirements)
+		}
+	}
+	if err != nil {
+		return modelgateway.EditPlanInput{}, err
+	}
+	trimPlannerSlotCandidates(requirements, assignedMaterials)
+	return modelgateway.EditPlanInput{
+		ProductName:  productName,
+		ScriptText:   scriptText,
+		Requirements: requirements,
+	}, nil
+}
+
+func buildPlannerRequirements(sets []CandidateSet) ([]modelgateway.EditPlanRequirement, error) {
 	requirements := make([]modelgateway.EditPlanRequirement, 0, len(sets))
-	aliasesByAssetID := make(map[string]string)
-	nextMaterialAlias := 1
 	nextSlotID := 1
 	for setIndex, set := range sets {
 		slots, err := buildDeterministicEditPlanSlots(set.Requirement, &nextSlotID)
 		if err != nil {
-			return modelgateway.EditPlanInput{}, fmt.Errorf("visual beat %d: %w", setIndex+1, err)
-		}
-		for slotIndex := range slots {
-			slot := &slots[slotIndex]
-			for _, candidate := range set.Candidates {
-				assetID := strings.TrimSpace(candidate.AssetID)
-				if assetID == "" || candidate.SourceOutMs-candidate.SourceInMs < slot.DurationMs {
-					continue
-				}
-				alias := aliasesByAssetID[assetID]
-				if alias == "" {
-					alias = fmt.Sprintf("m%03d", nextMaterialAlias)
-					nextMaterialAlias++
-					aliasesByAssetID[assetID] = alias
-				}
-				slot.Candidates = append(slot.Candidates, modelgateway.EditPlanCandidate{
-					ID:               alias,
-					SourceType:       candidate.SourceType,
-					SourceInMs:       candidate.SourceInMs,
-					SourceOutMs:      candidate.SourceOutMs,
-					SemanticSummary:  truncatePlannerCandidateSummary(candidate.SemanticSummary),
-					SemanticScore:    candidate.SemanticScore,
-					AssetID:          assetID,
-					UseOriginalAudio: candidate.DefaultUseOriginalAudio,
-				})
-			}
-			if len(slot.Candidates) == 0 {
-				return modelgateway.EditPlanInput{}, fmt.Errorf(
-					"%w: visual beat %d slot %d requires a %dms material for %q",
-					ErrNoEligibleAssetCandidate,
-					setIndex+1,
-					slotIndex+1,
-					slot.DurationMs,
-					set.Requirement.VisualGoal,
-				)
-			}
+			return nil, fmt.Errorf("visual beat %d: %w", setIndex+1, err)
 		}
 		requirements = append(requirements, modelgateway.EditPlanRequirement{
 			VisualBeatID:        set.Requirement.VisualBeatID,
@@ -547,17 +580,242 @@ func buildPlannerInput(productName string, scriptText string, sets []CandidateSe
 			Slots:               slots,
 		})
 	}
-	input := modelgateway.EditPlanInput{
-		ProductName:  productName,
-		ScriptText:   scriptText,
-		Requirements: requirements,
+	return requirements, nil
+}
+
+func populatePlannerSlotCandidates(requirements []modelgateway.EditPlanRequirement, sets []CandidateSet, variantIndex int) error {
+	if len(requirements) != len(sets) {
+		return fmt.Errorf("planner requirements do not match candidate sets")
 	}
-	assignedMaterials, err := assignUniquePlannerMaterials(input.Requirements)
-	if err != nil {
-		return modelgateway.EditPlanInput{}, err
+	aliasesByAssetID := make(map[string]string)
+	nextMaterialAlias := 1
+	for requirementIndex := range requirements {
+		if requirements[requirementIndex].VisualBeatID != sets[requirementIndex].Requirement.VisualBeatID {
+			return fmt.Errorf("planner requirement %d does not match its candidate set", requirementIndex+1)
+		}
+		for slotIndex := range requirements[requirementIndex].Slots {
+			slot := &requirements[requirementIndex].Slots[slotIndex]
+			slot.Candidates = nil
+			minimumDurationMs := plannerSlotMinimumCandidateDuration(*slot)
+			candidates := selectPlannerAssetCandidates(sets[requirementIndex].Candidates, minimumDurationMs, variantIndex)
+			for _, candidate := range candidates {
+				assetID := strings.TrimSpace(candidate.AssetID)
+				alias := aliasesByAssetID[assetID]
+				if alias == "" {
+					alias = fmt.Sprintf("m%03d", nextMaterialAlias)
+					nextMaterialAlias++
+					aliasesByAssetID[assetID] = alias
+				}
+				slot.Candidates = append(slot.Candidates, modelgateway.EditPlanCandidate{
+					ID:               alias,
+					SourceType:       candidate.SourceType,
+					SourceInMs:       candidate.SourceInMs,
+					SourceOutMs:      candidate.SourceOutMs,
+					SemanticSummary:  truncatePlannerCandidateSummary(candidate.SemanticSummary),
+					SemanticScore:    candidate.SemanticScore,
+					BatchUseCount:    candidate.BatchUseCount,
+					AssetID:          assetID,
+					UseOriginalAudio: candidate.DefaultUseOriginalAudio,
+				})
+			}
+			if len(slot.Candidates) == 0 {
+				return fmt.Errorf(
+					"%w: visual beat %d slot %d requires a %dms material for %q",
+					ErrNoEligibleAssetCandidate,
+					requirementIndex+1,
+					slotIndex+1,
+					minimumDurationMs,
+					sets[requirementIndex].Requirement.VisualGoal,
+				)
+			}
+		}
 	}
-	trimPlannerSlotCandidates(input.Requirements, assignedMaterials)
-	return input, nil
+	return nil
+}
+
+func plannerSlotMinimumCandidateDuration(slot modelgateway.EditPlanSlot) int {
+	return slot.DurationMs - slot.MaximumEarlyEndMs + slot.MaximumLeadingExtensionMs
+}
+
+func selectPlannerAssetCandidates(candidates []AssetCandidate, minimumDurationMs int, variantIndex int) []AssetCandidate {
+	eligible := make([]AssetCandidate, 0, len(candidates))
+	topScore := 0.0
+	hasTopScore := false
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.AssetID) == "" || candidate.SourceOutMs-candidate.SourceInMs < minimumDurationMs {
+			continue
+		}
+		eligible = append(eligible, candidate)
+		if !hasTopScore || candidate.SemanticScore > topScore {
+			topScore = candidate.SemanticScore
+			hasTopScore = true
+		}
+	}
+	if !hasTopScore {
+		return nil
+	}
+	minimumScore := topScore - plannerCandidateSemanticScoreBand
+	band := eligible[:0]
+	for _, candidate := range eligible {
+		if candidate.SemanticScore+1e-9 >= minimumScore {
+			band = append(band, candidate)
+		}
+	}
+	sort.SliceStable(band, func(i, j int) bool {
+		if band[i].BatchUseCount != band[j].BatchUseCount {
+			return band[i].BatchUseCount < band[j].BatchUseCount
+		}
+		if band[i].SemanticScore != band[j].SemanticScore {
+			return band[i].SemanticScore > band[j].SemanticScore
+		}
+		return band[i].AssetID < band[j].AssetID
+	})
+	if variantIndex <= 0 {
+		variantIndex = 1
+	}
+	rotated := make([]AssetCandidate, 0, len(band))
+	for start := 0; start < len(band); {
+		end := start + 1
+		for end < len(band) && band[end].BatchUseCount == band[start].BatchUseCount {
+			end++
+		}
+		group := band[start:end]
+		offset := (variantIndex - 1) % len(group)
+		rotated = append(rotated, group[offset:]...)
+		rotated = append(rotated, group[:offset]...)
+		start = end
+	}
+	if len(rotated) > maxCandidatesPerNarrationSegment {
+		rotated = rotated[:maxCandidatesPerNarrationSegment]
+	}
+	return rotated
+}
+
+func configurePlannerEarlyTransitions(requirements []modelgateway.EditPlanRequirement, sets []CandidateSet, variantIndex int) bool {
+	if len(requirements) != len(sets) {
+		return false
+	}
+	configured := false
+	lastConfiguredBoundary := -2
+	for boundaryIndex := 0; boundaryIndex < len(requirements)-1; boundaryIndex++ {
+		if boundaryIndex-lastConfiguredBoundary == 1 {
+			continue
+		}
+		outgoing := &requirements[boundaryIndex].Slots[len(requirements[boundaryIndex].Slots)-1]
+		incoming := &requirements[boundaryIndex+1].Slots[0]
+		maximumShortfallMs := minInt(
+			modelgateway.MaximumEditPlanEarlyTransitionMs,
+			outgoing.DurationMs-modelgateway.MinimumEditPlanClipDurationMs,
+		)
+		maximumShortfallMs = minInt(maximumShortfallMs, modelgateway.MaximumEditPlanClipDurationMs-incoming.DurationMs)
+		if maximumShortfallMs <= 0 {
+			continue
+		}
+		absorberCapacityMs := 0
+		for _, candidate := range sets[boundaryIndex+1].Candidates {
+			capacityMs := candidate.SourceOutMs - candidate.SourceInMs - incoming.DurationMs
+			if capacityMs > absorberCapacityMs {
+				absorberCapacityMs = capacityMs
+			}
+		}
+		maximumShortfallMs = minInt(maximumShortfallMs, absorberCapacityMs)
+		if maximumShortfallMs <= 0 {
+			continue
+		}
+		outgoingCandidates := selectPlannerAssetCandidates(
+			sets[boundaryIndex].Candidates,
+			outgoing.DurationMs-maximumShortfallMs,
+			variantIndex,
+		)
+		selectedShortfallMs := 0
+		for _, candidate := range outgoingCandidates {
+			shortfallMs := outgoing.DurationMs - (candidate.SourceOutMs - candidate.SourceInMs)
+			if shortfallMs > selectedShortfallMs {
+				selectedShortfallMs = shortfallMs
+			}
+		}
+		if selectedShortfallMs <= 0 || len(selectPlannerAssetCandidates(
+			sets[boundaryIndex+1].Candidates,
+			incoming.DurationMs+selectedShortfallMs,
+			variantIndex,
+		)) == 0 {
+			continue
+		}
+		outgoing.MaximumEarlyEndMs = selectedShortfallMs
+		incoming.MaximumLeadingExtensionMs = selectedShortfallMs
+		configured = true
+		lastConfiguredBoundary = boundaryIndex
+	}
+	return configured
+}
+
+func planningCandidateMinimumDurations(requirements []ShotRequirement) (map[string][]int, error) {
+	result := make(map[string][]int, len(requirements))
+	nextSlotID := 1
+	for requirementIndex, requirement := range requirements {
+		slots, err := buildDeterministicEditPlanSlots(requirement, &nextSlotID)
+		if err != nil {
+			return nil, fmt.Errorf("visual beat %d: %w", requirementIndex+1, err)
+		}
+		for _, slot := range slots {
+			result[requirement.VisualBeatID] = appendUniqueInt(result[requirement.VisualBeatID], slot.DurationMs)
+		}
+		if requirementIndex < len(requirements)-1 {
+			lastSlot := slots[len(slots)-1]
+			shortDurationMs := lastSlot.DurationMs - modelgateway.MaximumEditPlanEarlyTransitionMs
+			if shortDurationMs < modelgateway.MinimumEditPlanClipDurationMs {
+				shortDurationMs = modelgateway.MinimumEditPlanClipDurationMs
+			}
+			result[requirement.VisualBeatID] = appendUniqueInt(result[requirement.VisualBeatID], shortDurationMs)
+		}
+		if requirementIndex > 0 {
+			firstSlot := slots[0]
+			longDurationMs := firstSlot.DurationMs + modelgateway.MaximumEditPlanEarlyTransitionMs
+			if longDurationMs <= modelgateway.MaximumEditPlanClipDurationMs {
+				result[requirement.VisualBeatID] = appendUniqueInt(result[requirement.VisualBeatID], longDurationMs)
+			}
+		}
+		sort.Ints(result[requirement.VisualBeatID])
+	}
+	return result, nil
+}
+
+func appendUniqueInt(values []int, value int) []int {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func generationRunVariantIndex(snapshot map[string]any) int {
+	if snapshot == nil {
+		return 1
+	}
+	switch value := snapshot["variant_index"].(type) {
+	case int:
+		if value > 0 {
+			return value
+		}
+	case int32:
+		if value > 0 {
+			return int(value)
+		}
+	case int64:
+		if value > 0 {
+			return int(value)
+		}
+	case float64:
+		if value > 0 {
+			return int(value)
+		}
+	case json.Number:
+		if parsed, err := value.Int64(); err == nil && parsed > 0 {
+			return int(parsed)
+		}
+	}
+	return 1
 }
 
 func buildDeterministicEditPlanSlots(requirement ShotRequirement, nextSlotID *int) ([]modelgateway.EditPlanSlot, error) {
@@ -707,19 +965,20 @@ func materializeEditPlan(result modelgateway.EditPlanResult, input modelgateway.
 		requirement modelgateway.EditPlanRequirement
 		slot        modelgateway.EditPlanSlot
 	}
-	contexts := make(map[string]slotContext)
+	contexts := make([]slotContext, 0, len(result.Clips))
 	for _, requirement := range input.Requirements {
 		for _, slot := range requirement.Slots {
-			contexts[slot.ID] = slotContext{requirement: requirement, slot: slot}
+			contexts = append(contexts, slotContext{requirement: requirement, slot: slot})
 		}
 	}
 	clips := make([]EditPlanClip, 0, len(result.Clips))
 	usedAssetIDs := make(map[string]int, len(result.Clips))
+	pendingLeadingExtensionMs := 0
 	for index, choice := range result.Clips {
-		context, ok := contexts[choice.SlotID]
-		if !ok {
+		if index >= len(contexts) || contexts[index].slot.ID != choice.SlotID {
 			return nil, fmt.Errorf("planner output references unknown slot %q", choice.SlotID)
 		}
+		context := contexts[index]
 		candidate, ok := findPlannerSlotCandidate(context.slot.Candidates, choice.CandidateID)
 		if !ok {
 			return nil, fmt.Errorf("planner selected material %q outside slot %q", choice.CandidateID, choice.SlotID)
@@ -732,8 +991,28 @@ func materializeEditPlan(result modelgateway.EditPlanResult, input modelgateway.
 			return nil, fmt.Errorf("planner clip %d reuses asset %q already selected by clip %d", index+1, assetID, previousIndex+1)
 		}
 		usedAssetIDs[assetID] = index
+		if pendingLeadingExtensionMs > 0 && context.slot.MaximumLeadingExtensionMs < pendingLeadingExtensionMs {
+			return nil, fmt.Errorf("planner slot %q cannot absorb %dms from the previous visual beat", context.slot.ID, pendingLeadingExtensionMs)
+		}
+		availableDurationMs := candidate.SourceOutMs - candidate.SourceInMs
+		timelineStartMs := context.slot.StartMs - pendingLeadingExtensionMs
+		timelineDurationMs := context.slot.DurationMs + pendingLeadingExtensionMs
+		nextLeadingExtensionMs := 0
+		if availableDurationMs < context.slot.DurationMs {
+			if pendingLeadingExtensionMs > 0 || context.slot.MaximumEarlyEndMs == 0 {
+				return nil, fmt.Errorf("planner candidate %q cannot cover slot %q", candidate.ID, context.slot.ID)
+			}
+			nextLeadingExtensionMs = context.slot.DurationMs - availableDurationMs
+			if nextLeadingExtensionMs > context.slot.MaximumEarlyEndMs {
+				return nil, fmt.Errorf("planner candidate %q exceeds slot %q early-transition allowance", candidate.ID, context.slot.ID)
+			}
+			timelineDurationMs = availableDurationMs
+		}
+		if availableDurationMs < timelineDurationMs {
+			return nil, fmt.Errorf("planner candidate %q cannot cover slot %q materialized duration", candidate.ID, context.slot.ID)
+		}
 		sourceInMs := candidate.SourceInMs
-		sourceOutMs := sourceInMs + context.slot.DurationMs
+		sourceOutMs := sourceInMs + timelineDurationMs
 		clips = append(clips, EditPlanClip{
 			ID:                 "",
 			VisualBeatID:       context.requirement.VisualBeatID,
@@ -741,15 +1020,19 @@ func materializeEditPlan(result modelgateway.EditPlanResult, input modelgateway.
 			AssetID:            assetID,
 			SourceInMs:         sourceInMs,
 			SourceOutMs:        sourceOutMs,
-			StartMs:            context.slot.StartMs,
-			EndMs:              context.slot.EndMs,
-			TimelineDurationMs: context.slot.DurationMs,
+			StartMs:            timelineStartMs,
+			EndMs:              timelineStartMs + timelineDurationMs,
+			TimelineDurationMs: timelineDurationMs,
 			Label:              strings.TrimSpace(context.requirement.Label),
 			VisualGoal:         strings.TrimSpace(context.requirement.VisualGoal),
 			SourceType:         candidate.SourceType,
 			UseOriginalAudio:   candidate.UseOriginalAudio,
 			AudioGainDB:        0,
 		})
+		pendingLeadingExtensionMs = nextLeadingExtensionMs
+	}
+	if pendingLeadingExtensionMs != 0 {
+		return nil, fmt.Errorf("final edit plan clip cannot end early")
 	}
 	return clips, nil
 }
