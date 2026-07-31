@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/config"
@@ -42,6 +44,10 @@ type GenerationPlanningService struct {
 	planner              modelgateway.EditPlanner
 	visualPlanner        modelgateway.VisualPlanner
 	logger               *slog.Logger
+	llmGate              *runtimeConcurrencyGate
+	runtimeSettingsMu    sync.Mutex
+	runtimeSettingsAt    time.Time
+	cachedLLMConcurrency int
 }
 
 func NewGenerationPlanningService(
@@ -62,6 +68,8 @@ func NewGenerationPlanningService(
 		modelProviderService: modelProviders,
 		fallbackConfig:       fallback,
 		logger:               slog.Default(),
+		llmGate:              newRuntimeConcurrencyGate(),
+		cachedLLMConcurrency: 2,
 	}
 }
 
@@ -144,7 +152,12 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
 	visualInput := buildVisualPlannerInput(product.Name, work)
-	visualResult, err := visualPlanner.PlanVisuals(ctx, visualInput)
+	var visualResult modelgateway.VisualPlanResult
+	err = s.runLLMCall(ctx, func() error {
+		var planErr error
+		visualResult, planErr = visualPlanner.PlanVisuals(ctx, visualInput)
+		return planErr
+	})
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -219,7 +232,12 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 		slog.Int("visual_beat_count", len(plannerInput.Requirements)),
 		slog.Int("candidate_count", plannerCandidateCount(plannerInput)),
 	)
-	result, err := planner.PlanEdits(ctx, plannerInput)
+	var result modelgateway.EditPlanResult
+	err = s.runLLMCall(ctx, func() error {
+		var planErr error
+		result, planErr = planner.PlanEdits(ctx, plannerInput)
+		return planErr
+	})
 	if err != nil {
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
@@ -279,6 +297,39 @@ func (s *GenerationPlanningService) resolveVisualPlanner(ctx context.Context) (m
 		openAICompatible.WithLogger(s.logger)
 	}
 	return planner, cfg.Provider, cfg.Model, nil
+}
+
+func (s *GenerationPlanningService) runLLMCall(ctx context.Context, call func() error) error {
+	if s.llmGate == nil {
+		return call()
+	}
+	if err := s.llmGate.acquire(ctx, func() int { return s.llmMaxConcurrency(ctx) }); err != nil {
+		return err
+	}
+	defer s.llmGate.release()
+	return call()
+}
+
+func (s *GenerationPlanningService) llmMaxConcurrency(ctx context.Context) int {
+	s.runtimeSettingsMu.Lock()
+	defer s.runtimeSettingsMu.Unlock()
+
+	if s.cachedLLMConcurrency < 1 {
+		s.cachedLLMConcurrency = 2
+	}
+	if s.systemConfigService == nil {
+		return s.cachedLLMConcurrency
+	}
+	if s.runtimeSettingsAt.IsZero() || time.Since(s.runtimeSettingsAt) >= time.Second {
+		if err := s.systemConfigService.Refresh(ctx); err != nil {
+			s.logger.Warn("failed to refresh LLM concurrency setting", slog.String("error", err.Error()))
+		}
+		if settings, err := GetRuntimeSettings(s.systemConfigService); err == nil && settings.LLMMaxConcurrency > 0 {
+			s.cachedLLMConcurrency = settings.LLMMaxConcurrency
+		}
+		s.runtimeSettingsAt = time.Now()
+	}
+	return s.cachedLLMConcurrency
 }
 
 func (s *GenerationPlanningService) persistPlanFailure(ctx context.Context, plan EditPlan, cause error) error {
@@ -549,6 +600,12 @@ func buildPlannerInputWithOptions(productName string, scriptText string, sets []
 		return modelgateway.EditPlanInput{}, err
 	}
 	trimPlannerSlotCandidates(requirements, assignedMaterials)
+	if err := reserveSingletonPlannerMaterials(requirements); err != nil {
+		return modelgateway.EditPlanInput{}, err
+	}
+	if _, err := assignUniquePlannerMaterials(requirements); err != nil {
+		return modelgateway.EditPlanInput{}, err
+	}
 	return modelgateway.EditPlanInput{
 		ProductName:  productName,
 		ScriptText:   scriptText,
@@ -967,6 +1024,60 @@ func trimPlannerSlotCandidates(requirements []modelgateway.EditPlanRequirement, 
 				continue
 			}
 			slot.Candidates = append([]modelgateway.EditPlanCandidate(nil), slot.Candidates[:editPlannerCandidatesPerVisualBeat]...)
+		}
+	}
+}
+
+func reserveSingletonPlannerMaterials(requirements []modelgateway.EditPlanRequirement) error {
+	type slotReference struct {
+		requirementIndex int
+		slotIndex        int
+	}
+	slots := make([]slotReference, 0)
+	for requirementIndex := range requirements {
+		for slotIndex := range requirements[requirementIndex].Slots {
+			slots = append(slots, slotReference{requirementIndex: requirementIndex, slotIndex: slotIndex})
+		}
+	}
+	reserved := make(map[string]string)
+	for {
+		changed := false
+		for _, reference := range slots {
+			slot := &requirements[reference.requirementIndex].Slots[reference.slotIndex]
+			if len(slot.Candidates) != 1 {
+				continue
+			}
+			candidateID := slot.Candidates[0].ID
+			if reservedSlotID, exists := reserved[candidateID]; exists {
+				if reservedSlotID != slot.ID {
+					return fmt.Errorf("%w: slots %q and %q require the same material %q", ErrNoEligibleAssetCandidate, reservedSlotID, slot.ID, candidateID)
+				}
+				continue
+			}
+			reserved[candidateID] = slot.ID
+			changed = true
+			for _, otherReference := range slots {
+				otherSlot := &requirements[otherReference.requirementIndex].Slots[otherReference.slotIndex]
+				if otherSlot.ID == slot.ID {
+					continue
+				}
+				if len(otherSlot.Candidates) == 1 && otherSlot.Candidates[0].ID == candidateID {
+					return fmt.Errorf("%w: slots %q and %q require the same material %q", ErrNoEligibleAssetCandidate, slot.ID, otherSlot.ID, candidateID)
+				}
+				filtered := otherSlot.Candidates[:0]
+				for _, candidate := range otherSlot.Candidates {
+					if candidate.ID != candidateID {
+						filtered = append(filtered, candidate)
+					}
+				}
+				otherSlot.Candidates = filtered
+				if len(otherSlot.Candidates) == 0 {
+					return fmt.Errorf("%w: slot %q has no material after reserving %q for slot %q", ErrNoEligibleAssetCandidate, otherSlot.ID, candidateID, slot.ID)
+				}
+			}
+		}
+		if !changed {
+			return nil
 		}
 	}
 }

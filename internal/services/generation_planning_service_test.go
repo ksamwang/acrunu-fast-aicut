@@ -681,8 +681,10 @@ func TestBuildPlannerInputFindsGlobalUniqueAssignment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected a global unique candidate assignment, got %v", err)
 	}
-	if input.Requirements[0].Slots[0].Candidates[0].ID != input.Requirements[1].Slots[0].Candidates[0].ID {
-		t.Fatalf("expected one asset to keep the same global alias, got %#v", input.Requirements)
+	firstCandidates := input.Requirements[0].Slots[0].Candidates
+	secondCandidates := input.Requirements[1].Slots[0].Candidates
+	if len(firstCandidates) != 1 || len(secondCandidates) != 1 || firstCandidates[0].AssetID != "asset-b" || secondCandidates[0].AssetID != "asset-a" {
+		t.Fatalf("expected the singleton material to be reserved for its required slot, got %#v", input.Requirements)
 	}
 }
 
@@ -788,5 +790,44 @@ func TestBuildDeterministicSlotsAvoidsActionDeadZone(t *testing.T) {
 	}
 	if len(slots) != 2 || slots[0].DurationMs != 3270 || slots[1].DurationMs != 800 {
 		t.Fatalf("expected deterministic 3270ms + 800ms slots, got %#v", slots)
+	}
+}
+
+func TestGenerationPlanningLLMConcurrencyUsesRuntimeSetting(t *testing.T) {
+	settings := NewSystemConfigService()
+	if _, err := settings.Upsert(SystemConfig{Key: "llm.max_concurrency", Value: 3, Type: "number"}); err != nil {
+		t.Fatalf("set LLM concurrency failed: %v", err)
+	}
+	planning := NewGenerationPlanningService(nil, nil, nil, nil, settings, nil, config.Config{})
+	if got := planning.llmMaxConcurrency(context.Background()); got != 3 {
+		t.Fatalf("expected runtime LLM concurrency 3, got %d", got)
+	}
+}
+
+func TestReserveSingletonPlannerMaterialsPropagatesRequiredChoices(t *testing.T) {
+	requirements := []modelgateway.EditPlanRequirement{
+		{Slots: []modelgateway.EditPlanSlot{{ID: "s001", Candidates: []modelgateway.EditPlanCandidate{{ID: "m001"}, {ID: "m002"}}}}},
+		{Slots: []modelgateway.EditPlanSlot{{ID: "s002", Candidates: []modelgateway.EditPlanCandidate{{ID: "m002"}, {ID: "m003"}}}}},
+		{Slots: []modelgateway.EditPlanSlot{{ID: "s003", Candidates: []modelgateway.EditPlanCandidate{{ID: "m001"}}}}},
+	}
+	if err := reserveSingletonPlannerMaterials(requirements); err != nil {
+		t.Fatalf("reserve singleton materials: %v", err)
+	}
+	for index, expected := range []string{"m002", "m003", "m001"} {
+		candidates := requirements[index].Slots[0].Candidates
+		if len(candidates) != 1 || candidates[0].ID != expected {
+			t.Fatalf("slot %d expected reserved material %s, got %#v", index+1, expected, candidates)
+		}
+	}
+}
+
+func TestReserveSingletonPlannerMaterialsRejectsForcedConflict(t *testing.T) {
+	requirements := []modelgateway.EditPlanRequirement{
+		{Slots: []modelgateway.EditPlanSlot{{ID: "s001", Candidates: []modelgateway.EditPlanCandidate{{ID: "m001"}}}}},
+		{Slots: []modelgateway.EditPlanSlot{{ID: "s002", Candidates: []modelgateway.EditPlanCandidate{{ID: "m001"}}}}},
+	}
+	err := reserveSingletonPlannerMaterials(requirements)
+	if err == nil || !strings.Contains(err.Error(), "require the same material") {
+		t.Fatalf("expected forced material conflict, got %v", err)
 	}
 }

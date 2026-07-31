@@ -80,6 +80,15 @@ type EditPlanResult struct {
 	Clips []EditPlanClipChoice `json:"clips"`
 }
 
+type editPlanModelClipChoice struct {
+	SlotID           string `json:"slot_id"`
+	CandidateIndexes []int  `json:"candidate_indexes"`
+}
+
+type editPlanModelResult struct {
+	Clips []editPlanModelClipChoice `json:"clips"`
+}
+
 type EditPlanner interface {
 	PlanEdits(context.Context, EditPlanInput) (EditPlanResult, error)
 }
@@ -155,14 +164,198 @@ func (p *OpenAICompatibleEditPlanner) PlanEdits(ctx context.Context, input EditP
 	}
 
 	promptBundle := BuildEditPlanPrompt(input)
-	var result EditPlanResult
-	if err := p.completeJSON(ctx, promptBundle, &result); err != nil {
+	var modelResult editPlanModelResult
+	if err := p.completeJSON(ctx, promptBundle, &modelResult); err != nil {
+		return EditPlanResult{}, err
+	}
+	result, err := resolveEditPlanModelResult(modelResult, input.Requirements)
+	if err != nil {
 		return EditPlanResult{}, err
 	}
 	if err := ValidateEditPlanResult(result, input.Requirements); err != nil {
 		return EditPlanResult{}, err
 	}
 	return result, nil
+}
+
+func resolveEditPlanModelResult(result editPlanModelResult, requirements []EditPlanRequirement) (EditPlanResult, error) {
+	slots := flattenEditPlanSlots(requirements)
+	if len(result.Clips) != len(slots) {
+		return EditPlanResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("expected exactly %d edit plan selections, got %d", len(slots), len(result.Clips)), false, nil)
+	}
+	rankedCandidates := make([][]EditPlanCandidate, 0, len(result.Clips))
+	for index, choice := range result.Clips {
+		choice.SlotID = strings.TrimSpace(choice.SlotID)
+		slot := slots[index]
+		if choice.SlotID != slot.ID {
+			return EditPlanResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan selection %d is out of slot order: expected %q, got %q", index+1, slot.ID, choice.SlotID), false, nil)
+		}
+		seenIndexes := make(map[int]struct{}, len(slot.Candidates))
+		ranked := make([]EditPlanCandidate, 0, len(slot.Candidates))
+		for _, candidateIndex := range choice.CandidateIndexes {
+			if candidateIndex < 1 || candidateIndex > len(slot.Candidates) {
+				continue
+			}
+			if _, exists := seenIndexes[candidateIndex]; exists {
+				continue
+			}
+			seenIndexes[candidateIndex] = struct{}{}
+			ranked = append(ranked, slot.Candidates[candidateIndex-1])
+		}
+		if len(ranked) == 0 {
+			return EditPlanResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("edit plan slot %q has no valid candidate_indexes", slot.ID), false, nil)
+		}
+		for candidateIndex, candidate := range slot.Candidates {
+			if _, exists := seenIndexes[candidateIndex+1]; !exists {
+				ranked = append(ranked, candidate)
+			}
+		}
+		rankedCandidates = append(rankedCandidates, ranked)
+	}
+	assignments, err := assignRankedEditPlanMaterials(slots, rankedCandidates)
+	if err != nil {
+		return EditPlanResult{}, err
+	}
+	resolved := EditPlanResult{Clips: make([]EditPlanClipChoice, 0, len(slots))}
+	for _, slot := range slots {
+		resolved.Clips = append(resolved.Clips, EditPlanClipChoice{SlotID: slot.ID, CandidateID: assignments[slot.ID]})
+	}
+	return resolved, nil
+}
+
+func assignRankedEditPlanMaterials(slots []EditPlanSlot, rankedCandidates [][]EditPlanCandidate) (map[string]string, error) {
+	if len(slots) == 0 || len(rankedCandidates) != len(slots) {
+		return nil, NewError(ErrorCodeInvalidResponse, "edit plan candidate rankings do not match slots", false, nil)
+	}
+	candidateColumns := make(map[string]int)
+	candidateIDs := make([]string, 0)
+	for _, candidates := range rankedCandidates {
+		for _, candidate := range candidates {
+			if _, exists := candidateColumns[candidate.ID]; exists {
+				continue
+			}
+			candidateColumns[candidate.ID] = len(candidateIDs)
+			candidateIDs = append(candidateIDs, candidate.ID)
+		}
+	}
+	if len(candidateIDs) < len(slots) {
+		return nil, NewError(ErrorCodeInvalidResponse, "edit plan has fewer unique materials than slots", false, nil)
+	}
+
+	const unavailableCost int64 = 1 << 50
+	base := int64(len(slots)*len(candidateIDs) + 1)
+	costs := make([][]int64, len(slots))
+	for slotIndex, slot := range slots {
+		costs[slotIndex] = make([]int64, len(candidateIDs))
+		for column := range costs[slotIndex] {
+			costs[slotIndex][column] = unavailableCost
+		}
+		weight := int64(1)
+		switch slot.Role {
+		case EditPlanSlotRoleActionPrimary:
+			weight = base * base
+		case EditPlanSlotRolePrimary:
+			weight = base
+		}
+		for rank, candidate := range rankedCandidates[slotIndex] {
+			costs[slotIndex][candidateColumns[candidate.ID]] = int64(rank) * weight
+		}
+	}
+	columns, ok := minimumCostEditPlanAssignment(costs, unavailableCost)
+	if !ok {
+		return nil, NewError(ErrorCodeInvalidResponse, "edit plan candidate rankings have no globally unique assignment", false, nil)
+	}
+	assignments := make(map[string]string, len(slots))
+	for slotIndex, column := range columns {
+		assignments[slots[slotIndex].ID] = candidateIDs[column]
+	}
+	return assignments, nil
+}
+
+func minimumCostEditPlanAssignment(costs [][]int64, unavailableCost int64) ([]int, bool) {
+	rowCount := len(costs)
+	if rowCount == 0 {
+		return nil, false
+	}
+	columnCount := len(costs[0])
+	if columnCount < rowCount {
+		return nil, false
+	}
+	for _, row := range costs {
+		if len(row) != columnCount {
+			return nil, false
+		}
+	}
+
+	u := make([]int64, rowCount+1)
+	v := make([]int64, columnCount+1)
+	p := make([]int, columnCount+1)
+	way := make([]int, columnCount+1)
+	for row := 1; row <= rowCount; row++ {
+		p[0] = row
+		minimums := make([]int64, columnCount+1)
+		used := make([]bool, columnCount+1)
+		for column := 1; column <= columnCount; column++ {
+			minimums[column] = unavailableCost
+		}
+		column0 := 0
+		for {
+			used[column0] = true
+			row0 := p[column0]
+			delta := unavailableCost
+			column1 := 0
+			for column := 1; column <= columnCount; column++ {
+				if used[column] {
+					continue
+				}
+				current := costs[row0-1][column-1] - u[row0] - v[column]
+				if current < minimums[column] {
+					minimums[column] = current
+					way[column] = column0
+				}
+				if minimums[column] < delta {
+					delta = minimums[column]
+					column1 = column
+				}
+			}
+			if delta >= unavailableCost {
+				return nil, false
+			}
+			for column := 0; column <= columnCount; column++ {
+				if used[column] {
+					u[p[column]] += delta
+					v[column] -= delta
+				} else if column > 0 {
+					minimums[column] -= delta
+				}
+			}
+			column0 = column1
+			if p[column0] == 0 {
+				break
+			}
+		}
+		for {
+			column1 := way[column0]
+			p[column0] = p[column1]
+			column0 = column1
+			if column0 == 0 {
+				break
+			}
+		}
+	}
+
+	assignment := make([]int, rowCount)
+	for column := 1; column <= columnCount; column++ {
+		if p[column] > 0 {
+			assignment[p[column]-1] = column - 1
+		}
+	}
+	for row, column := range assignment {
+		if costs[row][column] >= unavailableCost {
+			return nil, false
+		}
+	}
+	return assignment, true
 }
 
 func (p *OpenAICompatibleEditPlanner) completeJSON(ctx context.Context, promptBundle PromptBundle, result any) error {

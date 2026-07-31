@@ -9,7 +9,7 @@ const OutputSchemaVersion = "phase2.asset_analysis.v2"
 const ScriptGenerationOutputSchemaVersion = "workbench.script_generation.v2"
 const ScriptCopyOutputSchemaVersion = "workbench.script_copy.v1"
 const ScriptVisualIntentOutputSchemaVersion = "workbench.script_visual_intent.v1"
-const EditPlanOutputSchemaVersion = "workbench.edit_plan.v3"
+const EditPlanOutputSchemaVersion = "workbench.edit_plan.v5"
 
 var allowedShotSizes = map[string]struct{}{
 	"":                {},
@@ -336,10 +336,13 @@ func EditPlanOutputSchema() map[string]any {
 				"type": "array",
 				"items": map[string]any{
 					"type":     "object",
-					"required": []string{"slot_id", "candidate_id"},
+					"required": []string{"slot_id", "candidate_indexes"},
 					"properties": map[string]any{
-						"slot_id":      map[string]any{"type": "string", "minLength": 1},
-						"candidate_id": map[string]any{"type": "string", "minLength": 1},
+						"slot_id": map[string]any{"type": "string", "minLength": 1},
+						"candidate_indexes": map[string]any{
+							"type":  "array",
+							"items": map[string]any{"type": "integer", "minimum": 1},
+						},
 					},
 				},
 			},
