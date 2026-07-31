@@ -20,13 +20,13 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 		AvailableVisualEvidence: []string{"动作：双手压紧魔术贴完成固定"},
 		SellingPoints:           []ScriptGenerationSellingPoint{{Name: "魔术贴固定"}},
 	})
-	if bundle.Version != "workbench-script-v10" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
+	if bundle.Version != "workbench-script-v11" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
 		t.Fatalf("unexpected copy prompt bundle %#v", bundle)
 	}
 	prompt := bundle.Prompts[0].System + " " + bundle.Prompts[0].User
 	for _, expected := range []string{
-		"精通抖音信息流广告的口播策划师", "selected_selling_points", "recommended_spoken_character_range",
-		"111", "127", "每个版本必须实际表达全部输入卖点", "第一段：黄金开头",
+		"精通抖音信息流广告的口播策划师", "selected_selling_points", "target_duration_seconds\":30",
+		"每个版本必须实际表达全部输入卖点", "第一段：黄金开头",
 		"第二段：产品解决方案", "第三段：结果与收束", "具体功能或操作 + 直接结果",
 		"target_duration_seconds 是实际篇幅目标", "所有参数、材质、效果和场景必须来自输入事实",
 	} {
@@ -37,6 +37,7 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 	for _, forbidden := range []string{
 		"preferred_estimated_duration_seconds", "maximum_selling_points_per_variant", "semantic_clause_range",
 		"还在找好用的骑行车头包", "促进血液循环", "允许明显短于目标", "全部 variants 合计必须覆盖",
+		"recommended_spoken_character_range",
 	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("copy prompt must not contain legacy restriction %q: %s", forbidden, prompt)
@@ -563,10 +564,6 @@ func TestNormalizeScriptGenerationTemperature(t *testing.T) {
 }
 
 func TestScriptDurationRules(t *testing.T) {
-	minimum, maximum := ScriptSpokenCharacterRange(30)
-	if minimum != 111 || maximum != 127 {
-		t.Fatalf("unexpected 30 second drafting range %d-%d", minimum, maximum)
-	}
 	duration := EstimateScriptDurationMs(validScriptCopyResult().Variants[0].ScriptText)
 	if duration < 13500 || duration > 16800 {
 		t.Fatalf("expected valid 15 second estimate, got %d", duration)

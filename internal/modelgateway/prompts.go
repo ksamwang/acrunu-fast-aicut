@@ -19,7 +19,7 @@ type PromptBundle struct {
 }
 
 const PromptVersion = "phase2-v7"
-const ScriptGenerationPromptVersion = "workbench-script-v10"
+const ScriptGenerationPromptVersion = "workbench-script-v11"
 const ScriptVisualIntentPromptVersion = "workbench-script-visual-intent-v2"
 const EditPlanPromptVersion = "workbench-edit-plan-v9"
 const VisualPlanPromptVersion = "workbench-visual-plan-v8"
@@ -103,15 +103,13 @@ func BuildPromptBundle(input AnalyzeAssetInput) PromptBundle {
 
 func BuildScriptGenerationPrompt(input ScriptGenerationInput) PromptBundle {
 	targetDuration, _ := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
-	minimumCharacters, maximumCharacters := ScriptSpokenCharacterRange(targetDuration)
 	inputJSON, _ := json.Marshal(map[string]any{
-		"product_name":                       input.ProductName,
-		"product_description":                input.ProductDescription,
-		"product_category":                   input.ProductCategory,
-		"selling_points":                     input.SellingPoints,
-		"variant_count":                      input.VariantCount,
-		"target_duration_seconds":            targetDuration,
-		"recommended_spoken_character_range": map[string]int{"minimum": minimumCharacters, "maximum": maximumCharacters},
+		"product_name":            input.ProductName,
+		"product_description":     input.ProductDescription,
+		"product_category":        input.ProductCategory,
+		"selling_points":          input.SellingPoints,
+		"variant_count":           input.VariantCount,
+		"target_duration_seconds": targetDuration,
 	})
 
 	return PromptBundle{

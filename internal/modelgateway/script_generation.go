@@ -16,15 +16,12 @@ import (
 )
 
 const (
-	defaultScriptGenerationMaxTokens     = 8192
-	TTSVisualSourceType                  = "visual_only"
-	DefaultScriptTargetDuration          = 30
-	DefaultScriptGenerationTemperature   = 0.75
-	scriptSpokenCharactersPerSecond      = 5.0
-	scriptRecommendedCharactersPerSecond = 3.7
-	scriptMinimumCharacterRatio          = 1.0
-	scriptMaximumCharacterRatio          = 1.15
-	minimumUsableScriptSpokenCharacters  = 30
+	defaultScriptGenerationMaxTokens    = 8192
+	TTSVisualSourceType                 = "visual_only"
+	DefaultScriptTargetDuration         = 30
+	DefaultScriptGenerationTemperature  = 0.75
+	scriptSpokenCharactersPerSecond     = 5.0
+	minimumUsableScriptSpokenCharacters = 30
 )
 
 var allowedScriptSourceTypes = map[string]struct{}{
@@ -655,15 +652,6 @@ func NormalizeScriptTargetDuration(value int) (int, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func ScriptSpokenCharacterRange(targetDurationSeconds int) (int, int) {
-	targetDurationSeconds, ok := NormalizeScriptTargetDuration(targetDurationSeconds)
-	if !ok {
-		return 0, 0
-	}
-	target := float64(targetDurationSeconds) * scriptRecommendedCharactersPerSecond
-	return int(math.Ceil(target * scriptMinimumCharacterRatio)), int(math.Floor(target * scriptMaximumCharacterRatio))
 }
 
 func CountScriptSpokenCharacters(text string) int {
