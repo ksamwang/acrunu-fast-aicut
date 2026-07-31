@@ -27,7 +27,7 @@ func TestValidateVisualPlanResultUsesCompleteNarrationSegments(t *testing.T) {
 	}
 }
 
-func TestValidateVisualPlanResultRejectsInvalidTimeline(t *testing.T) {
+func TestValidateVisualPlanResultRepairsTimelineFromNarrationAnchors(t *testing.T) {
 	input := VisualPlanInput{
 		ProductName: "束裤带",
 		ScriptText:  "第一句。第二句。",
@@ -36,37 +36,29 @@ func TestValidateVisualPlanResultRejectsInvalidTimeline(t *testing.T) {
 			{ID: "n-2", StartMs: 1000, EndMs: 2000, Text: "第二句。"},
 		},
 	}
-	cases := []struct {
-		name  string
-		beats []VisualPlanBeat
-	}{
-		{
-			name: "gap",
-			beats: []VisualPlanBeat{
-				{NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1000, DurationClass: VisualDurationClassBrief, Label: "一", VisualGoal: "画面一", SourceType: "visual_only"},
-				{NarrationSegmentID: "n-2", StartMs: 1050, EndMs: 2000, DurationClass: VisualDurationClassBrief, Label: "二", VisualGoal: "画面二", SourceType: "visual_only"},
-			},
-		},
-		{
-			name: "overlap",
-			beats: []VisualPlanBeat{
-				{NarrationSegmentID: "n-1", StartMs: 0, EndMs: 1100, DurationClass: VisualDurationClassBrief, Label: "一", VisualGoal: "画面一", SourceType: "visual_only"},
-				{NarrationSegmentID: "n-1", StartMs: 1000, EndMs: 2000, DurationClass: VisualDurationClassBrief, Label: "二", VisualGoal: "画面二", SourceType: "visual_only"},
-			},
-		},
-		{
-			name: "anchor does not contain beat start",
-			beats: []VisualPlanBeat{
-				{NarrationSegmentID: "n-2", StartMs: 0, EndMs: 2000, DurationClass: VisualDurationClassStandard, Label: "一", VisualGoal: "画面一", SourceType: "visual_only"},
-			},
-		},
+	result := VisualPlanResult{VisualBeats: []VisualPlanBeat{
+		{NarrationSegmentID: "n-2", StartMs: 1050, EndMs: 1990, DurationClass: VisualDurationClassStandard, Label: "二", VisualGoal: "画面二", SourceType: "visual_only"},
+		{NarrationSegmentID: "n-1", StartMs: 10, EndMs: 1100, DurationClass: VisualDurationClassStandard, Label: "一", VisualGoal: "画面一", SourceType: "visual_only"},
+	}}
+	if err := ValidateVisualPlanResult(result, input); err != nil {
+		t.Fatalf("expected timeline arithmetic to be repaired: %v", err)
 	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if err := ValidateVisualPlanResult(VisualPlanResult{VisualBeats: testCase.beats}, input); err == nil {
-				t.Fatal("expected invalid visual timeline to be rejected")
-			}
-		})
+	if result.VisualBeats[0].NarrationSegmentID != "n-1" || result.VisualBeats[0].StartMs != 0 || result.VisualBeats[0].EndMs != 1000 ||
+		result.VisualBeats[1].NarrationSegmentID != "n-2" || result.VisualBeats[1].StartMs != 1000 || result.VisualBeats[1].EndMs != 2000 {
+		t.Fatalf("unexpected normalized timeline %#v", result.VisualBeats)
+	}
+
+	invalidCases := [][]VisualPlanBeat{
+		{
+			{NarrationSegmentID: "n-1", DurationClass: VisualDurationClassBrief, Label: "一", VisualGoal: "画面一", SourceType: "visual_only"},
+			{NarrationSegmentID: "n-1", DurationClass: VisualDurationClassBrief, Label: "二", VisualGoal: "画面二", SourceType: "visual_only"},
+		},
+		{{NarrationSegmentID: "n-2", DurationClass: VisualDurationClassStandard, Label: "一", VisualGoal: "画面一", SourceType: "visual_only"}},
+	}
+	for _, beats := range invalidCases {
+		if err := ValidateVisualPlanResult(VisualPlanResult{VisualBeats: beats}, input); err == nil {
+			t.Fatal("expected an ambiguous visual timeline to be rejected")
+		}
 	}
 }
 
@@ -132,7 +124,7 @@ func TestValidateVisualPlanResultAllowsHookLongerThanBriefGuideline(t *testing.T
 	}
 }
 
-func TestValidateVisualPlanResultRejectsSequentialActionsInOneBeat(t *testing.T) {
+func TestValidateVisualPlanResultAllowsSequentialWordingInOneBeat(t *testing.T) {
 	input := VisualPlanInput{
 		ProductName: "束裤带",
 		ScriptText:  "一秒快拆，收纳方便。",
@@ -145,8 +137,8 @@ func TestValidateVisualPlanResultRejectsSequentialActionsInOneBeat(t *testing.T)
 		NarrationSegmentID: "n-1", StartMs: 0, EndMs: 2000, DurationClass: VisualDurationClassAction,
 		Label: "快拆与收纳", VisualGoal: "快速拆卸，然后折叠收纳", SourceType: "visual_only",
 	}}}, input)
-	if err == nil || !strings.Contains(err.Error(), "combines sequential actions") {
-		t.Fatalf("expected compound action beat to be rejected, got %v", err)
+	if err != nil {
+		t.Fatalf("expected sequential wording to be handled by downstream multi-shot planning: %v", err)
 	}
 }
 

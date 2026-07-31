@@ -3,6 +3,7 @@ package modelgateway
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -114,10 +115,15 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		return err
 	}
 	segments := make(map[string]VisualPlanNarrationSegment, len(input.NarrationSegments))
+	segmentIndexes := make(map[string]int, len(input.NarrationSegments))
 	segmentEnds := make(map[int]struct{}, len(input.NarrationSegments))
-	for _, segment := range input.NarrationSegments {
+	for index, segment := range input.NarrationSegments {
 		segments[segment.ID] = segment
+		segmentIndexes[segment.ID] = index
 		segmentEnds[segment.EndMs] = struct{}{}
+	}
+	if err := normalizeVisualPlanTimeline(result.VisualBeats, input.NarrationSegments, segmentIndexes); err != nil {
+		return err
 	}
 	narrativeBeats := make(map[string]struct{}, len(input.NarrativeBeats))
 	for _, beat := range input.NarrativeBeats {
@@ -142,9 +148,6 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 		}
 		if beat.Label == "" || beat.VisualGoal == "" || !isVisualPlanSourceType(beat.SourceType) {
 			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d is incomplete", index+1), false, nil)
-		}
-		if containsSequentialVisualActions(beat.VisualGoal) {
-			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d combines sequential actions", index+1), false, nil)
 		}
 		if visualGoalRequiresActionDuration(beat.VisualGoal) {
 			beat.DurationClass = VisualDurationClassAction
@@ -187,6 +190,32 @@ func ValidateVisualPlanResult(result VisualPlanResult, input VisualPlanInput) er
 	return nil
 }
 
+func normalizeVisualPlanTimeline(beats []VisualPlanBeat, segments []VisualPlanNarrationSegment, segmentIndexes map[string]int) error {
+	for index := range beats {
+		beats[index].NarrationSegmentID = strings.TrimSpace(beats[index].NarrationSegmentID)
+		if _, ok := segmentIndexes[beats[index].NarrationSegmentID]; !ok {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d references an unknown narration segment", index+1), false, nil)
+		}
+	}
+	sort.SliceStable(beats, func(i, j int) bool {
+		return segmentIndexes[beats[i].NarrationSegmentID] < segmentIndexes[beats[j].NarrationSegmentID]
+	})
+	previousSegmentIndex := -1
+	for index := range beats {
+		segmentIndex := segmentIndexes[beats[index].NarrationSegmentID]
+		if segmentIndex <= previousSegmentIndex {
+			return NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual beat %d does not continue the timeline", index+1), false, nil)
+		}
+		beats[index].StartMs = segments[segmentIndex].StartMs
+		if index > 0 {
+			beats[index-1].EndMs = beats[index].StartMs
+		}
+		previousSegmentIndex = segmentIndex
+	}
+	beats[len(beats)-1].EndMs = segments[len(segments)-1].EndMs
+	return nil
+}
+
 func normalizeVisualGoalForRetrieval(value string) string {
 	value = strings.TrimSpace(value)
 	for {
@@ -202,15 +231,6 @@ func normalizeVisualGoalForRetrieval(value string) string {
 		}
 		value = trimmed
 	}
-}
-
-func containsSequentialVisualActions(value string) bool {
-	for _, marker := range []string{"然后", "随后", "接着", "再将", "再把"} {
-		if strings.Contains(value, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func visualGoalRequiresActionDuration(value string) bool {
