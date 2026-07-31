@@ -23,8 +23,6 @@ const (
 	scriptRecommendedCharactersPerSecond = 3.7
 	scriptMinimumCharacterRatio          = 1.0
 	scriptMaximumCharacterRatio          = 1.15
-	scriptMinimumPreferredDurationRatio  = 0.7
-	scriptMaximumPreferredDurationRatio  = 1.4
 	minimumUsableScriptSpokenCharacters  = 30
 )
 
@@ -336,7 +334,6 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 	allowedSellingPoints := scriptSellingPointSet(input.SellingPoints)
 	coveredSellingPoints := make(map[string]struct{}, len(allowedSellingPoints))
 	seenIndexes := map[int]struct{}{}
-	seenAngles := map[string]struct{}{}
 	seenHooks := map[string]struct{}{}
 	for index := range result.Variants {
 		variant := &result.Variants[index]
@@ -353,12 +350,6 @@ func validateScriptCopyResultIssues(result ScriptCopyResult, input ScriptGenerat
 		}
 		if variant.Angle == "" {
 			issues = append(issues, fmt.Sprintf("copy variant %d angle is required", index+1))
-		} else {
-			normalizedAngle := normalizeScriptComparisonText(variant.Angle)
-			if _, exists := seenAngles[normalizedAngle]; exists {
-				issues = append(issues, fmt.Sprintf("copy variant %d repeats another advertising angle", index+1))
-			}
-			seenAngles[normalizedAngle] = struct{}{}
 		}
 		issues = append(issues, validateScriptNarration(index+1, &variant.Hook, &variant.ScriptText, seenHooks)...)
 		if len(variant.SelectedSellingPoints) < 1 {
@@ -585,27 +576,12 @@ func validateScriptCopyQualityIssues(result ScriptCopyResult, input ScriptGenera
 	return issues
 }
 
-func validateScriptCopyVariantQualityIssues(index int, variant ScriptCopyVariant, input ScriptGenerationInput) []string {
+func validateScriptCopyVariantQualityIssues(index int, variant ScriptCopyVariant, _ ScriptGenerationInput) []string {
 	scriptText := strings.TrimSpace(variant.ScriptText)
 	if scriptText == "" {
 		return nil
 	}
-	issues := make([]string, 0, 2)
-	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
-	if ok {
-		minimumDurationMs, maximumDurationMs := ScriptPreferredDurationRangeMs(targetDuration)
-		estimatedDurationMs := EstimateScriptDurationMs(scriptText)
-		if estimatedDurationMs < minimumDurationMs || estimatedDurationMs > maximumDurationMs {
-			issues = append(issues, fmt.Sprintf(
-				"variant %d estimated duration is %.1fs; target %ds prefers %.1fs to %.1fs",
-				index,
-				float64(estimatedDurationMs)/1000,
-				targetDuration,
-				float64(minimumDurationMs)/1000,
-				float64(maximumDurationMs)/1000,
-			))
-		}
-	}
+	issues := make([]string, 0, 1)
 	if phrase := firstScriptPhrase(scriptText, scriptProductionDirectionPhrases); phrase != "" {
 		issues = append(issues, fmt.Sprintf("variant %d contains production-direction phrase %q", index, phrase))
 	}
@@ -628,8 +604,7 @@ func mergeScriptCopyQualityRepair(original ScriptCopyResult, repaired ScriptCopy
 			continue
 		}
 		repairedIssues := validateScriptCopyVariantQualityIssues(index+1, repairedVariant, input)
-		if len(repairedIssues) < len(originalIssues) ||
-			(len(repairedIssues) == len(originalIssues) && scriptCopyDurationDistanceMs(repairedVariant, input) <= scriptCopyDurationDistanceMs(originalVariant, input)) {
+		if len(repairedIssues) < len(originalIssues) {
 			merged.Variants[index] = repairedVariant
 		}
 	}
@@ -637,22 +612,6 @@ func mergeScriptCopyQualityRepair(original ScriptCopyResult, repaired ScriptCopy
 		return original
 	}
 	return merged
-}
-
-func scriptCopyDurationDistanceMs(variant ScriptCopyVariant, input ScriptGenerationInput) int {
-	targetDuration, ok := NormalizeScriptTargetDuration(input.TargetDurationSeconds)
-	if !ok {
-		return 0
-	}
-	minimumDurationMs, maximumDurationMs := ScriptPreferredDurationRangeMs(targetDuration)
-	estimatedDurationMs := EstimateScriptDurationMs(variant.ScriptText)
-	if estimatedDurationMs < minimumDurationMs {
-		return minimumDurationMs - estimatedDurationMs
-	}
-	if estimatedDurationMs > maximumDurationMs {
-		return estimatedDurationMs - maximumDurationMs
-	}
-	return 0
 }
 
 func validateScriptVisualGoal(variantIndex int, beatIndex int, visualGoal string) []string {
@@ -714,15 +673,6 @@ func ScriptSpokenCharacterRange(targetDurationSeconds int) (int, int) {
 	return int(math.Ceil(target * scriptMinimumCharacterRatio)), int(math.Floor(target * scriptMaximumCharacterRatio))
 }
 
-func ScriptPreferredDurationRangeMs(targetDurationSeconds int) (int, int) {
-	targetDurationSeconds, ok := NormalizeScriptTargetDuration(targetDurationSeconds)
-	if !ok {
-		return 0, 0
-	}
-	targetMs := float64(targetDurationSeconds * 1000)
-	return int(math.Ceil(targetMs * scriptMinimumPreferredDurationRatio)), int(math.Floor(targetMs * scriptMaximumPreferredDurationRatio))
-}
-
 func CountScriptSpokenCharacters(text string) int {
 	count := 0
 	for _, value := range text {
@@ -748,27 +698,6 @@ func EstimateScriptDurationMs(text string) int {
 		return 8000
 	}
 	return durationMs
-}
-
-func ScriptBeatCountRange(targetDurationSeconds int) (int, int) {
-	switch targetDurationSeconds {
-	case 15, 20:
-		return 3, 5
-	case 45:
-		return 5, 7
-	case 60:
-		return 6, 8
-	default:
-		return 4, 6
-	}
-}
-
-func ScriptVisualBeatCountRange(targetDurationSeconds int, selectedSellingPointCount int) (int, int) {
-	minimum, maximum := ScriptBeatCountRange(targetDurationSeconds)
-	if selectedSellingPointCount > maximum {
-		maximum = selectedSellingPointCount
-	}
-	return minimum, maximum
 }
 
 func firstScriptPhrase(text string, phrases []string) string {

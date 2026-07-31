@@ -3,7 +3,6 @@ package modelgateway
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,19 +20,20 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 		AvailableVisualEvidence: []string{"动作：双手压紧魔术贴完成固定"},
 		SellingPoints:           []ScriptGenerationSellingPoint{{Name: "魔术贴固定"}},
 	})
-	if bundle.Version != "workbench-script-v7" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
+	if bundle.Version != "workbench-script-v8" || bundle.Schema["version"] != ScriptCopyOutputSchemaVersion {
 		t.Fatalf("unexpected copy prompt bundle %#v", bundle)
 	}
 	prompt := bundle.Prompts[0].System + " " + bundle.Prompts[0].User
 	for _, expected := range []string{
-		"商品信息流口播", "selected_selling_points", "preferred_estimated_duration_seconds", "recommended_spoken_character_range",
-		"111", "127", "21", "42", "还在找好用的骑行车头包", "闭眼入、一包两用、不用慌", "不限制每条卖点数量",
+		"商品信息流口播", "selected_selling_points", "recommended_spoken_character_range",
+		"111", "127", "还在找好用的骑行车头包", "不限制每条卖点数量", "唯一允许使用的商品事实",
+		"事实边界", "促进血液循环", "不要求采用不同广告角度", "允许不同 variant 使用相同 angle", "允许明显短于目标",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected copy prompt to contain %q, got %s", expected, prompt)
 		}
 	}
-	for _, forbidden := range []string{"maximum_selling_points_per_variant", "semantic_clause_range", "不要把一条文案写成完整功能清单"} {
+	for _, forbidden := range []string{"preferred_estimated_duration_seconds", "maximum_selling_points_per_variant", "semantic_clause_range", "不要把一条文案写成完整功能清单"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("copy prompt must not contain legacy restriction %q: %s", forbidden, prompt)
 		}
@@ -59,6 +59,14 @@ func TestBuildScriptVisualIntentPromptUsesApprovedCopyAndEvidence(t *testing.T) 
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected visual prompt to contain %q, got %s", expected, prompt)
 		}
+	}
+	for _, expected := range []string{"不设固定数量", "合并为一个 beat", "不得重复生成同义画面"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected visual prompt to contain %q, got %s", expected, prompt)
+		}
+	}
+	if strings.Contains(prompt, "beat_count_ranges") {
+		t.Fatalf("visual prompt must not contain fixed beat ranges: %s", prompt)
 	}
 }
 
@@ -205,18 +213,24 @@ func TestOpenAICompatibleScriptGeneratorAcceptsNaturalDurationWithoutRepair(t *t
 	}
 }
 
-func TestOpenAICompatibleScriptGeneratorAcceptsBelowPreferredDurationAfterRepair(t *testing.T) {
+func TestOpenAICompatibleScriptGeneratorDoesNotPadCopyToTargetDuration(t *testing.T) {
 	requests := 0
 	copyRequests := 0
 	original := scriptCopyResultWithBodyLength(1, "骑行裤脚安全", "骑车裤脚容易蹭到链条", "避免蹭链条", "稳", 135)
-	repaired := scriptCopyResultWithBodyLength(1, "骑行裤脚安全", "骑车裤脚容易蹭到链条", "避免蹭链条", "牢", 140)
-	for name, result := range map[string]ScriptCopyResult{"original": original, "repaired": repaired} {
-		durationMs := EstimateScriptDurationMs(result.Variants[0].ScriptText)
-		if durationMs < 29000 || durationMs > 32000 {
-			t.Fatalf("%s fixture must stay near 30 seconds, got %dms", name, durationMs)
-		}
+	durationMs := EstimateScriptDurationMs(original.Variants[0].ScriptText)
+	if durationMs < 29000 || durationMs > 32000 {
+		t.Fatalf("fixture must stay near 30 seconds, got %dms", durationMs)
 	}
-	visualResult := scriptVisualIntentResultForDuration(1, "避免蹭链条", 45)
+	visualResult := ScriptVisualIntentResult{Plans: []ScriptVisualIntentPlan{{
+		VariantIndex:  1,
+		EditingIntent: "呈现束裤带固定裤脚后的状态。",
+		Beats: []ScriptGenerationBeat{{
+			Label:        "固定裤脚",
+			SellingPoint: "避免蹭链条",
+			VisualGoal:   "束裤带环绕脚踝并固定裤脚",
+			SourceType:   TTSVisualSourceType,
+		}},
+	}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		body, err := io.ReadAll(r.Body)
@@ -234,14 +248,10 @@ func TestOpenAICompatibleScriptGeneratorAcceptsBelowPreferredDurationAfterRepair
 			content, _ = json.Marshal(visualResult)
 		} else {
 			copyRequests++
-			if copyRequests == 1 {
-				content, _ = json.Marshal(original)
-			} else {
-				if !strings.Contains(userMessage, "需要优化") {
-					t.Fatalf("expected copy repair instruction, got %s", userMessage)
-				}
-				content, _ = json.Marshal(repaired)
+			if copyRequests > 1 {
+				t.Fatalf("natural shorter copy must not trigger duration padding: %s", userMessage)
 			}
+			content, _ = json.Marshal(original)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -264,13 +274,13 @@ func TestOpenAICompatibleScriptGeneratorAcceptsBelowPreferredDurationAfterRepair
 		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
 	})
 	if err != nil {
-		t.Fatalf("below-preferred copy must remain usable after one repair: %v", err)
+		t.Fatalf("natural shorter copy must remain usable: %v", err)
 	}
-	if requests != 3 || copyRequests != 2 {
-		t.Fatalf("expected copy, repair, and visual requests; got requests=%d copy=%d", requests, copyRequests)
+	if requests != 2 || copyRequests != 1 {
+		t.Fatalf("expected one copy and one visual request; got requests=%d copy=%d", requests, copyRequests)
 	}
-	if len(result.Variants) != 1 || result.Variants[0].ScriptText != repaired.Variants[0].ScriptText {
-		t.Fatalf("expected the closer repair to be used, got %#v", result)
+	if len(result.Variants) != 1 || result.Variants[0].ScriptText != original.Variants[0].ScriptText {
+		t.Fatalf("expected original natural copy to be used, got %#v", result)
 	}
 }
 
@@ -284,13 +294,17 @@ func TestMergeScriptCopyQualityRepairKeepsQualifiedVariantsUnchanged(t *testing.
 		},
 	}
 	original := ScriptCopyResult{Variants: []ScriptCopyVariant{
-		scriptCopyResultWithBodyLength(1, "骑行裤脚安全", "骑车裤脚容易蹭到链条", "避免蹭链条", "稳", 135).Variants[0],
+		scriptCopyResultWithBodyLength(1, "骑行裤脚安全", "骑车裤脚容易蹭到链条", "避免蹭链条", "稳", 40).Variants[0],
 		scriptCopyResultWithBodyLength(2, "随身便携收纳", "骑完以后束裤带方便收纳", "方便收纳", "收", 180).Variants[0],
 	}}
+	original.Variants[0].ScriptText += "镜头切换。"
 	repaired := ScriptCopyResult{Variants: []ScriptCopyVariant{
-		scriptCopyResultWithBodyLength(1, "骑行裤脚安全", "骑车裤脚容易蹭到链条", "避免蹭链条", "牢", 140).Variants[0],
+		scriptCopyResultWithBodyLength(1, "骑行裤脚安全", "骑车裤脚容易蹭到链条", "避免蹭链条", "牢", 40).Variants[0],
 		scriptCopyResultWithBodyLength(2, "被模型改写的合格版本", "模型改写了本来合格的版本", "方便收纳", "改", 185).Variants[0],
 	}}
+	if issues := validateScriptCopyVariantQualityIssues(1, original.Variants[0], input); !strings.Contains(strings.Join(issues, "; "), "production-direction") {
+		t.Fatalf("first original variant must require production-direction repair, got %#v", issues)
+	}
 	if issues := validateScriptCopyVariantQualityIssues(2, original.Variants[1], input); len(issues) != 0 {
 		t.Fatalf("second original variant must be qualified, got %#v", issues)
 	}
@@ -335,23 +349,37 @@ func TestScriptCopyQualityIssuesDetectProductionDirections(t *testing.T) {
 	}
 }
 
-func TestValidateScriptCopyResultAcceptsNaturalDurationWithoutQualityRepair(t *testing.T) {
+func TestValidateScriptCopyResultAcceptsNaturalCopyBelowTargetWithoutQualityRepair(t *testing.T) {
 	result := reasonableNearTargetCopyResult()
 	input := ScriptGenerationInput{
 		VariantCount:          1,
-		TargetDurationSeconds: 30,
+		TargetDurationSeconds: 45,
 		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
 	}
 	estimatedDurationMs := EstimateScriptDurationMs(result.Variants[0].ScriptText)
-	preferredMinimumMs, preferredMaximumMs := ScriptPreferredDurationRangeMs(30)
-	if estimatedDurationMs < preferredMinimumMs || estimatedDurationMs > preferredMaximumMs {
-		t.Fatalf("test copy duration %dms is outside the preferred boundaries", estimatedDurationMs)
+	if estimatedDurationMs >= input.TargetDurationSeconds*1000 {
+		t.Fatalf("test copy must remain naturally shorter than its target, got %dms", estimatedDurationMs)
 	}
 	if err := ValidateScriptCopyResult(result, input); err != nil {
-		t.Fatalf("reasonable near-target copy must not fail generation: %v", err)
+		t.Fatalf("natural shorter copy must not fail generation: %v", err)
 	}
 	if issues := validateScriptCopyQualityIssues(result, input); len(issues) != 0 {
-		t.Fatalf("natural duration must not trigger a rewrite, got %#v", issues)
+		t.Fatalf("natural shorter copy must not trigger a rewrite, got %#v", issues)
+	}
+}
+
+func TestValidateScriptCopyResultAllowsRepeatedAngles(t *testing.T) {
+	input := ScriptGenerationInput{
+		VariantCount:          2,
+		TargetDurationSeconds: 30,
+		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "避免蹭链条"}},
+	}
+	result := ScriptCopyResult{Variants: []ScriptCopyVariant{
+		scriptCopyResultWithBodyLength(1, "核心卖点直给", "骑车时裤脚总往链条旁边跑", "避免蹭链条", "稳", 40).Variants[0],
+		scriptCopyResultWithBodyLength(2, "核心卖点直给", "不想让裤脚靠近自行车链条", "避免蹭链条", "牢", 40).Variants[0],
+	}}
+	if err := ValidateScriptCopyResult(result, input); err != nil {
+		t.Fatalf("variants may share an advertising angle: %v", err)
 	}
 }
 
@@ -363,13 +391,9 @@ func TestDenseProductPitchSupportsAllSellingPointsAndVisualBeats(t *testing.T) {
 	if issues := validateScriptCopyQualityIssues(copies, input); len(issues) != 0 {
 		t.Fatalf("dense product pitch must not trigger a quality rewrite: %#v", issues)
 	}
-	minimumBeats, maximumBeats := ScriptVisualBeatCountRange(30, len(copies.Variants[0].SelectedSellingPoints))
-	if minimumBeats != 4 || maximumBeats != 9 {
-		t.Fatalf("unexpected dense pitch beat range %d-%d", minimumBeats, maximumBeats)
-	}
 	prompt := BuildScriptVisualIntentPrompt(input, copies).Prompts[0].User
-	if !strings.Contains(prompt, "beat_count_ranges") || !strings.Contains(prompt, `"maximum":9`) {
-		t.Fatalf("visual prompt must allow one beat per selected selling point: %s", prompt)
+	if strings.Contains(prompt, "beat_count_ranges") || !strings.Contains(prompt, "不设固定数量") {
+		t.Fatalf("visual prompt must let actual visual intents determine beat count: %s", prompt)
 	}
 
 	visuals := ScriptVisualIntentResult{Plans: []ScriptVisualIntentPlan{{
@@ -450,10 +474,6 @@ func TestScriptDurationRules(t *testing.T) {
 	if minimum != 111 || maximum != 127 {
 		t.Fatalf("unexpected 30 second drafting range %d-%d", minimum, maximum)
 	}
-	preferredMinimum, preferredMaximum := ScriptPreferredDurationRangeMs(30)
-	if preferredMinimum != 21000 || preferredMaximum != 42000 {
-		t.Fatalf("unexpected 30 second preferred duration range %d-%d", preferredMinimum, preferredMaximum)
-	}
 	duration := EstimateScriptDurationMs(validScriptCopyResult().Variants[0].ScriptText)
 	if duration < 13500 || duration > 16800 {
 		t.Fatalf("expected valid 15 second estimate, got %d", duration)
@@ -492,24 +512,6 @@ func scriptCopyResultWithBodyLength(index int, angle string, hook string, sellin
 		SelectedSellingPoints: []string{sellingPoint},
 		Hook:                  hook,
 		ScriptText:            hook + "，" + strings.Repeat(fill, bodyLength) + "。",
-	}}}
-}
-
-func scriptVisualIntentResultForDuration(variantIndex int, sellingPoint string, targetDurationSeconds int) ScriptVisualIntentResult {
-	minimumBeats, _ := ScriptVisualBeatCountRange(targetDurationSeconds, 1)
-	beats := make([]ScriptGenerationBeat, 0, minimumBeats)
-	for index := 0; index < minimumBeats; index++ {
-		beats = append(beats, ScriptGenerationBeat{
-			Label:        "动作阶段",
-			SellingPoint: sellingPoint,
-			VisualGoal:   fmt.Sprintf("束裤带固定裤脚的第%d个动作阶段", index+1),
-			SourceType:   TTSVisualSourceType,
-		})
-	}
-	return ScriptVisualIntentResult{Plans: []ScriptVisualIntentPlan{{
-		VariantIndex:  variantIndex,
-		EditingIntent: "依次呈现束裤带固定裤脚的完整使用过程。",
-		Beats:         beats,
 	}}}
 }
 
