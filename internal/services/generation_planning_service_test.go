@@ -388,6 +388,7 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 			SourceInMs:      0,
 			SourceOutMs:     2000,
 			SemanticSummary: strings.Repeat("镜", maximumPlannerCandidateSemanticSummaryRunes+20),
+			SemanticScore:   0.80,
 		})
 	}
 	input, err := buildPlannerInput("束裤带", "固定裤脚。", []CandidateSet{{
@@ -422,20 +423,20 @@ func TestSelectPlannerAssetCandidatesAppliesDurationBeforeAbsoluteThreshold(t *t
 		{AssetID: "outside", SourceOutMs: 1000, SemanticScore: 0.759},
 	}
 	selected := selectPlannerAssetCandidates(candidates, 800, 1)
-	if len(selected) != 2 || selected[0].AssetID != "top" || selected[1].AssetID != "boundary" {
-		t.Fatalf("expected candidates at or above the 0.76 threshold, got %#v", selected)
+	if len(selected) != 3 || selected[0].AssetID != "top" || selected[1].AssetID != "boundary" || selected[2].AssetID != "outside" {
+		t.Fatalf("expected preferred candidates before the below-threshold fallback, got %#v", selected)
 	}
 }
 
-func TestSelectPlannerAssetCandidatesFallsBackToTopScoreBelowThreshold(t *testing.T) {
+func TestSelectPlannerAssetCandidatesKeepsRankedFallbackBelowThreshold(t *testing.T) {
 	candidates := []AssetCandidate{
 		{AssetID: "lower", SourceOutMs: 1000, SemanticScore: 0.72, BatchUseCount: 0},
 		{AssetID: "top-b", SourceOutMs: 1000, SemanticScore: 0.74, BatchUseCount: 1},
 		{AssetID: "top-a", SourceOutMs: 1000, SemanticScore: 0.74, BatchUseCount: 1},
 	}
 	selected := selectPlannerAssetCandidates(candidates, 800, 1)
-	if len(selected) != 2 || selected[0].AssetID != "top-a" || selected[1].AssetID != "top-b" {
-		t.Fatalf("expected only the tied top-score fallback candidates, got %#v", selected)
+	if len(selected) != 3 || selected[0].AssetID != "top-a" || selected[1].AssetID != "top-b" || selected[2].AssetID != "lower" {
+		t.Fatalf("expected semantic-score-ordered fallback candidates, got %#v", selected)
 	}
 }
 
@@ -524,7 +525,7 @@ func TestBuildPlannerInputFallsBackToExactDurationWithoutAbsorber(t *testing.T) 
 	}
 }
 
-func TestBuildPlannerInputFallsBackWhenToleranceBreaksUniqueAssignment(t *testing.T) {
+func TestBuildPlannerInputUsesFallbackToPreserveUniqueAssignmentWithTolerance(t *testing.T) {
 	sets := []CandidateSet{
 		{
 			Requirement: ShotRequirement{VisualBeatID: "visual-action", NarrationSegmentID: "narration-action", StartMs: 0, EndMs: 2800, DurationClass: VisualBeatDurationAction, NarrationText: "完整动作。", VisualGoal: "完整展示动作", SourceType: "visual_only"},
@@ -545,8 +546,8 @@ func TestBuildPlannerInputFallsBackWhenToleranceBreaksUniqueAssignment(t *testin
 	if err != nil {
 		t.Fatalf("expected strict unique-assignment fallback: %v", err)
 	}
-	if input.Requirements[0].Slots[0].MaximumEarlyEndMs != 0 || input.Requirements[1].Slots[0].MaximumLeadingExtensionMs != 0 {
-		t.Fatalf("expected tolerance to be disabled after matching fallback, got %#v", input.Requirements)
+	if input.Requirements[0].Slots[0].MaximumEarlyEndMs != 100 || input.Requirements[1].Slots[0].MaximumLeadingExtensionMs != 100 {
+		t.Fatalf("expected the fallback assignment to preserve the safe transition allowance, got %#v", input.Requirements)
 	}
 	if plannerCandidateAliasForAsset(input.Requirements[0].Slots[0].Candidates, "asset-exact") == "" ||
 		plannerCandidateAliasForAsset(input.Requirements[0].Slots[0].Candidates, "asset-shared") != "" {
@@ -626,8 +627,8 @@ func TestMaterializeEditPlanAllowsMultipleClipsForVisualBeat(t *testing.T) {
 			NarrationText: "小小一个，放口袋里完全没负担。", Label: "便携收纳", VisualGoal: "手将束裤带折叠后放入口袋", SourceType: "visual_only",
 		},
 		Candidates: []AssetCandidate{
-			{ID: "candidate-detail", AssetID: "asset-detail", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2500},
-			{ID: "candidate-pocket", AssetID: "asset-pocket", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2500},
+			{ID: "candidate-detail", AssetID: "asset-detail", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2500, SemanticScore: 0.80},
+			{ID: "candidate-pocket", AssetID: "asset-pocket", SourceType: "visual_only", SourceInMs: 0, SourceOutMs: 2500, SemanticScore: 0.80},
 		},
 	}}
 	input, err := buildPlannerInput("束裤带", "小小一个，放口袋里完全没负担。", sets)
@@ -667,13 +668,13 @@ func TestBuildPlannerInputFindsGlobalUniqueAssignment(t *testing.T) {
 		{
 			Requirement: ShotRequirement{VisualBeatID: "visual-1", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 1000, NarrationText: "展示外观。", VisualGoal: "展示外观", SourceType: "visual_only"},
 			Candidates: []AssetCandidate{
-				{ID: "candidate-a", AssetID: "asset-a", SourceOutMs: 2000},
-				{ID: "candidate-b", AssetID: "asset-b", SourceOutMs: 2000},
+				{ID: "candidate-a", AssetID: "asset-a", SourceOutMs: 2000, SemanticScore: 0.80},
+				{ID: "candidate-b", AssetID: "asset-b", SourceOutMs: 2000, SemanticScore: 0.80},
 			},
 		},
 		{
 			Requirement: ShotRequirement{VisualBeatID: "visual-2", NarrationSegmentID: "narration-2", StartMs: 1000, EndMs: 2000, NarrationText: "展示使用。", VisualGoal: "展示使用", SourceType: "visual_only"},
-			Candidates:  []AssetCandidate{{ID: "candidate-a", AssetID: "asset-a", SourceOutMs: 2000}},
+			Candidates:  []AssetCandidate{{ID: "candidate-a", AssetID: "asset-a", SourceOutMs: 2000, SemanticScore: 0.80}},
 		},
 	}
 	input, err := buildPlannerInput("束裤带", "展示。", sets)
@@ -732,6 +733,24 @@ func TestBuildPlannerInputRequiresDistinctAssetsForLongVisualBeat(t *testing.T) 
 	}}
 	if _, err := buildPlannerInput("束裤带", "完整展示动作。", sets); err == nil || !strings.Contains(err.Error(), "no globally unique material assignment") {
 		t.Fatalf("expected long visual beat to require two assets, got %v", err)
+	}
+}
+
+func TestBuildPlannerInputUsesDistinctFallbackAssetsBelowThreshold(t *testing.T) {
+	sets := []CandidateSet{{
+		Requirement: ShotRequirement{VisualBeatID: "visual-long", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 4000, NarrationText: "展示夜骑反光。", VisualGoal: "夜骑中反光条清晰可见", SourceType: "visual_only"},
+		Candidates: []AssetCandidate{
+			{ID: "candidate-top", AssetID: "asset-top", SourceOutMs: 5000, SemanticScore: 0.74},
+			{ID: "candidate-next", AssetID: "asset-next", SourceOutMs: 5000, SemanticScore: 0.72},
+		},
+	}}
+	input, err := buildPlannerInput("束裤带", "展示夜骑反光。", sets)
+	if err != nil {
+		t.Fatalf("expected below-threshold fallback materials to satisfy unique slots: %v", err)
+	}
+	slots := input.Requirements[0].Slots
+	if len(slots) != 2 || len(slots[0].Candidates) != 1 || len(slots[1].Candidates) != 1 || slots[0].Candidates[0].AssetID == slots[1].Candidates[0].AssetID {
+		t.Fatalf("expected each slot to expose its distinct assigned fallback, got %#v", slots)
 	}
 }
 

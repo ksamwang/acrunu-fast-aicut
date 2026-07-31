@@ -639,62 +639,66 @@ func plannerSlotMinimumCandidateDuration(slot modelgateway.EditPlanSlot) int {
 
 func selectPlannerAssetCandidates(candidates []AssetCandidate, minimumDurationMs int, variantIndex int) []AssetCandidate {
 	eligible := make([]AssetCandidate, 0, len(candidates))
-	topScore := 0.0
-	hasTopScore := false
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.AssetID) == "" || candidate.SourceOutMs-candidate.SourceInMs < minimumDurationMs {
 			continue
 		}
 		eligible = append(eligible, candidate)
-		if !hasTopScore || candidate.SemanticScore > topScore {
-			topScore = candidate.SemanticScore
-			hasTopScore = true
-		}
 	}
-	if !hasTopScore {
+	if len(eligible) == 0 {
 		return nil
 	}
-	pool := eligible[:0]
+	preferred := make([]AssetCandidate, 0, len(eligible))
+	fallback := make([]AssetCandidate, 0, len(eligible))
 	for _, candidate := range eligible {
-		if candidate.SemanticScore+1e-9 >= plannerCandidateMinimumSemanticScore {
-			pool = append(pool, candidate)
+		if isPreferredPlannerCandidate(candidate) {
+			preferred = append(preferred, candidate)
+		} else {
+			fallback = append(fallback, candidate)
 		}
 	}
-	if len(pool) == 0 {
-		for _, candidate := range eligible {
-			if candidate.SemanticScore == topScore {
-				pool = append(pool, candidate)
-			}
+	sort.SliceStable(preferred, func(i, j int) bool {
+		if preferred[i].BatchUseCount != preferred[j].BatchUseCount {
+			return preferred[i].BatchUseCount < preferred[j].BatchUseCount
 		}
-	}
-	sort.SliceStable(pool, func(i, j int) bool {
-		if pool[i].BatchUseCount != pool[j].BatchUseCount {
-			return pool[i].BatchUseCount < pool[j].BatchUseCount
+		if preferred[i].SemanticScore != preferred[j].SemanticScore {
+			return preferred[i].SemanticScore > preferred[j].SemanticScore
 		}
-		if pool[i].SemanticScore != pool[j].SemanticScore {
-			return pool[i].SemanticScore > pool[j].SemanticScore
+		return preferred[i].AssetID < preferred[j].AssetID
+	})
+	sort.SliceStable(fallback, func(i, j int) bool {
+		if fallback[i].SemanticScore != fallback[j].SemanticScore {
+			return fallback[i].SemanticScore > fallback[j].SemanticScore
 		}
-		return pool[i].AssetID < pool[j].AssetID
+		if fallback[i].BatchUseCount != fallback[j].BatchUseCount {
+			return fallback[i].BatchUseCount < fallback[j].BatchUseCount
+		}
+		return fallback[i].AssetID < fallback[j].AssetID
 	})
 	if variantIndex <= 0 {
 		variantIndex = 1
 	}
-	rotated := make([]AssetCandidate, 0, len(pool))
-	for start := 0; start < len(pool); {
+	rotated := make([]AssetCandidate, 0, len(preferred))
+	for start := 0; start < len(preferred); {
 		end := start + 1
-		for end < len(pool) && pool[end].BatchUseCount == pool[start].BatchUseCount {
+		for end < len(preferred) && preferred[end].BatchUseCount == preferred[start].BatchUseCount {
 			end++
 		}
-		group := pool[start:end]
+		group := preferred[start:end]
 		offset := (variantIndex - 1) % len(group)
 		rotated = append(rotated, group[offset:]...)
 		rotated = append(rotated, group[:offset]...)
 		start = end
 	}
+	rotated = append(rotated, fallback...)
 	if len(rotated) > maxCandidatesPerNarrationSegment {
 		rotated = rotated[:maxCandidatesPerNarrationSegment]
 	}
 	return rotated
+}
+
+func isPreferredPlannerCandidate(candidate AssetCandidate) bool {
+	return candidate.SemanticScore+1e-9 >= plannerCandidateMinimumSemanticScore
 }
 
 func configurePlannerEarlyTransitions(requirements []modelgateway.EditPlanRequirement, sets []CandidateSet, variantIndex int) bool {
@@ -927,9 +931,6 @@ func trimPlannerSlotCandidates(requirements []modelgateway.EditPlanRequirement, 
 	for requirementIndex := range requirements {
 		for slotIndex := range requirements[requirementIndex].Slots {
 			slot := &requirements[requirementIndex].Slots[slotIndex]
-			if len(slot.Candidates) <= editPlannerCandidatesPerVisualBeat {
-				continue
-			}
 			assignedID := assignedMaterials[slot.ID]
 			assignedIndex := -1
 			for candidateIndex, candidate := range slot.Candidates {
@@ -937,6 +938,27 @@ func trimPlannerSlotCandidates(requirements []modelgateway.EditPlanRequirement, 
 					assignedIndex = candidateIndex
 					break
 				}
+			}
+			if assignedIndex >= 0 && slot.Candidates[assignedIndex].SemanticScore+1e-9 < plannerCandidateMinimumSemanticScore {
+				slot.Candidates = []modelgateway.EditPlanCandidate{slot.Candidates[assignedIndex]}
+				continue
+			}
+			preferred := make([]modelgateway.EditPlanCandidate, 0, len(slot.Candidates))
+			for _, candidate := range slot.Candidates {
+				if candidate.SemanticScore+1e-9 >= plannerCandidateMinimumSemanticScore {
+					preferred = append(preferred, candidate)
+				}
+			}
+			slot.Candidates = preferred
+			assignedIndex = -1
+			for candidateIndex, candidate := range slot.Candidates {
+				if candidate.ID == assignedID {
+					assignedIndex = candidateIndex
+					break
+				}
+			}
+			if len(slot.Candidates) <= editPlannerCandidatesPerVisualBeat {
+				continue
 			}
 			if assignedIndex >= 0 && assignedIndex >= editPlannerCandidatesPerVisualBeat {
 				trimmed := append([]modelgateway.EditPlanCandidate(nil), slot.Candidates[:editPlannerCandidatesPerVisualBeat-1]...)
