@@ -45,16 +45,6 @@ type candidateTestEmbedder struct {
 	inputs []modelgateway.EmbedTextInput
 }
 
-type staticCandidateBatchUsageStore map[string]int
-
-func (s staticCandidateBatchUsageStore) LoadBatchAssetUseCounts(_ context.Context, _ string, _ string) (map[string]int, error) {
-	result := make(map[string]int, len(s))
-	for assetID, count := range s {
-		result[assetID] = count
-	}
-	return result, nil
-}
-
 func (e *candidateTestEmbedder) EmbedText(_ context.Context, input modelgateway.EmbedTextInput) (modelgateway.EmbedTextResult, error) {
 	e.inputs = append(e.inputs, input)
 	return modelgateway.EmbedTextResult{Embedding: []float64{0.2, 0.3}}, nil
@@ -108,15 +98,14 @@ func TestMinimumCandidateDurationKeepsShortSupportMaterial(t *testing.T) {
 	}
 }
 
-func TestAssetCandidateServicePlanningRetrievalMergesDurationQueriesAndLoadsBatchUsage(t *testing.T) {
+func TestAssetCandidateServicePlanningRetrievalMergesDurationQueries(t *testing.T) {
 	assets := NewProductAssetService()
 	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
 	store := &recordingCandidateStore{}
 	embedder := &candidateTestEmbedder{}
 	service := NewAssetCandidateService(nil, assets, NewSystemConfigService(), NewModelProviderService(), config.Config{}).
 		WithEmbedder(embedder).
-		WithStore(store).
-		WithBatchUsageStore(staticCandidateBatchUsageStore{"asset-1": 3})
+		WithStore(store)
 
 	sets, err := service.RetrieveForPlanning(context.Background(), product.ID, []ShotRequirement{{
 		VisualBeatID:       "visual-1",
@@ -127,8 +116,6 @@ func TestAssetCandidateServicePlanningRetrievalMergesDurationQueriesAndLoadsBatc
 		VisualGoal:         "展示固定裤脚",
 		SourceType:         "visual_only",
 	}}, maxCandidatesPerNarrationSegment, PlanningCandidateRetrievalOptions{
-		GenerationBatchID:            "batch-1",
-		GenerationRunID:              "run-1",
 		MinimumDurationsByVisualBeat: map[string][]int{"visual-1": {1200, 800, 1200}},
 	})
 	if err != nil {
@@ -145,8 +132,8 @@ func TestAssetCandidateServicePlanningRetrievalMergesDurationQueriesAndLoadsBatc
 			t.Fatalf("expected internal pool size %d, got %#v", planningCandidateRetrievalPoolSize, input)
 		}
 	}
-	if len(sets) != 1 || len(sets[0].Candidates) != 1 || sets[0].Candidates[0].BatchUseCount != 3 {
-		t.Fatalf("expected merged candidate with batch usage, got %#v", sets)
+	if len(sets) != 1 || len(sets[0].Candidates) != 1 {
+		t.Fatalf("expected one merged candidate, got %#v", sets)
 	}
 }
 

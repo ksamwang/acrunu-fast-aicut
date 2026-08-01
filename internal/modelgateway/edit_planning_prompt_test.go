@@ -22,8 +22,8 @@ func TestBuildEditPlanPromptDeduplicatesCandidateDetails(t *testing.T) {
 				Slots: []EditPlanSlot{{
 					ID: "s001", DurationMs: 2800, Role: EditPlanSlotRoleActionPrimary,
 					Candidates: []EditPlanCandidate{
-						{ID: "m001", SourceType: TTSVisualSourceType, SemanticSummary: sharedSummary, SemanticScore: 0.91, BatchUseCount: 1},
-						{ID: "m002", SourceType: TTSVisualSourceType, SemanticSummary: "束裤带固定在裤脚处", SemanticScore: 0.78, BatchUseCount: 0},
+						{ID: "m001", SourceType: TTSVisualSourceType, SemanticSummary: sharedSummary, SemanticScore: 0.91},
+						{ID: "m002", SourceType: TTSVisualSourceType, SemanticSummary: "束裤带固定在裤脚处", SemanticScore: 0.78},
 					},
 				}},
 			},
@@ -36,8 +36,8 @@ func TestBuildEditPlanPromptDeduplicatesCandidateDetails(t *testing.T) {
 				Slots: []EditPlanSlot{{
 					ID: "s002", DurationMs: 1800, Role: EditPlanSlotRolePrimary,
 					Candidates: []EditPlanCandidate{
-						{ID: "m001", SourceType: TTSVisualSourceType, SemanticSummary: sharedSummary, SemanticScore: 0.72, BatchUseCount: 1},
-						{ID: "m003", SourceType: TTSVisualSourceType, SemanticSummary: "手将束裤带放入口袋", SemanticScore: 0.89, BatchUseCount: 0},
+						{ID: "m001", SourceType: TTSVisualSourceType, SemanticSummary: sharedSummary, SemanticScore: 0.72},
+						{ID: "m003", SourceType: TTSVisualSourceType, SemanticSummary: "手将束裤带放入口袋", SemanticScore: 0.89},
 					},
 				}},
 			},
@@ -66,8 +66,13 @@ func TestBuildEditPlanPromptDeduplicatesCandidateDetails(t *testing.T) {
 		t.Fatalf("candidate summary must be serialized once: %s", encoded)
 	}
 	prompt := BuildEditPlanPrompt(input).Prompts[0].User
-	if strings.Contains(prompt, `"candidates":`) || !strings.Contains(prompt, `"candidate_options":`) || !strings.Contains(prompt, `"allowed_candidate_ids":`) || !strings.Contains(prompt, "candidate_indexes") {
+	if strings.Contains(prompt, `"candidates":`) || !strings.Contains(prompt, `"candidate_options":`) || !strings.Contains(prompt, `"allowed_candidate_ids":`) || !strings.Contains(prompt, "candidate_id") {
 		t.Fatalf("unexpected edit planner prompt structure: %s", prompt)
+	}
+	for _, forbidden := range []string{"batch_use_count", "candidate_indexes"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("edit planner prompt must not contain %s: %s", forbidden, prompt)
+		}
 	}
 }
 
@@ -79,7 +84,6 @@ func TestBuildEditPlanPromptCompactsRepeatedCandidatePayload(t *testing.T) {
 			SourceType:      TTSVisualSourceType,
 			SemanticSummary: fmt.Sprintf("素材%d：%s", index, strings.Repeat("展示产品操作动作和使用结果；", 10)),
 			SemanticScore:   0.90 - float64(index)/100,
-			BatchUseCount:   index % 3,
 		})
 	}
 	input := EditPlanInput{ProductName: "产品", ScriptText: strings.Repeat("口播文案。", 20)}

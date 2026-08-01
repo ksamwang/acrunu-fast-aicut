@@ -24,7 +24,6 @@ var (
 const (
 	editPlannerCandidatesPerVisualBeat          = 6
 	maximumPlannerCandidateSemanticSummaryRunes = 120
-	plannerCandidateMinimumSemanticScore        = 0.76
 )
 
 type GenerateEditPlanInput struct {
@@ -195,8 +194,6 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 		requirements,
 		maxCandidatesPerNarrationSegment,
 		PlanningCandidateRetrievalOptions{
-			GenerationBatchID:            run.GenerationBatchID,
-			GenerationRunID:              run.ID,
 			MinimumDurationsByVisualBeat: minimumDurations,
 		},
 	)
@@ -213,7 +210,6 @@ func (s *GenerationPlanningService) Generate(ctx context.Context, input Generate
 		return EditPlan{}, s.persistPlanFailure(ctx, basePlan, err)
 	}
 	plannerInput, err := buildPlannerInputWithOptions(product.Name, work.ScriptText, candidateSets, plannerBuildOptions{
-		VariantIndex:          generationRunVariantIndex(run.ConfigSnapshot),
 		AllowEarlyTransitions: true,
 	})
 	if err != nil {
@@ -557,7 +553,6 @@ func validateCandidateSets(sets []CandidateSet) error {
 }
 
 type plannerBuildOptions struct {
-	VariantIndex          int
 	AllowEarlyTransitions bool
 }
 
@@ -572,9 +567,9 @@ func buildPlannerInputWithOptions(productName string, scriptText string, sets []
 	}
 	usesEarlyTransitions := false
 	if options.AllowEarlyTransitions {
-		usesEarlyTransitions = configurePlannerEarlyTransitions(requirements, sets, options.VariantIndex)
+		usesEarlyTransitions = configurePlannerEarlyTransitions(requirements, sets)
 	}
-	if err := populatePlannerSlotCandidates(requirements, sets, options.VariantIndex); err != nil {
+	if err := populatePlannerSlotCandidates(requirements, sets); err != nil {
 		if !usesEarlyTransitions {
 			return modelgateway.EditPlanInput{}, err
 		}
@@ -582,7 +577,7 @@ func buildPlannerInputWithOptions(productName string, scriptText string, sets []
 		if err != nil {
 			return modelgateway.EditPlanInput{}, err
 		}
-		if err := populatePlannerSlotCandidates(requirements, sets, options.VariantIndex); err != nil {
+		if err := populatePlannerSlotCandidates(requirements, sets); err != nil {
 			return modelgateway.EditPlanInput{}, err
 		}
 	}
@@ -590,7 +585,7 @@ func buildPlannerInputWithOptions(productName string, scriptText string, sets []
 	if err != nil && usesEarlyTransitions {
 		requirements, err = buildPlannerRequirements(sets)
 		if err == nil {
-			err = populatePlannerSlotCandidates(requirements, sets, options.VariantIndex)
+			err = populatePlannerSlotCandidates(requirements, sets)
 		}
 		if err == nil {
 			assignedMaterials, err = assignUniquePlannerMaterials(requirements)
@@ -640,7 +635,7 @@ func buildPlannerRequirements(sets []CandidateSet) ([]modelgateway.EditPlanRequi
 	return requirements, nil
 }
 
-func populatePlannerSlotCandidates(requirements []modelgateway.EditPlanRequirement, sets []CandidateSet, variantIndex int) error {
+func populatePlannerSlotCandidates(requirements []modelgateway.EditPlanRequirement, sets []CandidateSet) error {
 	if len(requirements) != len(sets) {
 		return fmt.Errorf("planner requirements do not match candidate sets")
 	}
@@ -654,7 +649,7 @@ func populatePlannerSlotCandidates(requirements []modelgateway.EditPlanRequireme
 			slot := &requirements[requirementIndex].Slots[slotIndex]
 			slot.Candidates = nil
 			minimumDurationMs := plannerSlotMinimumCandidateDuration(*slot)
-			candidates := selectPlannerAssetCandidates(sets[requirementIndex].Candidates, minimumDurationMs, variantIndex)
+			candidates := selectPlannerAssetCandidates(sets[requirementIndex].Candidates, minimumDurationMs)
 			for _, candidate := range candidates {
 				assetID := strings.TrimSpace(candidate.AssetID)
 				alias := aliasesByAssetID[assetID]
@@ -670,7 +665,6 @@ func populatePlannerSlotCandidates(requirements []modelgateway.EditPlanRequireme
 					SourceOutMs:      candidate.SourceOutMs,
 					SemanticSummary:  truncatePlannerCandidateSummary(candidate.SemanticSummary),
 					SemanticScore:    candidate.SemanticScore,
-					BatchUseCount:    candidate.BatchUseCount,
 					AssetID:          assetID,
 					UseOriginalAudio: candidate.DefaultUseOriginalAudio,
 				})
@@ -694,7 +688,7 @@ func plannerSlotMinimumCandidateDuration(slot modelgateway.EditPlanSlot) int {
 	return slot.DurationMs - slot.MaximumEarlyEndMs + slot.MaximumLeadingExtensionMs
 }
 
-func selectPlannerAssetCandidates(candidates []AssetCandidate, minimumDurationMs int, variantIndex int) []AssetCandidate {
+func selectPlannerAssetCandidates(candidates []AssetCandidate, minimumDurationMs int) []AssetCandidate {
 	eligible := make([]AssetCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.AssetID) == "" || candidate.SourceOutMs-candidate.SourceInMs < minimumDurationMs {
@@ -705,60 +699,19 @@ func selectPlannerAssetCandidates(candidates []AssetCandidate, minimumDurationMs
 	if len(eligible) == 0 {
 		return nil
 	}
-	preferred := make([]AssetCandidate, 0, len(eligible))
-	fallback := make([]AssetCandidate, 0, len(eligible))
-	for _, candidate := range eligible {
-		if isPreferredPlannerCandidate(candidate) {
-			preferred = append(preferred, candidate)
-		} else {
-			fallback = append(fallback, candidate)
+	sort.SliceStable(eligible, func(i, j int) bool {
+		if eligible[i].SemanticScore == eligible[j].SemanticScore {
+			return eligible[i].AssetID < eligible[j].AssetID
 		}
-	}
-	sort.SliceStable(preferred, func(i, j int) bool {
-		if preferred[i].BatchUseCount != preferred[j].BatchUseCount {
-			return preferred[i].BatchUseCount < preferred[j].BatchUseCount
-		}
-		if preferred[i].SemanticScore != preferred[j].SemanticScore {
-			return preferred[i].SemanticScore > preferred[j].SemanticScore
-		}
-		return preferred[i].AssetID < preferred[j].AssetID
+		return eligible[i].SemanticScore > eligible[j].SemanticScore
 	})
-	sort.SliceStable(fallback, func(i, j int) bool {
-		if fallback[i].SemanticScore != fallback[j].SemanticScore {
-			return fallback[i].SemanticScore > fallback[j].SemanticScore
-		}
-		if fallback[i].BatchUseCount != fallback[j].BatchUseCount {
-			return fallback[i].BatchUseCount < fallback[j].BatchUseCount
-		}
-		return fallback[i].AssetID < fallback[j].AssetID
-	})
-	if variantIndex <= 0 {
-		variantIndex = 1
+	if len(eligible) > maxCandidatesPerNarrationSegment {
+		eligible = eligible[:maxCandidatesPerNarrationSegment]
 	}
-	rotated := make([]AssetCandidate, 0, len(preferred))
-	for start := 0; start < len(preferred); {
-		end := start + 1
-		for end < len(preferred) && preferred[end].BatchUseCount == preferred[start].BatchUseCount {
-			end++
-		}
-		group := preferred[start:end]
-		offset := (variantIndex - 1) % len(group)
-		rotated = append(rotated, group[offset:]...)
-		rotated = append(rotated, group[:offset]...)
-		start = end
-	}
-	rotated = append(rotated, fallback...)
-	if len(rotated) > maxCandidatesPerNarrationSegment {
-		rotated = rotated[:maxCandidatesPerNarrationSegment]
-	}
-	return rotated
+	return eligible
 }
 
-func isPreferredPlannerCandidate(candidate AssetCandidate) bool {
-	return candidate.SemanticScore+1e-9 >= plannerCandidateMinimumSemanticScore
-}
-
-func configurePlannerEarlyTransitions(requirements []modelgateway.EditPlanRequirement, sets []CandidateSet, variantIndex int) bool {
+func configurePlannerEarlyTransitions(requirements []modelgateway.EditPlanRequirement, sets []CandidateSet) bool {
 	if len(requirements) != len(sets) {
 		return false
 	}
@@ -792,7 +745,6 @@ func configurePlannerEarlyTransitions(requirements []modelgateway.EditPlanRequir
 		outgoingCandidates := selectPlannerAssetCandidates(
 			sets[boundaryIndex].Candidates,
 			outgoing.DurationMs-maximumShortfallMs,
-			variantIndex,
 		)
 		selectedShortfallMs := 0
 		for _, candidate := range outgoingCandidates {
@@ -804,7 +756,6 @@ func configurePlannerEarlyTransitions(requirements []modelgateway.EditPlanRequir
 		if selectedShortfallMs <= 0 || len(selectPlannerAssetCandidates(
 			sets[boundaryIndex+1].Candidates,
 			incoming.DurationMs+selectedShortfallMs,
-			variantIndex,
 		)) == 0 {
 			continue
 		}
@@ -854,35 +805,6 @@ func appendUniqueInt(values []int, value int) []int {
 		}
 	}
 	return append(values, value)
-}
-
-func generationRunVariantIndex(snapshot map[string]any) int {
-	if snapshot == nil {
-		return 1
-	}
-	switch value := snapshot["variant_index"].(type) {
-	case int:
-		if value > 0 {
-			return value
-		}
-	case int32:
-		if value > 0 {
-			return int(value)
-		}
-	case int64:
-		if value > 0 {
-			return int(value)
-		}
-	case float64:
-		if value > 0 {
-			return int(value)
-		}
-	case json.Number:
-		if parsed, err := value.Int64(); err == nil && parsed > 0 {
-			return int(parsed)
-		}
-	}
-	return 1
 }
 
 func buildDeterministicEditPlanSlots(requirement ShotRequirement, nextSlotID *int) ([]modelgateway.EditPlanSlot, error) {
@@ -990,24 +912,6 @@ func trimPlannerSlotCandidates(requirements []modelgateway.EditPlanRequirement, 
 			slot := &requirements[requirementIndex].Slots[slotIndex]
 			assignedID := assignedMaterials[slot.ID]
 			assignedIndex := -1
-			for candidateIndex, candidate := range slot.Candidates {
-				if candidate.ID == assignedID {
-					assignedIndex = candidateIndex
-					break
-				}
-			}
-			if assignedIndex >= 0 && slot.Candidates[assignedIndex].SemanticScore+1e-9 < plannerCandidateMinimumSemanticScore {
-				slot.Candidates = []modelgateway.EditPlanCandidate{slot.Candidates[assignedIndex]}
-				continue
-			}
-			preferred := make([]modelgateway.EditPlanCandidate, 0, len(slot.Candidates))
-			for _, candidate := range slot.Candidates {
-				if candidate.SemanticScore+1e-9 >= plannerCandidateMinimumSemanticScore {
-					preferred = append(preferred, candidate)
-				}
-			}
-			slot.Candidates = preferred
-			assignedIndex = -1
 			for candidateIndex, candidate := range slot.Candidates {
 				if candidate.ID == assignedID {
 					assignedIndex = candidateIndex

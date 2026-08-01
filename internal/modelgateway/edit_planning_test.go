@@ -43,7 +43,7 @@ func TestOpenAICompatibleEditPlannerRequestsMaterialSelectionsOnly(t *testing.T)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"slot_id\":\"s001\",\"candidate_indexes\":[1]}]}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"slot_id\":\"s001\",\"candidate_id\":\"m001\"}]}"}}]}`))
 	}))
 	defer server.Close()
 
@@ -87,7 +87,7 @@ func TestOpenAICompatibleEditPlannerOmitsMaxTokensWhenUnconfigured(t *testing.T)
 			t.Fatalf("max_tokens should be omitted when unconfigured: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"slot_id\":\"s001\",\"candidate_indexes\":[1]}]}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"clips\":[{\"slot_id\":\"s001\",\"candidate_id\":\"m001\"}]}"}}]}`))
 	}))
 	defer server.Close()
 
@@ -115,69 +115,6 @@ func TestOpenAICompatibleEditPlannerReportsEmptyStandardContentMetadata(t *testi
 		if !strings.Contains(logs.String(), field) {
 			t.Fatalf("expected %s in response metadata, got %s", field, logs.String())
 		}
-	}
-}
-
-func TestResolveEditPlanModelResultMapsSlotLocalCandidateIndex(t *testing.T) {
-	requirements := []EditPlanRequirement{
-		testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000),
-		testEditRequirement("visual-2", "narration-2", "s002", "m002", 1000, 2000),
-	}
-	requirements[0].Slots[0].Candidates = append(requirements[0].Slots[0].Candidates, EditPlanCandidate{ID: "m003", SourceOutMs: 1200})
-	result, err := resolveEditPlanModelResult(editPlanModelResult{Clips: []editPlanModelClipChoice{
-		{SlotID: "s001", CandidateIndexes: []int{2, 1}},
-		{SlotID: "s002", CandidateIndexes: []int{1}},
-	}}, requirements)
-	if err != nil {
-		t.Fatalf("resolve model selections: %v", err)
-	}
-	if len(result.Clips) != 2 || result.Clips[0].CandidateID != "m003" || result.Clips[1].CandidateID != "m002" {
-		t.Fatalf("unexpected resolved selections %#v", result)
-	}
-}
-
-func TestResolveEditPlanModelResultRejectsCandidateIndexesWithoutValidEntry(t *testing.T) {
-	requirements := []EditPlanRequirement{testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000)}
-	_, err := resolveEditPlanModelResult(editPlanModelResult{Clips: []editPlanModelClipChoice{{SlotID: "s001", CandidateIndexes: []int{2}}}}, requirements)
-	if err == nil || !strings.Contains(err.Error(), "no valid candidate_indexes") {
-		t.Fatalf("expected slot-local index validation, got %v", err)
-	}
-}
-
-func TestResolveEditPlanModelResultKeepsSharedTopChoiceForActionPrimary(t *testing.T) {
-	requirements := []EditPlanRequirement{
-		testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 2800),
-		testEditRequirement("visual-2", "narration-2", "s002", "m001", 2800, 3800),
-	}
-	requirements[0].DurationClass = VisualDurationClassAction
-	requirements[0].Slots[0].Role = EditPlanSlotRoleActionPrimary
-	requirements[0].Slots[0].Candidates = []EditPlanCandidate{{ID: "m001", SourceOutMs: 3000}, {ID: "m002", SourceOutMs: 3000}}
-	requirements[1].Slots[0].Role = EditPlanSlotRoleSupport
-	requirements[1].Slots[0].Candidates = []EditPlanCandidate{{ID: "m001", SourceOutMs: 1200}, {ID: "m002", SourceOutMs: 1200}}
-
-	result, err := resolveEditPlanModelResult(editPlanModelResult{Clips: []editPlanModelClipChoice{
-		{SlotID: "s001", CandidateIndexes: []int{1, 2}},
-		{SlotID: "s002", CandidateIndexes: []int{1, 2}},
-	}}, requirements)
-	if err != nil {
-		t.Fatalf("resolve ranked selections: %v", err)
-	}
-	if result.Clips[0].CandidateID != "m001" || result.Clips[1].CandidateID != "m002" {
-		t.Fatalf("expected action primary to retain shared top choice, got %#v", result.Clips)
-	}
-}
-
-func TestResolveEditPlanModelResultRejectsImpossibleUniqueAssignment(t *testing.T) {
-	requirements := []EditPlanRequirement{
-		testEditRequirement("visual-1", "narration-1", "s001", "m001", 0, 1000),
-		testEditRequirement("visual-2", "narration-2", "s002", "m001", 1000, 2000),
-	}
-	_, err := resolveEditPlanModelResult(editPlanModelResult{Clips: []editPlanModelClipChoice{
-		{SlotID: "s001", CandidateIndexes: []int{1}},
-		{SlotID: "s002", CandidateIndexes: []int{1}},
-	}}, requirements)
-	if err == nil || !strings.Contains(err.Error(), "fewer unique materials") {
-		t.Fatalf("expected impossible unique assignment to fail, got %v", err)
 	}
 }
 

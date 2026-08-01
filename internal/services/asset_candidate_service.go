@@ -49,7 +49,6 @@ type AssetCandidate struct {
 	DefaultUseOriginalAudio bool    `json:"default_use_original_audio"`
 	SemanticSummary         string  `json:"semantic_summary"`
 	SemanticScore           float64 `json:"semantic_score"`
-	BatchUseCount           int     `json:"batch_use_count"`
 }
 
 type CandidateSet struct {
@@ -72,13 +71,7 @@ type CandidateSearchStore interface {
 	SearchCandidates(context.Context, CandidateSearchInput) ([]AssetCandidate, error)
 }
 
-type CandidateBatchUsageStore interface {
-	LoadBatchAssetUseCounts(context.Context, string, string) (map[string]int, error)
-}
-
 type PlanningCandidateRetrievalOptions struct {
-	GenerationBatchID            string
-	GenerationRunID              string
 	MinimumDurationsByVisualBeat map[string][]int
 }
 
@@ -95,7 +88,6 @@ type AssetCandidateService struct {
 	modelProviderService *ModelProviderService
 	fallbackConfig       config.Config
 	store                CandidateSearchStore
-	batchUsageStore      CandidateBatchUsageStore
 	embedder             modelgateway.TextEmbedder
 }
 
@@ -114,9 +106,7 @@ func NewAssetCandidateService(
 		fallbackConfig:       fallbackConfig,
 	}
 	if pool != nil {
-		store := postgresCandidateSearchStore{pool: pool}
-		service.store = store
-		service.batchUsageStore = store
+		service.store = postgresCandidateSearchStore{pool: pool}
 	}
 	return service
 }
@@ -131,18 +121,6 @@ func (s *AssetCandidateService) WithEmbedder(embedder modelgateway.TextEmbedder)
 func (s *AssetCandidateService) WithStore(store CandidateSearchStore) *AssetCandidateService {
 	if store != nil {
 		s.store = store
-		if usageStore, ok := store.(CandidateBatchUsageStore); ok {
-			s.batchUsageStore = usageStore
-		} else {
-			s.batchUsageStore = nil
-		}
-	}
-	return s
-}
-
-func (s *AssetCandidateService) WithBatchUsageStore(store CandidateBatchUsageStore) *AssetCandidateService {
-	if store != nil {
-		s.batchUsageStore = store
 	}
 	return s
 }
@@ -196,17 +174,6 @@ func (s *AssetCandidateService) retrieve(
 	if err != nil {
 		return nil, err
 	}
-	batchUseCounts := map[string]int{}
-	if s.batchUsageStore != nil && strings.TrimSpace(options.GenerationBatchID) != "" && strings.TrimSpace(options.GenerationRunID) != "" {
-		batchUseCounts, err = s.batchUsageStore.LoadBatchAssetUseCounts(
-			ctx,
-			strings.TrimSpace(options.GenerationBatchID),
-			strings.TrimSpace(options.GenerationRunID),
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
 	sets := make([]CandidateSet, 0, len(requirements))
 	for _, requirement := range requirements {
 		requirement.DurationClass = normalizeVisualBeatDurationClass(requirement.DurationClass)
@@ -255,7 +222,6 @@ func (s *AssetCandidateService) retrieve(
 				if assetID == "" {
 					continue
 				}
-				candidate.BatchUseCount = batchUseCounts[assetID]
 				existing, exists := merged[assetID]
 				if !exists || candidate.SemanticScore > existing.SemanticScore ||
 					(candidate.SemanticScore == existing.SemanticScore && candidate.ID < existing.ID) {
@@ -497,33 +463,6 @@ func requirementSourceTypes(sourceType string) []string {
 
 type postgresCandidateSearchStore struct {
 	pool *pgxpool.Pool
-}
-
-func (s postgresCandidateSearchStore) LoadBatchAssetUseCounts(ctx context.Context, batchID string, runID string) (map[string]int, error) {
-	if s.pool == nil {
-		return map[string]int{}, nil
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT selections.asset_id::text, COUNT(DISTINCT selections.generation_run_id)::int
-		FROM generation_asset_selections AS selections
-		WHERE selections.generation_batch_id = $1::uuid
-		  AND selections.generation_run_id <> $2::uuid
-		  AND selections.state = 'committed'
-		GROUP BY selections.asset_id`, batchID, runID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	counts := map[string]int{}
-	for rows.Next() {
-		var assetID string
-		var count int
-		if err := rows.Scan(&assetID, &count); err != nil {
-			return nil, err
-		}
-		counts[assetID] = count
-	}
-	return counts, rows.Err()
 }
 
 func (s postgresCandidateSearchStore) SearchCandidates(ctx context.Context, input CandidateSearchInput) ([]AssetCandidate, error) {

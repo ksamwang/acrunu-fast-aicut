@@ -365,7 +365,6 @@ func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
 			SourceOutMs:     1600,
 			SemanticSummary: "画面描述：手部将束裤带魔术贴快速粘合。",
 			SemanticScore:   0.92,
-			BatchUseCount:   2,
 		}},
 	}})
 	if err != nil {
@@ -373,7 +372,7 @@ func TestBuildPlannerInputIncludesCandidateSemanticEvidence(t *testing.T) {
 	}
 
 	candidate := input.Requirements[0].Slots[0].Candidates[0]
-	if input.Requirements[0].VisualBeatID != "visual-1" || candidate.SemanticSummary != "画面描述：手部将束裤带魔术贴快速粘合。" || candidate.SemanticScore != 0.92 || candidate.BatchUseCount != 2 {
+	if input.Requirements[0].VisualBeatID != "visual-1" || candidate.SemanticSummary != "画面描述：手部将束裤带魔术贴快速粘合。" || candidate.SemanticScore != 0.92 {
 		t.Fatalf("candidate semantic evidence was not preserved %#v", candidate)
 	}
 }
@@ -415,44 +414,40 @@ func TestBuildPlannerInputBoundsCandidatesAndSemanticSummary(t *testing.T) {
 	}
 }
 
-func TestSelectPlannerAssetCandidatesAppliesDurationBeforeAbsoluteThreshold(t *testing.T) {
+func TestSelectPlannerAssetCandidatesFiltersDurationAndSortsBySemanticScore(t *testing.T) {
 	candidates := []AssetCandidate{
 		{AssetID: "too-short", SourceOutMs: 799, SemanticScore: 0.95},
 		{AssetID: "top", SourceOutMs: 1000, SemanticScore: 0.80},
 		{AssetID: "boundary", SourceOutMs: 1000, SemanticScore: 0.76},
 		{AssetID: "outside", SourceOutMs: 1000, SemanticScore: 0.759},
 	}
-	selected := selectPlannerAssetCandidates(candidates, 800, 1)
+	selected := selectPlannerAssetCandidates(candidates, 800)
 	if len(selected) != 3 || selected[0].AssetID != "top" || selected[1].AssetID != "boundary" || selected[2].AssetID != "outside" {
-		t.Fatalf("expected preferred candidates before the below-threshold fallback, got %#v", selected)
+		t.Fatalf("expected all duration-eligible candidates in semantic order, got %#v", selected)
 	}
 }
 
-func TestSelectPlannerAssetCandidatesKeepsRankedFallbackBelowThreshold(t *testing.T) {
+func TestSelectPlannerAssetCandidatesHasNoSemanticThreshold(t *testing.T) {
 	candidates := []AssetCandidate{
-		{AssetID: "lower", SourceOutMs: 1000, SemanticScore: 0.72, BatchUseCount: 0},
-		{AssetID: "top-b", SourceOutMs: 1000, SemanticScore: 0.74, BatchUseCount: 1},
-		{AssetID: "top-a", SourceOutMs: 1000, SemanticScore: 0.74, BatchUseCount: 1},
+		{AssetID: "lower", SourceOutMs: 1000, SemanticScore: 0.72},
+		{AssetID: "top-b", SourceOutMs: 1000, SemanticScore: 0.74},
+		{AssetID: "top-a", SourceOutMs: 1000, SemanticScore: 0.74},
 	}
-	selected := selectPlannerAssetCandidates(candidates, 800, 1)
+	selected := selectPlannerAssetCandidates(candidates, 800)
 	if len(selected) != 3 || selected[0].AssetID != "top-a" || selected[1].AssetID != "top-b" || selected[2].AssetID != "lower" {
-		t.Fatalf("expected semantic-score-ordered fallback candidates, got %#v", selected)
+		t.Fatalf("expected every score to remain available in semantic order, got %#v", selected)
 	}
 }
 
-func TestSelectPlannerAssetCandidatesUsesBatchCountAndStableVariantRotation(t *testing.T) {
+func TestSelectPlannerAssetCandidatesDoesNotRotateSemanticOrder(t *testing.T) {
 	candidates := []AssetCandidate{
-		{AssetID: "used-top", SourceOutMs: 1000, SemanticScore: 0.80, BatchUseCount: 1},
-		{AssetID: "fresh-high", SourceOutMs: 1000, SemanticScore: 0.79, BatchUseCount: 0},
-		{AssetID: "fresh-low", SourceOutMs: 1000, SemanticScore: 0.78, BatchUseCount: 0},
+		{AssetID: "top", SourceOutMs: 1000, SemanticScore: 0.80},
+		{AssetID: "second", SourceOutMs: 1000, SemanticScore: 0.79},
+		{AssetID: "third", SourceOutMs: 1000, SemanticScore: 0.78},
 	}
-	first := selectPlannerAssetCandidates(candidates, 800, 1)
-	second := selectPlannerAssetCandidates(candidates, 800, 2)
-	if len(first) != 3 || first[0].AssetID != "fresh-high" || first[1].AssetID != "fresh-low" || first[2].AssetID != "used-top" {
-		t.Fatalf("unexpected batch usage ordering %#v", first)
-	}
-	if len(second) != 3 || second[0].AssetID != "fresh-low" || second[1].AssetID != "fresh-high" || second[2].AssetID != "used-top" {
-		t.Fatalf("unexpected stable variant rotation %#v", second)
+	selected := selectPlannerAssetCandidates(candidates, 800)
+	if len(selected) != 3 || selected[0].AssetID != "top" || selected[1].AssetID != "second" || selected[2].AssetID != "third" {
+		t.Fatalf("expected stable semantic ordering, got %#v", selected)
 	}
 }
 
@@ -471,7 +466,7 @@ func TestPlanningCandidateMinimumDurationsIncludesTransitionThresholds(t *testin
 
 func TestMaterializeEditPlanAbsorbsShortMaterialAtNextVisualBeat(t *testing.T) {
 	sets := earlyTransitionCandidateSets(2300)
-	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{AllowEarlyTransitions: true})
 	if err != nil {
 		t.Fatalf("build planner input: %v", err)
 	}
@@ -498,7 +493,7 @@ func TestMaterializeEditPlanAbsorbsShortMaterialAtNextVisualBeat(t *testing.T) {
 func TestBuildPlannerInputAllowsShortOnlyMaterialWithAbsorber(t *testing.T) {
 	sets := earlyTransitionCandidateSets(2300)
 	sets[0].Candidates = sets[0].Candidates[1:]
-	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{AllowEarlyTransitions: true})
 	if err != nil {
 		t.Fatalf("expected safe early transition without an exact outgoing candidate: %v", err)
 	}
@@ -509,7 +504,6 @@ func TestBuildPlannerInputAllowsShortOnlyMaterialWithAbsorber(t *testing.T) {
 
 func TestBuildPlannerInputFallsBackToExactDurationWithoutAbsorber(t *testing.T) {
 	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", earlyTransitionCandidateSets(2000), plannerBuildOptions{
-		VariantIndex:          1,
 		AllowEarlyTransitions: true,
 	})
 	if err != nil {
@@ -542,7 +536,7 @@ func TestBuildPlannerInputUsesFallbackToPreserveUniqueAssignmentWithTolerance(t 
 			},
 		},
 	}
-	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	input, err := buildPlannerInputWithOptions("束裤带", "展示动作和结果。", sets, plannerBuildOptions{AllowEarlyTransitions: true})
 	if err != nil {
 		t.Fatalf("expected strict unique-assignment fallback: %v", err)
 	}
@@ -570,7 +564,7 @@ func TestBuildPlannerInputDoesNotConfigureAdjacentEarlyTransitions(t *testing.T)
 			Candidates:  []AssetCandidate{{AssetID: "v3-long", SourceOutMs: 1300, SemanticScore: 0.8}},
 		},
 	}
-	input, err := buildPlannerInputWithOptions("束裤带", "三段。", sets, plannerBuildOptions{VariantIndex: 1, AllowEarlyTransitions: true})
+	input, err := buildPlannerInputWithOptions("束裤带", "三段。", sets, plannerBuildOptions{AllowEarlyTransitions: true})
 	if err != nil {
 		t.Fatalf("build planner input: %v", err)
 	}
@@ -738,7 +732,7 @@ func TestBuildPlannerInputRequiresDistinctAssetsForLongVisualBeat(t *testing.T) 
 	}
 }
 
-func TestBuildPlannerInputUsesDistinctFallbackAssetsBelowThreshold(t *testing.T) {
+func TestBuildPlannerInputKeepsLowScoreChoicesAndUniqueAssignment(t *testing.T) {
 	sets := []CandidateSet{{
 		Requirement: ShotRequirement{VisualBeatID: "visual-long", NarrationSegmentID: "narration-1", StartMs: 0, EndMs: 4000, NarrationText: "展示夜骑反光。", VisualGoal: "夜骑中反光条清晰可见", SourceType: "visual_only"},
 		Candidates: []AssetCandidate{
@@ -748,11 +742,15 @@ func TestBuildPlannerInputUsesDistinctFallbackAssetsBelowThreshold(t *testing.T)
 	}}
 	input, err := buildPlannerInput("束裤带", "展示夜骑反光。", sets)
 	if err != nil {
-		t.Fatalf("expected below-threshold fallback materials to satisfy unique slots: %v", err)
+		t.Fatalf("expected low-score materials to satisfy unique slots: %v", err)
 	}
 	slots := input.Requirements[0].Slots
-	if len(slots) != 2 || len(slots[0].Candidates) != 1 || len(slots[1].Candidates) != 1 || slots[0].Candidates[0].AssetID == slots[1].Candidates[0].AssetID {
-		t.Fatalf("expected each slot to expose its distinct assigned fallback, got %#v", slots)
+	if len(slots) != 2 || len(slots[0].Candidates) != 2 || len(slots[1].Candidates) != 2 {
+		t.Fatalf("expected every low-score candidate to remain available, got %#v", slots)
+	}
+	assignments, err := assignUniquePlannerMaterials(input.Requirements)
+	if err != nil || assignments[slots[0].ID] == assignments[slots[1].ID] {
+		t.Fatalf("expected a distinct material assignment, got %#v err=%v", assignments, err)
 	}
 }
 
