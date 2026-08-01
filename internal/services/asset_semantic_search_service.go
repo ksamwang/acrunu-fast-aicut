@@ -240,59 +240,82 @@ func buildSemanticAssetSearchConditions(input semanticAssetSearchStoreInput, arg
 		fmt.Sprintf("e.model = %s", semanticSearchBind(&args, input.Model)),
 		fmt.Sprintf("e.dimension = %s", semanticSearchBind(&args, input.Dimension)),
 	}
-	filters := input.Filters
+	assetConditions, args := buildSemanticAssetFilterConditions("a", input.Filters, args)
+	return append(conditions, assetConditions...), args
+}
+
+func buildSemanticAssetFilterConditions(assetAlias string, filters AssetFilters, args []any) ([]string, []any) {
+	column := func(name string) string { return assetAlias + "." + name }
+	conditions := make([]string, 0, 12)
 	if value := strings.TrimSpace(filters.ProductID); value != "" {
-		conditions = append(conditions, fmt.Sprintf("a.product_id = %s::uuid", semanticSearchBind(&args, value)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s::uuid", column("product_id"), semanticSearchBind(&args, value)))
 	}
 	if value := strings.TrimSpace(filters.SourceType); value != "" {
-		conditions = append(conditions, fmt.Sprintf("a.source_type = %s", semanticSearchBind(&args, value)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", column("source_type"), semanticSearchBind(&args, value)))
 	}
 	if value := strings.TrimSpace(filters.Status); value != "" {
-		conditions = append(conditions, fmt.Sprintf("a.status = %s", semanticSearchBind(&args, value)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", column("status"), semanticSearchBind(&args, value)))
 	}
 	if value := strings.TrimSpace(filters.AnalysisStatus); value != "" {
-		conditions = append(conditions, fmt.Sprintf("a.analysis_status = %s", semanticSearchBind(&args, value)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", column("analysis_status"), semanticSearchBind(&args, value)))
 	}
 	if value := strings.TrimSpace(filters.UsabilityStatus); value != "" {
-		conditions = append(conditions, fmt.Sprintf("a.usability_status = %s", semanticSearchBind(&args, value)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", column("usability_status"), semanticSearchBind(&args, value)))
 	}
 	if value := strings.TrimSpace(filters.ShotSize); value != "" {
-		conditions = append(conditions, fmt.Sprintf("a.shot_size = %s", semanticSearchBind(&args, value)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", column("shot_size"), semanticSearchBind(&args, value)))
 	}
 	if value := strings.TrimSpace(filters.SellingPointID); value != "" {
 		conditions = append(conditions, fmt.Sprintf(`EXISTS (
 			SELECT 1
 			FROM asset_selling_points asp
-			WHERE asp.asset_id = a.id AND asp.selling_point_id = %s::uuid
-		)`, semanticSearchBind(&args, value)))
+			WHERE asp.asset_id = %s AND asp.selling_point_id = %s::uuid
+		)`, column("id"), semanticSearchBind(&args, value)))
 	}
 	if value := strings.TrimSpace(filters.Tag); value != "" {
 		exactPlaceholder := semanticSearchBind(&args, value)
 		containsPlaceholder := semanticSearchBind(&args, "%"+value+"%")
 		conditions = append(conditions, fmt.Sprintf(`(
-			COALESCE(a.scene_description, '') = %s
-			OR COALESCE(a.shot_size, '') = %s
-			OR COALESCE(a.camera_movement, '') = %s
-			OR COALESCE(a.scene_description, '') ILIKE %s
-			OR COALESCE(a.subjects::text, '') ILIKE %s
-			OR COALESCE(a.scene_tags::text, '') ILIKE %s
-			OR COALESCE(a.quality_tags::text, '') ILIKE %s
-		)`, exactPlaceholder, exactPlaceholder, exactPlaceholder, containsPlaceholder, containsPlaceholder, containsPlaceholder, containsPlaceholder))
+			COALESCE(%s, '') = %s
+			OR COALESCE(%s, '') = %s
+			OR COALESCE(%s, '') = %s
+			OR COALESCE(%s, '') ILIKE %s
+			OR COALESCE(%s::text, '') ILIKE %s
+			OR COALESCE(%s::text, '') ILIKE %s
+			OR COALESCE(%s::text, '') ILIKE %s
+		)`,
+			column("scene_description"), exactPlaceholder,
+			column("shot_size"), exactPlaceholder,
+			column("camera_movement"), exactPlaceholder,
+			column("scene_description"), containsPlaceholder,
+			column("subjects"), containsPlaceholder,
+			column("scene_tags"), containsPlaceholder,
+			column("quality_tags"), containsPlaceholder,
+		))
+	}
+	if value := strings.TrimSpace(filters.Keyword); value != "" {
+		placeholder := semanticSearchBind(&args, "%"+value+"%")
+		conditions = append(conditions, fmt.Sprintf(`(
+			COALESCE(%s, '') ILIKE %s
+			OR COALESCE(%s, '') ILIKE %s
+			OR COALESCE(%s, '') ILIKE %s
+			OR COALESCE(%s, '') ILIKE %s
+		)`, column("asset_name"), placeholder, column("file_name"), placeholder, column("scene_description"), placeholder, column("action_description"), placeholder))
 	}
 	if filters.MinDurationMs != nil {
-		conditions = append(conditions, fmt.Sprintf("COALESCE(a.duration_ms, 0) >= %s", semanticSearchBind(&args, *filters.MinDurationMs)))
+		conditions = append(conditions, fmt.Sprintf("COALESCE(%s, 0) >= %s", column("duration_ms"), semanticSearchBind(&args, *filters.MinDurationMs)))
 	}
 	if filters.MaxDurationMs != nil {
-		conditions = append(conditions, fmt.Sprintf("COALESCE(a.duration_ms, 0) <= %s", semanticSearchBind(&args, *filters.MaxDurationMs)))
+		conditions = append(conditions, fmt.Sprintf("COALESCE(%s, 0) <= %s", column("duration_ms"), semanticSearchBind(&args, *filters.MaxDurationMs)))
 	}
 	if filters.HasAudio != nil {
-		conditions = append(conditions, fmt.Sprintf("a.has_audio = %s", semanticSearchBind(&args, *filters.HasAudio)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", column("has_audio"), semanticSearchBind(&args, *filters.HasAudio)))
 	}
 	if filters.LikelyHasSpeech != nil {
-		conditions = append(conditions, fmt.Sprintf("a.likely_has_speech = %s", semanticSearchBind(&args, *filters.LikelyHasSpeech)))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", column("likely_has_speech"), semanticSearchBind(&args, *filters.LikelyHasSpeech)))
 	}
 	if filters.ExcludeDiscarded {
-		conditions = append(conditions, "a.usability_status <> 'discarded'")
+		conditions = append(conditions, column("usability_status")+" <> 'discarded'")
 	}
 	return conditions, args
 }

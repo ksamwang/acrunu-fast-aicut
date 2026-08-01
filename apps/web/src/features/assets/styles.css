@@ -66,6 +66,16 @@
   width: 132px;
 }
 
+.asset-view-switch {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.asset-view-switch .ant-segmented-item-label {
+  min-height: 30px;
+  line-height: 30px;
+}
+
 .asset-filter-advanced {
   display: flex;
   flex-wrap: wrap;
@@ -100,6 +110,225 @@
   min-height: 0;
   padding: 16px 18px 18px;
   overflow: auto;
+}
+
+.asset-semantic-space-card > .ant-card-body {
+  overflow: hidden;
+  padding: 0;
+}
+
+.asset-semantic-space-card > .ant-card-head .ant-card-head-title {
+  display: flex;
+  align-items: center;
+}
+
+.asset-semantic-meta {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #dbe3e8;
+  background: #f7fafb;
+}
+
+.asset-semantic-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #52616b;
+  font-size: 12px;
+}
+
+.asset-semantic-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.asset-semantic-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.08);
+}
+
+.asset-semantic-legend .is-visual {
+  background: #38bdf8;
+}
+
+.asset-semantic-legend .is-speech {
+  background: #f59e0b;
+}
+
+.asset-semantic-legend .is-query {
+  background: #facc15;
+}
+
+.asset-semantic-legend .is-neighbor {
+  background: #34d399;
+}
+
+.asset-semantic-legend .is-archived {
+  background: #ef4444;
+}
+
+.asset-semantic-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #071117;
+}
+
+.asset-semantic-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.asset-semantic-stage > .ant-empty,
+.asset-semantic-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.asset-semantic-stage .ant-empty-description {
+  color: #94a3b8;
+}
+
+.asset-semantic-cloud,
+.asset-semantic-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+}
+
+.asset-semantic-cloud {
+  position: relative;
+  overflow: hidden;
+}
+
+.asset-semantic-canvas {
+  cursor: grab;
+  outline: none;
+  touch-action: none;
+}
+
+.asset-semantic-canvas:active {
+  cursor: grabbing;
+}
+
+.asset-semantic-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: grid;
+  gap: 3px;
+  width: min(280px, calc(100% - 24px));
+  padding: 7px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 6px;
+  background: rgba(7, 17, 23, 0.94);
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.asset-semantic-tooltip strong,
+.asset-semantic-tooltip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-semantic-tooltip span {
+  color: #9fb2bf;
+}
+
+.asset-semantic-inspector {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid #243943;
+  background: #ffffff;
+}
+
+.asset-semantic-inspector > .ant-empty {
+  margin: auto;
+}
+
+.asset-semantic-preview {
+  flex: 0 0 auto;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #020617;
+}
+
+.asset-semantic-preview video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.asset-semantic-inspector-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+
+.asset-semantic-inspector-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.asset-semantic-inspector-heading > div {
+  min-width: 0;
+}
+
+.asset-semantic-inspector-heading h5 {
+  margin: 0 0 2px !important;
+  overflow-wrap: anywhere;
+}
+
+.asset-semantic-copy {
+  display: grid;
+  gap: 3px;
+  padding-top: 4px;
+  border-top: 1px solid #eef2f4;
+}
+
+.asset-semantic-copy p {
+  margin: 0 0 5px;
+  color: #263640;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.asset-semantic-neighbor-count {
+  margin-top: auto;
+  font-size: 12px;
 }
 
 .asset-card-grid {
@@ -589,6 +818,15 @@
     width: 100%;
     min-width: 0;
     flex: 1 1 100%;
+  }
+
+  .asset-view-switch {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .asset-semantic-workspace {
+    grid-template-columns: minmax(0, 1fr) 260px;
   }
 }
 

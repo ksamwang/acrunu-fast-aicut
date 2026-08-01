@@ -1,5 +1,5 @@
 import { apiRequest } from "../../shared/api/server-api";
-import type { Asset, AssetBulkArchiveResult, AssetBulkReanalysisResult, AssetEmbeddingListResponse, AssetEmbeddingRunResult, AssetFrameResponse, AssetListResponse, AssetReanalysisQueueItem, AssetReviewPayload, AssetSelectionResponse, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
+import type { Asset, AssetBulkArchiveResult, AssetBulkReanalysisResult, AssetEmbeddingListResponse, AssetEmbeddingRunResult, AssetFrameResponse, AssetListResponse, AssetReanalysisQueueItem, AssetReviewPayload, AssetSelectionResponse, AssetSemanticNeighborResponse, AssetSemanticPreview, AssetSemanticSpaceResponse, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
 
 export const listProducts = (path: string, token: string) => apiRequest<Product[]>(path, {}, token);
@@ -19,3 +19,6 @@ export const reanalyzeAssets = (assetIDs: string[], token: string) => apiRequest
 export const getAsset = (assetID: string, token: string) => apiRequest<Asset>("/api/assets/" + assetID, {}, token);
 export const saveAssetSellingPoints = (assetID: string, values: AssetSellingPointPayload, token: string) => apiRequest<SellingPoint[]>("/api/assets/" + assetID + "/selling-points", { method: "PUT", body: JSON.stringify(values) }, token);
 export const createAssetEmbeddings = (assetID: string, token: string) => apiRequest<AssetEmbeddingRunResult>("/api/assets/" + assetID + "/embeddings", { method: "POST" }, token);
+export const getAssetSemanticSpace = (path: string, token: string) => apiRequest<AssetSemanticSpaceResponse>(path, {}, token);
+export const queryAssetSemanticSpace = (path: string, query: string, token: string) => apiRequest<AssetSemanticNeighborResponse>(path, { method: "POST", body: JSON.stringify({ query, limit: 40 }) }, token);
+export const getAssetSemanticNeighbors = (path: string, token: string) => apiRequest<AssetSemanticNeighborResponse>(path, {}, token);

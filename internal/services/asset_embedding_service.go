@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -47,6 +48,7 @@ type AssetEmbeddingService struct {
 	systemConfigService  *SystemConfigService
 	modelProviderService *ModelProviderService
 	fallbackConfig       config.Config
+	semanticProjectionMu sync.Mutex
 }
 
 func NewAssetEmbeddingService(pool *pgxpool.Pool, productAssetService *ProductAssetService, systemConfigService *SystemConfigService, modelProviderService *ModelProviderService, fallbackConfig config.Config) *AssetEmbeddingService {

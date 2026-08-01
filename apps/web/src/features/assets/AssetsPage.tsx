@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Descriptions, Divider, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
-import { ChevronLeft, ChevronRight, ScanSearch } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Button, Card, Descriptions, Divider, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from "antd";
+import { ChevronLeft, ChevronRight, LayoutGrid, Orbit, ScanSearch } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { assetDisplayTitle, assetFileDisplayName, assetVideoURL } from "../../shared/lib/asset-display";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
@@ -8,6 +8,7 @@ import { analysisStatusLabels, assetStatusLabels, cameraMovementLabels, manualCl
 import type { Asset, AssetEmbeddingListResponse, AssetEmbeddingObject, AssetEmbeddingRunResult, AssetEmbeddingTarget, AssetFrameResponse, AssetFrameSnapshot, AssetListResponse, AssetReviewPayload, AssetSemanticPreview, AssetSellingPointPayload, AssetSpeechSegment } from "../../shared/types/asset";
 import type { Product, SellingPoint } from "../../shared/types/product";
 import { AssetGrid } from "./AssetGrid";
+import { AssetSemanticSpace } from "./AssetSemanticSpace";
 import { archiveAssets, createAssetEmbeddings, getAsset, getAssetEmbeddings, getAssetFrames, getAssetSellingPoints, getSemanticPreview, getSpeechSegments, listAssets, listAssetSelection, listProducts, listSellingPoints, reanalyzeAsset, reanalyzeAssets, saveAssetReview, saveAssetSellingPoints as persistAssetSellingPoints, updateAssetArchiveState as persistAssetArchiveState } from "./api";
 import "./styles.css";
 
@@ -47,6 +48,18 @@ function assetSelectionPathForList(path: string) {
   return selectionQuery ? `/api/assets/selection?${selectionQuery}` : "/api/assets/selection";
 }
 
+function semanticSpacePathForList(path: string, refreshKey: number) {
+  const [, query = ""] = path.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.delete("page");
+  params.delete("page_size");
+  params.delete("semantic_query");
+  params.delete("sort_by");
+  params.set("refresh", String(refreshKey));
+  const semanticQuery = params.toString();
+  return semanticQuery ? `/api/assets/semantic-space?${semanticQuery}` : "/api/assets/semantic-space";
+}
+
 function isAssetAnalysisInProgress(status?: string) {
   return status === "pending_analysis" || status === "analyzing";
 }
@@ -83,6 +96,8 @@ export function AssetsPage({ token }: { token: string }) {
   const [assetFiltersExpanded, setAssetFiltersExpanded] = useState(false);
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(20);
+  const [assetViewMode, setAssetViewMode] = useState<"grid" | "semantic">("grid");
+  const [semanticRefreshKey, setSemanticRefreshKey] = useState(0);
   const [frames, setFrames] = useState<AssetFrameSnapshot[]>([]);
   const [speechSegments, setSpeechSegments] = useState<AssetSpeechSegment[]>([]);
   const [semanticPreview, setSemanticPreview] = useState<AssetSemanticPreview | null>(null);
@@ -133,7 +148,7 @@ export function AssetsPage({ token }: { token: string }) {
     if (filters.tag) {
       params.set("tag", filters.tag);
     }
-    if (semanticQuery) {
+    if (semanticQuery && assetViewMode === "grid") {
       params.set("semantic_query", semanticQuery);
     }
     if (filters.minDurationMs) {
@@ -158,10 +173,11 @@ export function AssetsPage({ token }: { token: string }) {
     params.set("page_size", String(assetPageSize));
     const query = params.toString();
     return query ? `/api/assets?${query}` : "/api/assets";
-  }, [assetPage, assetPageSize, filters, semanticQuery]);
+  }, [assetPage, assetPageSize, assetViewMode, filters, semanticQuery]);
 
   const assets = useResource<AssetListResponse>(assetPath, token, [assetPath], listAssets);
   const assetSelectionPath = useMemo(() => assetSelectionPathForList(assetPath), [assetPath]);
+  const semanticSpacePath = useMemo(() => semanticSpacePathForList(assetPath, semanticRefreshKey), [assetPath, semanticRefreshKey]);
   const productNameByID = useMemo(() => {
     const map = new Map<string, string>();
     for (const product of products.data ?? []) {
@@ -524,6 +540,16 @@ export function AssetsPage({ token }: { token: string }) {
     setSelectedAsset(asset);
   };
 
+  const openSemanticAssetDetail = useCallback(async (assetID: string) => {
+    try {
+      const asset = await getAsset(assetID, token);
+      setSelectedAssetPosition(null);
+      setSelectedAsset(asset);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "加载素材详情失败");
+    }
+  }, [token]);
+
   const navigateAsset = async (direction: -1 | 1) => {
     if (!selectedAsset || !selectedAssetPosition || assetNavigationBusy) {
       return;
@@ -795,7 +821,30 @@ export function AssetsPage({ token }: { token: string }) {
             >
               重置
             </Button>
-            <Button data-testid="asset-filter-refresh" onClick={assets.reload} loading={assets.loading}>刷新</Button>
+            <Button
+              data-testid="asset-filter-refresh"
+              loading={assets.loading}
+              onClick={() => {
+                void assets.reload();
+                setSemanticRefreshKey((value) => value + 1);
+              }}
+            >
+              刷新
+            </Button>
+            <Segmented<"grid" | "semantic">
+              className="asset-view-switch"
+              value={assetViewMode}
+              options={[
+                { value: "grid", label: <Space size={5}><LayoutGrid size={14} />网格</Space> },
+                { value: "semantic", label: <Space size={5}><Orbit size={14} />语义空间</Space> }
+              ]}
+              onChange={(value) => {
+                setAssetViewMode(value);
+                if (value === "semantic" && selectionMode) {
+                  exitAssetSelectionMode();
+                }
+              }}
+            />
           </div>
           {assetFiltersExpanded ? (
             <div className="asset-filter-advanced">
@@ -969,33 +1018,43 @@ export function AssetsPage({ token }: { token: string }) {
           ) : null}
         </Card>
 
-        <AssetGrid
-          assets={assetItems}
-          result={assets.data}
-          loading={assets.loading}
-          page={assetPage}
-          pageSize={assetPageSize}
-          semanticQuery={semanticQuery}
-          productNameByID={productNameByID}
-          selectionMode={selectionMode}
-          selectedAssetIDs={selectedAssetIDs}
-          selectingAll={selectingAllAssets}
-          archivingSelected={archivingSelectedAssets}
-          reanalyzingSelected={reanalyzingSelectedAssets}
-          allResultsSelected={allFilteredAssetsSelected}
-          onSelect={openAssetDetail}
-          onEnterSelectionMode={() => setSelectionMode(true)}
-          onExitSelectionMode={exitAssetSelectionMode}
-          onToggleSelection={toggleAssetSelection}
-          onTogglePageSelection={togglePageAssetSelection}
-          onToggleAllResults={() => void toggleAllFilteredAssets()}
-          onArchiveSelected={confirmArchiveSelectedAssets}
-          onReanalyzeSelected={confirmReanalyzeSelectedAssets}
-          onPageChange={(page, pageSize) => {
-            setAssetPage(page);
-            setAssetPageSize(pageSize);
-          }}
-        />
+        {assetViewMode === "grid" ? (
+          <AssetGrid
+            assets={assetItems}
+            result={assets.data}
+            loading={assets.loading}
+            page={assetPage}
+            pageSize={assetPageSize}
+            semanticQuery={semanticQuery}
+            productNameByID={productNameByID}
+            selectionMode={selectionMode}
+            selectedAssetIDs={selectedAssetIDs}
+            selectingAll={selectingAllAssets}
+            archivingSelected={archivingSelectedAssets}
+            reanalyzingSelected={reanalyzingSelectedAssets}
+            allResultsSelected={allFilteredAssetsSelected}
+            onSelect={openAssetDetail}
+            onEnterSelectionMode={() => setSelectionMode(true)}
+            onExitSelectionMode={exitAssetSelectionMode}
+            onToggleSelection={toggleAssetSelection}
+            onTogglePageSelection={togglePageAssetSelection}
+            onToggleAllResults={() => void toggleAllFilteredAssets()}
+            onArchiveSelected={confirmArchiveSelectedAssets}
+            onReanalyzeSelected={confirmReanalyzeSelectedAssets}
+            onPageChange={(page, pageSize) => {
+              setAssetPage(page);
+              setAssetPageSize(pageSize);
+            }}
+          />
+        ) : (
+          <AssetSemanticSpace
+            token={token}
+            path={semanticSpacePath}
+            semanticQuery={semanticQuery}
+            productNameByID={productNameByID}
+            onOpenAsset={openSemanticAssetDetail}
+          />
+        )}
       </Space>
 
       <Modal

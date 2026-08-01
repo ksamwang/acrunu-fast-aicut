@@ -135,6 +135,52 @@ export type AssetEmbeddingRunResult = {
   objects: AssetEmbeddingObject[];
 };
 
+export type AssetSemanticSpacePoint = {
+  asset_id: string;
+  x2: number;
+  y2: number;
+  x3: number;
+  y3: number;
+  z3: number;
+  product_id: string;
+  asset_name?: string;
+  storage_key: string;
+  file_name: string;
+  source_type: string;
+  status: string;
+  usability_status?: string;
+  duration_ms?: number;
+  shot_size?: string;
+  scene_description?: string;
+  action_description?: string;
+  thumbnail_url?: string;
+};
+
+export type AssetSemanticSpaceResponse = {
+  projection_id?: string;
+  provider_id?: string;
+  model?: string;
+  dimension?: number;
+  algorithm?: string;
+  total: number;
+  returned: number;
+  sampled: boolean;
+  missing_embedding_count: number;
+  updated_at?: string;
+  points: AssetSemanticSpacePoint[];
+};
+
+export type AssetSemanticNeighbor = {
+  asset_id: string;
+  score: number;
+};
+
+export type AssetSemanticNeighborResponse = {
+  asset_id?: string;
+  query?: string;
+  items: AssetSemanticNeighbor[];
+};
+
 export type AssetReviewPayload = {
   scene_description: string;
   action_description: string;
