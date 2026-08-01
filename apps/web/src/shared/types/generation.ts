@@ -58,6 +58,9 @@ export type FinishedWorkClipCandidate = {
   action_description?: string;
   semantic_score?: number;
   is_current: boolean;
+  selectable: boolean;
+  unavailable_reason?: string;
+  shortfall_ms?: number;
 };
 
 export type FinishedWorkClipCandidates = {

@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"path"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/auth"
+	"github.com/ksamwang/acrunu-fast-aicut/internal/modelgateway"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/services"
 )
@@ -30,6 +32,9 @@ type finishedWorkClipCandidate struct {
 	ActionDescription string   `json:"action_description,omitempty"`
 	SemanticScore     *float64 `json:"semantic_score,omitempty"`
 	IsCurrent         bool     `json:"is_current"`
+	Selectable        bool     `json:"selectable"`
+	UnavailableReason string   `json:"unavailable_reason,omitempty"`
+	ShortfallMs       int      `json:"shortfall_ms,omitempty"`
 }
 
 type finishedWorkClipCandidatesResponse struct {
@@ -62,7 +67,7 @@ func (s *Server) handleListFinishedWorkClipCandidates(c *gin.Context) {
 		handleVoiceoverError(c, err)
 		return
 	}
-	clip, ok := findEditPlanClip(plan.Clips, c.Param("clipID"))
+	clipIndex, clip, ok := findEditPlanClip(plan.Clips, c.Param("clipID"))
 	if !ok {
 		Fail(c, http.StatusNotFound, "clip_not_found", "镜头不存在")
 		return
@@ -79,16 +84,11 @@ func (s *Server) handleListFinishedWorkClipCandidates(c *gin.Context) {
 	if query == "" {
 		query = strings.TrimSpace(clip.VisualGoal)
 	}
-	minimumDurationMs := clipDurationMs
 	result, err := s.assetEmbeddingService.SearchAssets(ctx, services.AssetSemanticSearchInput{
 		Query: query,
 		Filters: services.AssetFilters{
-			ProductID:        run.ProductID,
-			SourceType:       "visual_only",
-			Status:           "ready",
-			AnalysisStatus:   "ready",
-			MinDurationMs:    &minimumDurationMs,
-			ExcludeDiscarded: true,
+			ProductID:  run.ProductID,
+			SourceType: "visual_only",
 		},
 		Limit: 100,
 	})
@@ -97,34 +97,40 @@ func (s *Server) handleListFinishedWorkClipCandidates(c *gin.Context) {
 		return
 	}
 
-	usedByOtherClip := make(map[string]struct{}, len(plan.Clips))
-	for _, item := range plan.Clips {
-		if item.ID != clip.ID {
-			usedByOtherClip[item.AssetID] = struct{}{}
+	currentAsset, exists := s.productAssetService.GetAsset(clip.AssetID)
+	if !exists {
+		Fail(c, http.StatusConflict, "current_asset_unavailable", "当前镜头素材不存在")
+		return
+	}
+	usedByOtherClip := make(map[string]int, len(plan.Clips))
+	for index, item := range plan.Clips {
+		if index != clipIndex {
+			usedByOtherClip[item.AssetID] = index
 		}
 	}
 	items := make([]finishedWorkClipCandidate, 0, min(len(result.Items), finishedWorkClipCandidateLimit))
 	seenAssetIDs := make(map[string]struct{}, len(result.Items))
 	for _, asset := range result.Items {
+		if asset.ID == clip.AssetID {
+			currentAsset.SemanticScore = asset.SemanticScore
+			continue
+		}
 		_, seen := seenAssetIDs[asset.ID]
-		_, used := usedByOtherClip[asset.ID]
-		if seen || used || !finishedWorkReplacementAssetEligible(asset, run.ProductID, clipDurationMs) {
+		if seen {
 			continue
 		}
 		seenAssetIDs[asset.ID] = struct{}{}
-		candidate := s.finishedWorkClipCandidate(asset, clipDurationMs, 0, asset.ID == clip.AssetID)
+		selectable, reason, shortfallMs := s.finishedWorkClipCandidateAvailability(
+			run, plan, clipIndex, asset, usedByOtherClip,
+		)
+		candidate := s.finishedWorkClipCandidate(asset, clipDurationMs, 0, false, selectable, reason, shortfallMs)
 		items = append(items, candidate)
 		if len(items) == finishedWorkClipCandidateLimit {
 			break
 		}
 	}
 
-	currentAsset, exists := s.productAssetService.GetAsset(clip.AssetID)
-	if !exists {
-		Fail(c, http.StatusConflict, "current_asset_unavailable", "当前镜头素材不存在")
-		return
-	}
-	current := s.finishedWorkClipCandidate(currentAsset, clipDurationMs, clip.SourceInMs, true)
+	current := s.finishedWorkClipCandidate(currentAsset, clipDurationMs, clip.SourceInMs, true, true, "", 0)
 	OK(c, finishedWorkClipCandidatesResponse{
 		ClipID: clip.ID, Query: query, ClipDurationMs: clipDurationMs,
 		PlanUpdatedAt: plan.UpdatedAt, Current: current, Items: items,
@@ -212,24 +218,92 @@ func (s *Server) handleReplaceFinishedWorkClips(c *gin.Context) {
 	OK(c, work)
 }
 
-func findEditPlanClip(clips []services.EditPlanClip, clipID string) (services.EditPlanClip, bool) {
+func findEditPlanClip(clips []services.EditPlanClip, clipID string) (int, services.EditPlanClip, bool) {
 	clipID = strings.TrimSpace(clipID)
-	for _, clip := range clips {
+	for index, clip := range clips {
 		if clip.ID == clipID {
-			return clip, true
+			return index, clip, true
 		}
 	}
-	return services.EditPlanClip{}, false
+	return -1, services.EditPlanClip{}, false
 }
 
-func finishedWorkReplacementAssetEligible(asset services.Asset, productID string, durationMs int) bool {
-	return asset.ProductID == productID && asset.SourceType == "visual_only" && asset.Status == "ready" &&
-		asset.AnalysisStatus == "ready" && (asset.UsabilityStatus == "usable" || asset.UsabilityStatus == "needs_review") &&
-		asset.DurationMs >= durationMs && strings.TrimSpace(asset.StorageKey) != ""
+func (s *Server) finishedWorkClipCandidateAvailability(
+	run services.GenerationRun,
+	plan services.EditPlan,
+	clipIndex int,
+	asset services.Asset,
+	usedByOtherClip map[string]int,
+) (bool, string, int) {
+	clip := plan.Clips[clipIndex]
+	clipDurationMs := clip.TimelineDurationMs
+	if clipDurationMs <= 0 {
+		clipDurationMs = clip.EndMs - clip.StartMs
+	}
+	shortfallMs := max(0, clipDurationMs-asset.DurationMs)
+	if usedIndex, used := usedByOtherClip[asset.ID]; used {
+		return false, fmt.Sprintf("已被镜头 %02d 使用", usedIndex+1), shortfallMs
+	}
+	if reason := finishedWorkReplacementAssetUnavailableReason(asset, run.ProductID); reason != "" {
+		return false, reason, shortfallMs
+	}
+	_, err := services.MaterializeClipReplacementPlan(run, plan, []services.EditPlanClipReplacement{{
+		ClipID: clip.ID, AssetID: asset.ID, SourceInMs: 0,
+	}}, s.productAssetService)
+	if err == nil {
+		return true, "", shortfallMs
+	}
+	if shortfallMs > 0 {
+		switch {
+		case clipIndex == len(plan.Clips)-1:
+			return false, fmt.Sprintf("最后一镜时长不足，还差 %dms", shortfallMs), shortfallMs
+		case shortfallMs > modelgateway.MaximumEditPlanEarlyTransitionMs:
+			return false, fmt.Sprintf("时长不足，还差 %dms", shortfallMs), shortfallMs
+		default:
+			return false, "下一镜头无法承接提前转场", shortfallMs
+		}
+	}
+	return false, "不符合当前剪辑计划", 0
 }
 
-func (s *Server) finishedWorkClipCandidate(asset services.Asset, clipDurationMs int, sourceInMs int, current bool) finishedWorkClipCandidate {
-	maxSourceInMs := max(0, asset.DurationMs-clipDurationMs)
+func finishedWorkReplacementAssetUnavailableReason(asset services.Asset, productID string) string {
+	if asset.ProductID != productID || asset.SourceType != "visual_only" {
+		return "素材不属于当前产品或类型"
+	}
+	if strings.TrimSpace(asset.StorageKey) == "" {
+		return "视频文件不可用"
+	}
+	if asset.Status == "archived" {
+		return "素材已归档"
+	}
+	if asset.Status != "ready" {
+		return "素材状态不可用"
+	}
+	if asset.AnalysisStatus != "ready" {
+		return "VLM 分析未完成"
+	}
+	if asset.UsabilityStatus == "discarded" {
+		return "素材已废弃"
+	}
+	if asset.UsabilityStatus != "usable" && asset.UsabilityStatus != "needs_review" {
+		return "素材尚不可用"
+	}
+	return ""
+}
+
+func (s *Server) finishedWorkClipCandidate(
+	asset services.Asset,
+	clipDurationMs int,
+	sourceInMs int,
+	current bool,
+	selectable bool,
+	unavailableReason string,
+	shortfallMs int,
+) finishedWorkClipCandidate {
+	maxSourceInMs := 0
+	if asset.DurationMs >= clipDurationMs {
+		maxSourceInMs = asset.DurationMs - clipDurationMs
+	}
 	if sourceInMs > maxSourceInMs {
 		sourceInMs = maxSourceInMs
 	}
@@ -245,6 +319,7 @@ func (s *Server) finishedWorkClipCandidate(asset services.Asset, clipDurationMs 
 		MaxSourceInMs: maxSourceInMs, VideoURL: finishedWorkStorageURL(asset.StorageKey),
 		ThumbnailURL: thumbnailURL, SceneDescription: asset.SceneDescription,
 		ActionDescription: asset.ActionDescription, SemanticScore: asset.SemanticScore, IsCurrent: current,
+		Selectable: selectable, UnavailableReason: unavailableReason, ShortfallMs: shortfallMs,
 	}
 }
 

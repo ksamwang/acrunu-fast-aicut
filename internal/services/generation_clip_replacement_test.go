@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,80 @@ func TestMaterializeClipReplacementPlanKeepsTimelineAndRejectsReuse(t *testing.T
 		ClipID: plan.Clips[0].ID, AssetID: second.ID, SourceInMs: 0,
 	}}, assets); err == nil || !errors.Is(err, ErrClipReplacementInvalid) {
 		t.Fatalf("expected duplicate material to be rejected, got %v", err)
+	}
+}
+
+func TestMaterializeClipReplacementPlanAllowsShortNonFinalClip(t *testing.T) {
+	assets := NewProductAssetService()
+	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
+	first := mustCreateReplacementAsset(t, assets, product.ID, "first.mp4", 2500)
+	second := mustCreateReplacementAsset(t, assets, product.ID, "second.mp4", 3200)
+	short := mustCreateReplacementAsset(t, assets, product.ID, "short.mp4", 900)
+	plan := replacementTestPlan(product.ID, first.ID, second.ID)
+
+	replaced, err := MaterializeClipReplacementPlan(GenerationRun{ProductID: product.ID}, plan, []EditPlanClipReplacement{{
+		ClipID: plan.Clips[0].ID, AssetID: short.ID, SourceInMs: 0,
+	}}, assets)
+	if err != nil {
+		t.Fatalf("materialize short replacement: %v", err)
+	}
+	current := replaced.Clips[0]
+	next := replaced.Clips[1]
+	if current.AssetID != short.ID || current.StartMs != 0 || current.EndMs != 900 ||
+		current.TimelineDurationMs != 900 || current.SourceInMs != 0 || current.SourceOutMs != 900 {
+		t.Fatalf("unexpected shortened clip %#v", current)
+	}
+	if next.StartMs != 900 || next.EndMs != 2000 || next.TimelineDurationMs != 1100 ||
+		next.SourceInMs != 0 || next.SourceOutMs != 1100 {
+		t.Fatalf("next clip did not absorb early transition %#v", next)
+	}
+}
+
+func TestMaterializeClipReplacementPlanRejectsShortLastClip(t *testing.T) {
+	assets := NewProductAssetService()
+	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
+	first := mustCreateReplacementAsset(t, assets, product.ID, "first.mp4", 2500)
+	second := mustCreateReplacementAsset(t, assets, product.ID, "second.mp4", 3200)
+	short := mustCreateReplacementAsset(t, assets, product.ID, "short.mp4", 900)
+	plan := replacementTestPlan(product.ID, first.ID, second.ID)
+
+	_, err := MaterializeClipReplacementPlan(GenerationRun{ProductID: product.ID}, plan, []EditPlanClipReplacement{{
+		ClipID: plan.Clips[1].ID, AssetID: short.ID, SourceInMs: 0,
+	}}, assets)
+	if err == nil || !errors.Is(err, ErrClipReplacementInvalid) || !strings.Contains(err.Error(), "last clip") {
+		t.Fatalf("expected short last clip rejection, got %v", err)
+	}
+}
+
+func TestMaterializeClipReplacementPlanRejectsExcessiveShortfall(t *testing.T) {
+	assets := NewProductAssetService()
+	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
+	first := mustCreateReplacementAsset(t, assets, product.ID, "first.mp4", 2500)
+	second := mustCreateReplacementAsset(t, assets, product.ID, "second.mp4", 3200)
+	short := mustCreateReplacementAsset(t, assets, product.ID, "short.mp4", 600)
+	plan := replacementTestPlan(product.ID, first.ID, second.ID)
+
+	_, err := MaterializeClipReplacementPlan(GenerationRun{ProductID: product.ID}, plan, []EditPlanClipReplacement{{
+		ClipID: plan.Clips[0].ID, AssetID: short.ID, SourceInMs: 0,
+	}}, assets)
+	if err == nil || !errors.Is(err, ErrClipReplacementInvalid) || !strings.Contains(err.Error(), "maximum early transition") {
+		t.Fatalf("expected excessive shortfall rejection, got %v", err)
+	}
+}
+
+func TestMaterializeClipReplacementPlanRejectsWhenNextClipCannotAbsorb(t *testing.T) {
+	assets := NewProductAssetService()
+	product := assets.CreateProduct(CreateProductInput{Name: "束裤带"})
+	first := mustCreateReplacementAsset(t, assets, product.ID, "first.mp4", 2500)
+	second := mustCreateReplacementAsset(t, assets, product.ID, "second.mp4", 1000)
+	short := mustCreateReplacementAsset(t, assets, product.ID, "short.mp4", 900)
+	plan := replacementTestPlan(product.ID, first.ID, second.ID)
+
+	_, err := MaterializeClipReplacementPlan(GenerationRun{ProductID: product.ID}, plan, []EditPlanClipReplacement{{
+		ClipID: plan.Clips[0].ID, AssetID: short.ID, SourceInMs: 0,
+	}}, assets)
+	if err == nil || !errors.Is(err, ErrClipReplacementInvalid) || !strings.Contains(err.Error(), "has no source range") {
+		t.Fatalf("expected next clip capacity rejection, got %v", err)
 	}
 }
 

@@ -129,12 +129,18 @@ export function FinishedWorkDetail({
       .filter((replacement) => replacement.clip_id !== replacementClipID)
       .map((replacement) => replacement.asset_id)
   );
-  const candidatePool = candidateData
-    ? [candidateData.current, ...(replacementPending ? [replacementPending.candidate] : []), ...candidateData.items]
-    : [];
-  const displayedCandidates = candidatePool.filter((candidate, index) =>
-    !pendingAssetIDs.has(candidate.asset_id) && candidatePool.findIndex((item) => item.asset_id === candidate.asset_id) === index
-  );
+  const displayedCandidates = candidateData?.items ?? [];
+  const previewPendingElsewhere = Boolean(previewCandidate && pendingAssetIDs.has(previewCandidate.asset_id));
+  const previewUnavailableReason = previewPendingElsewhere
+    ? "已在其它待应用镜头中使用"
+    : previewCandidate?.unavailable_reason ?? "";
+  const previewSelectable = Boolean(previewCandidate?.selectable && !previewPendingElsewhere);
+  const previewSourceDurationMs = candidateData && previewCandidate
+    ? Math.min(candidateData.clip_duration_ms, Math.max(0, previewCandidate.duration_ms - candidateSourceInMs))
+    : 0;
+  const previewShortfallMs = candidateData
+    ? Math.max(0, candidateData.clip_duration_ms - previewSourceDurationMs)
+    : 0;
   const previewMatchesCurrent = Boolean(
     candidateData && previewCandidate && previewCandidate.asset_id === candidateData.current.asset_id &&
     candidateSourceInMs === candidateData.current.source_in_ms
@@ -208,7 +214,7 @@ export function FinishedWorkDetail({
     }
     const startMs = previewMode === "candidate" ? candidateSourceInMs : clip.start_ms;
     const endMs = previewMode === "candidate"
-      ? candidateSourceInMs + Math.max(0, clip.end_ms - clip.start_ms)
+      ? candidateSourceInMs + previewSourceDurationMs
       : clip.end_ms;
     const seekToStart = () => {
       video.currentTime = startMs / 1000;
@@ -229,7 +235,7 @@ export function FinishedWorkDetail({
       video.removeEventListener("loadedmetadata", seekToStart);
       video.removeEventListener("timeupdate", handleTimeUpdate);
     };
-  }, [candidateSourceInMs, previewCandidate?.asset_id, previewMode, replacementClip, selectedClip, work.video_url]);
+  }, [candidateSourceInMs, previewCandidate?.asset_id, previewMode, previewSourceDurationMs, replacementClip, selectedClip, work.video_url]);
 
   const runAfterPendingDecision = (action: () => void) => {
     if (pendingReplacementCount === 0) {
@@ -370,6 +376,10 @@ export function FinishedWorkDetail({
 
   const stageCandidate = () => {
     if (!replacementClip || !candidateData || !previewCandidate) {
+      return;
+    }
+    if (!previewSelectable) {
+      message.warning(previewUnavailableReason || "当前素材不能用于这个镜头");
       return;
     }
     const sourceInMs = Math.max(0, Math.min(previewCandidate.max_source_in_ms, Math.round(candidateSourceInMs)));
@@ -569,7 +579,12 @@ export function FinishedWorkDetail({
                 <span className="finished-detail-plan-content">
                   <strong>{clip.label}</strong>
                   <span>{clip.visual_goal}</span>
-                  {pending ? <small className="finished-detail-plan-replacement">替换为 {pending.candidate.asset_name || pending.candidate.file_name}</small> : null}
+                  {pending ? (
+                    <small className="finished-detail-plan-replacement">
+                      替换为 {pending.candidate.asset_name || pending.candidate.file_name}
+                      {pending.candidate.shortfall_ms ? ` · 提前转场 ${pending.candidate.shortfall_ms}ms` : ""}
+                    </small>
+                  ) : null}
                 </span>
                 <span className="finished-detail-plan-tags">
                   {clipPositions[index].total > 1 ? <Tag color="cyan">同段 {clipPositions[index].position}/{clipPositions[index].total}</Tag> : null}
@@ -643,6 +658,17 @@ export function FinishedWorkDetail({
               onChange={(event) => setCandidateQuery(event.target.value)}
               onSearch={(value) => void loadClipCandidates(replacementClip, value)}
             />
+            {candidateData ? (
+              <button
+                type="button"
+                className={`finished-detail-current-candidate${previewCandidate?.asset_id === candidateData.current.asset_id ? " is-selected" : ""}`}
+                onClick={() => selectCandidate(candidateData.current)}
+              >
+                <span>当前素材</span>
+                <strong>{candidateData.current.asset_name || candidateData.current.file_name}</strong>
+                {candidateData.current.semantic_score !== undefined ? <b>{(candidateData.current.semantic_score * 100).toFixed(1)}</b> : null}
+              </button>
+            ) : null}
           </div>
 
           <div className="finished-detail-candidate-results">
@@ -655,29 +681,38 @@ export function FinishedWorkDetail({
                 <Button size="small" onClick={() => void loadClipCandidates(replacementClip, candidateQuery)}>重试</Button>
               </div>
             ) : displayedCandidates.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有符合时长和类型要求的素材" />
-            ) : displayedCandidates.map((candidate) => (
-              <button
-                type="button"
-                className={`finished-detail-candidate-row${previewCandidate?.asset_id === candidate.asset_id ? " is-selected" : ""}`}
-                key={candidate.asset_id}
-                onClick={() => selectCandidate(candidate)}
-              >
-                <span className="finished-detail-candidate-thumb">
-                  {candidate.thumbnail_url ? <img src={candidate.thumbnail_url} alt="" /> : <MonitorPlay size={20} />}
-                  <small>{formatDuration(candidate.duration_ms)}</small>
-                </span>
-                <span className="finished-detail-candidate-copy">
-                  <strong>{candidate.asset_name || candidate.file_name}</strong>
-                  <span>{candidate.action_description || candidate.scene_description || "暂无动作描述"}</span>
-                  {candidate.action_description && candidate.scene_description ? <small>{candidate.scene_description}</small> : null}
-                </span>
-                <span className="finished-detail-candidate-meta">
-                  {candidate.is_current ? <Tag color="blue">当前</Tag> : null}
-                  {candidate.semantic_score !== undefined ? <b>{(candidate.semantic_score * 100).toFixed(1)}</b> : null}
-                </span>
-              </button>
-            ))}
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有语义检索结果" />
+            ) : displayedCandidates.map((candidate) => {
+              const pendingElsewhere = pendingAssetIDs.has(candidate.asset_id);
+              const unavailableReason = pendingElsewhere ? "已在其它待应用镜头中使用" : candidate.unavailable_reason;
+              const selectable = candidate.selectable && !pendingElsewhere;
+              return (
+                <button
+                  type="button"
+                  className={`finished-detail-candidate-row${previewCandidate?.asset_id === candidate.asset_id ? " is-selected" : ""}${selectable ? "" : " is-unavailable"}`}
+                  key={candidate.asset_id}
+                  onClick={() => selectCandidate(candidate)}
+                >
+                  <span className="finished-detail-candidate-thumb">
+                    {candidate.thumbnail_url ? <img src={candidate.thumbnail_url} alt="" /> : <MonitorPlay size={20} />}
+                    <small>{formatDuration(candidate.duration_ms)}</small>
+                  </span>
+                  <span className="finished-detail-candidate-copy">
+                    <strong>{candidate.asset_name || candidate.file_name}</strong>
+                    <span>{candidate.action_description || candidate.scene_description || "暂无动作描述"}</span>
+                    {unavailableReason ? (
+                      <small className="is-unavailable">{unavailableReason}</small>
+                    ) : candidate.shortfall_ms ? (
+                      <small className="is-transition">提前切入下一镜头 {candidate.shortfall_ms}ms</small>
+                    ) : candidate.action_description && candidate.scene_description ? <small>{candidate.scene_description}</small> : null}
+                  </span>
+                  <span className="finished-detail-candidate-meta">
+                    {!selectable ? <Tag color="red">不可用</Tag> : candidate.shortfall_ms ? <Tag color="gold">提前转场</Tag> : null}
+                    {candidate.semantic_score !== undefined ? <b>{(candidate.semantic_score * 100).toFixed(1)}</b> : null}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {previewCandidate && candidateData ? (
@@ -685,8 +720,10 @@ export function FinishedWorkDetail({
               <div className="finished-detail-candidate-selection">
                 <strong>{previewCandidate.asset_name || previewCandidate.file_name}</strong>
                 <span>
-                  取用 {formatTimestamp(candidateSourceInMs)} - {formatTimestamp(candidateSourceInMs + candidateData.clip_duration_ms)}
+                  取用 {formatTimestamp(candidateSourceInMs)} - {formatTimestamp(candidateSourceInMs + previewSourceDurationMs)}
+                  {previewShortfallMs > 0 ? ` · 提前转场 ${previewShortfallMs}ms` : ""}
                 </span>
+                {previewUnavailableReason ? <small>{previewUnavailableReason}</small> : null}
               </div>
               <Slider
                 min={0}
@@ -700,10 +737,12 @@ export function FinishedWorkDetail({
               <Button
                 type="primary"
                 icon={<Check size={15} />}
-                disabled={previewMatchesPending || (previewMatchesCurrent && !replacementPending)}
+                disabled={!previewSelectable || previewMatchesPending || (previewMatchesCurrent && !replacementPending)}
                 onClick={stageCandidate}
               >
-                {previewMatchesPending
+                {!previewSelectable
+                  ? "不可选"
+                  : previewMatchesPending
                   ? "已选用"
                   : previewMatchesCurrent && replacementPending
                     ? "恢复当前素材"
