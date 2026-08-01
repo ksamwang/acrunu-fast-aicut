@@ -410,11 +410,11 @@ func (s *AssetEmbeddingService) listSemanticProjectionPoints(ctx context.Context
 	}
 
 	limitPlaceholder := semanticSearchBind(&args, semanticSpacePointLimit)
-	rows, err := s.pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT p.asset_id::text, p.x2, p.y2, p.x3, p.y3, p.z3,
 		       a.product_id::text, COALESCE(a.asset_name, ''), a.storage_key, a.file_name,
 		       a.source_type, a.status, COALESCE(a.usability_status, ''), COALESCE(a.duration_ms, 0),
-		       COALESCE(a.shot_size, ''), COALESCE(a.scene_description, ''), COALESCE(a.action_description, ''),
+		       COALESCE(a.shot_size, ''), COALESCE(a.scene_description, ''), COALESCE(%s, ''),
 		       COALESCE(frame.storage_key, '')
 		FROM asset_semantic_projection_points p
 		JOIN assets a ON a.id = p.asset_id
@@ -425,9 +425,10 @@ func (s *AssetEmbeddingService) listSemanticProjectionPoints(ctx context.Context
 			ORDER BY frame_index ASC
 			LIMIT 1
 		) frame ON true
-		WHERE `+whereClause+`
+		WHERE %s
 		ORDER BY md5(p.asset_id::text)
-		LIMIT `+limitPlaceholder, args...)
+		LIMIT %s`, effectiveAssetActionDescriptionSQL("a"), whereClause, limitPlaceholder)
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, 0, err
 	}

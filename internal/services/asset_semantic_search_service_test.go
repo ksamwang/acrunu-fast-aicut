@@ -51,3 +51,19 @@ func TestVectorCosineDistanceSQLUsesDefaultHNSWExpression(t *testing.T) {
 		t.Fatalf("unexpected fallback expression %q", fallback)
 	}
 }
+
+func TestSemanticAssetKeywordUsesEffectiveActionDescription(t *testing.T) {
+	conditions, args := buildSemanticAssetFilterConditions("a", AssetFilters{Keyword: "拉伸"}, nil)
+	joined := strings.Join(conditions, "\n")
+	if strings.Contains(joined, "a.action_description") {
+		t.Fatalf("keyword filter references a non-existent action_description column: %s", joined)
+	}
+	for _, expected := range []string{"a.model_labels", "a.review_overrides", "->> 'action_description'"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected effective action expression %q in %s", expected, joined)
+		}
+	}
+	if len(args) != 1 || args[0] != "%拉伸%" {
+		t.Fatalf("unexpected keyword arguments: %#v", args)
+	}
+}

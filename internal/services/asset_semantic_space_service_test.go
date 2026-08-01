@@ -73,3 +73,15 @@ func TestBuildSemanticAssetFilterConditionsSupportsProjectionAlias(t *testing.T)
 		t.Fatalf("expected five arguments including the projection id, got %#v", args)
 	}
 }
+
+func TestEffectiveAssetActionDescriptionSQLMergesReviewOverrides(t *testing.T) {
+	expression := effectiveAssetActionDescriptionSQL("asset")
+	if strings.Contains(expression, "asset.action_description") {
+		t.Fatalf("effective action expression references a non-existent column: %s", expression)
+	}
+	for _, expected := range []string{"asset.model_labels", "asset.review_overrides", "->> 'action_description'"} {
+		if !strings.Contains(expression, expected) {
+			t.Fatalf("expected %q in %s", expected, expression)
+		}
+	}
+}

@@ -300,7 +300,7 @@ func buildSemanticAssetFilterConditions(assetAlias string, filters AssetFilters,
 			OR COALESCE(%s, '') ILIKE %s
 			OR COALESCE(%s, '') ILIKE %s
 			OR COALESCE(%s, '') ILIKE %s
-		)`, column("asset_name"), placeholder, column("file_name"), placeholder, column("scene_description"), placeholder, column("action_description"), placeholder))
+		)`, column("asset_name"), placeholder, column("file_name"), placeholder, column("scene_description"), placeholder, effectiveAssetActionDescriptionSQL(assetAlias), placeholder))
 	}
 	if filters.MinDurationMs != nil {
 		conditions = append(conditions, fmt.Sprintf("COALESCE(%s, 0) >= %s", column("duration_ms"), semanticSearchBind(&args, *filters.MinDurationMs)))
@@ -318,6 +318,13 @@ func buildSemanticAssetFilterConditions(assetAlias string, filters AssetFilters,
 		conditions = append(conditions, column("usability_status")+" <> 'discarded'")
 	}
 	return conditions, args
+}
+
+func effectiveAssetActionDescriptionSQL(assetAlias string) string {
+	return fmt.Sprintf(`(
+		COALESCE(%[1]s.model_labels, '{}'::jsonb)
+		|| COALESCE(%[1]s.review_overrides, '{}'::jsonb)
+	) ->> 'action_description'`, assetAlias)
 }
 
 func semanticSearchBind(args *[]any, value any) string {
