@@ -251,6 +251,8 @@ func (s *Server) routes() {
 	protected.GET("/workbench/works", s.handleListVoiceoverWorks)
 	protected.POST("/workbench/works/download-batches", s.handleCreateFinishedWorkDownload)
 	protected.GET("/workbench/works/:taskID", s.handleGetVoiceoverWork)
+	protected.GET("/workbench/works/:taskID/clips/:clipID/candidates", s.handleListFinishedWorkClipCandidates)
+	protected.POST("/workbench/works/:taskID/clip-replacements", s.handleReplaceFinishedWorkClips)
 	protected.POST("/workbench/works/:taskID/retry", s.handleRetryVoiceoverWork)
 	protected.POST("/workbench/works/:taskID/regenerate", s.handleRegenerateVoiceoverWork)
 	protected.DELETE("/workbench/works/:taskID", s.handleDeleteVoiceoverWork)

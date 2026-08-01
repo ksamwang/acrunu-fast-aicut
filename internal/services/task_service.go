@@ -272,9 +272,14 @@ func (s *fileTaskStore) CreateEditPlanGenerateTask(_ context.Context, userID str
 }
 
 func (s *fileTaskStore) CreateGenerationRenderTask(_ context.Context, userID string, productID string, payload queue.GenerationRenderPayload) (GenerationTask, error) {
-	return s.createTask(userID, productID, "generation_render", map[string]any{
+	summary := map[string]any{
 		"generation_run_id": payload.GenerationRunID,
-	})
+	}
+	if len(payload.ClipReplacements) > 0 {
+		summary["clip_replacement_count"] = len(payload.ClipReplacements)
+		summary["base_edit_plan_updated_at"] = payload.BaseEditPlanUpdatedAt
+	}
+	return s.createTask(userID, productID, "generation_render", summary)
 }
 
 func (s *fileTaskStore) createTask(userID string, productID string, taskType string, payloadSummary map[string]any) (GenerationTask, error) {

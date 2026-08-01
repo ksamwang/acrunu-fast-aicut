@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ksamwang/acrunu-fast-aicut/internal/queue"
 )
@@ -161,6 +162,7 @@ func (h *WorkerHandler) HandleGenerationRender(ctx context.Context, payload queu
 	if !current {
 		return h.completeSupersededTask(ctx, payload.TaskID)
 	}
+	isClipReplacement := len(payload.ClipReplacements) > 0
 	err = h.runVoiceTask(ctx, payload.TaskID, "generation_render", func(runCtx context.Context) error {
 		if h.generationRenderer == nil || h.generationRunService == nil {
 			return fmt.Errorf("generation renderer is not configured")
@@ -168,10 +170,30 @@ func (h *WorkerHandler) HandleGenerationRender(ctx context.Context, payload queu
 		if err := h.generationRunService.UpdateStage(runCtx, payload.GenerationRunID, generationRunStageRendering, 92); err != nil {
 			return err
 		}
-		return h.generationRenderer.Render(runCtx, payload.GenerationRunID)
+		if !isClipReplacement {
+			return h.generationRenderer.Render(runCtx, payload.GenerationRunID)
+		}
+		basePlanUpdatedAt, parseErr := time.Parse(time.RFC3339Nano, payload.BaseEditPlanUpdatedAt)
+		if parseErr != nil {
+			return fmt.Errorf("invalid clip replacement plan revision: %w", parseErr)
+		}
+		replacements := make([]EditPlanClipReplacement, 0, len(payload.ClipReplacements))
+		for _, replacement := range payload.ClipReplacements {
+			replacements = append(replacements, EditPlanClipReplacement{
+				ClipID: replacement.ClipID, AssetID: replacement.AssetID, SourceInMs: replacement.SourceInMs,
+			})
+		}
+		return h.generationRenderer.RenderClipReplacements(runCtx, payload.GenerationRunID, ClipReplacementRenderRequest{
+			BaseEditPlanUpdatedAt: basePlanUpdatedAt,
+			Replacements:          replacements,
+		})
 	})
 	if err != nil {
-		h.markGenerationRunFailed(payload.GenerationRunID, err)
+		if isClipReplacement {
+			_ = h.generationRunService.MarkClipReplacementFailed(context.Background(), payload.GenerationRunID, err)
+		} else {
+			h.markGenerationRunFailed(payload.GenerationRunID, err)
+		}
 	}
 	return err
 }

@@ -44,6 +44,37 @@ export type EditPlanBeat = {
   use_original_audio?: boolean;
 };
 
+export type FinishedWorkClipCandidate = {
+  asset_id: string;
+  asset_name?: string;
+  file_name: string;
+  source_type: "visual_only";
+  duration_ms: number;
+  source_in_ms: number;
+  max_source_in_ms: number;
+  video_url: string;
+  thumbnail_url?: string;
+  scene_description?: string;
+  action_description?: string;
+  semantic_score?: number;
+  is_current: boolean;
+};
+
+export type FinishedWorkClipCandidates = {
+  clip_id: string;
+  query: string;
+  clip_duration_ms: number;
+  plan_updated_at: string;
+  current: FinishedWorkClipCandidate;
+  items: FinishedWorkClipCandidate[];
+};
+
+export type FinishedWorkClipReplacement = {
+  clip_id: string;
+  asset_id: string;
+  source_in_ms: number;
+};
+
 export type ScriptVariantStatus = "draft" | "confirmed";
 export type ScriptVariantOrigin = "generated" | "imported";
 export type ScriptTargetDuration = 15 | 20 | 30 | 45 | 60;
@@ -162,6 +193,7 @@ export type FinishedWork = {
   narration_segments?: NarrationSegment[];
   visual_beats?: VisualBeat[];
   edit_plan?: EditPlanBeat[];
+  edit_plan_updated_at?: string;
   audio_url?: string;
   video_url?: string;
   output_mime_type?: string;

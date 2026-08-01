@@ -72,8 +72,16 @@ type EditPlanGeneratePayload struct {
 }
 
 type GenerationRenderPayload struct {
-	TaskID          string `json:"task_id"`
-	GenerationRunID string `json:"generation_run_id"`
+	TaskID                string                            `json:"task_id"`
+	GenerationRunID       string                            `json:"generation_run_id"`
+	BaseEditPlanUpdatedAt string                            `json:"base_edit_plan_updated_at,omitempty"`
+	ClipReplacements      []GenerationRenderClipReplacement `json:"clip_replacements,omitempty"`
+}
+
+type GenerationRenderClipReplacement struct {
+	ClipID     string `json:"clip_id"`
+	AssetID    string `json:"asset_id"`
+	SourceInMs int    `json:"source_in_ms"`
 }
 
 type WorkbenchScriptGeneratePayload struct {

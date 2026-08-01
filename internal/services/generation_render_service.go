@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/ksamwang/acrunu-fast-aicut/internal/ffmpeg"
@@ -40,6 +41,11 @@ type GenerationRenderService struct {
 	renderer    generationTimelineRenderer
 	limiter     chan struct{}
 	logger      *slog.Logger
+}
+
+type ClipReplacementRenderRequest struct {
+	BaseEditPlanUpdatedAt time.Time
+	Replacements          []EditPlanClipReplacement
 }
 
 func NewGenerationRenderService(
@@ -75,6 +81,17 @@ func (s *GenerationRenderService) WithRenderer(renderer generationTimelineRender
 }
 
 func (s *GenerationRenderService) Render(ctx context.Context, runID string) error {
+	return s.render(ctx, runID, nil)
+}
+
+func (s *GenerationRenderService) RenderClipReplacements(ctx context.Context, runID string, request ClipReplacementRenderRequest) error {
+	if request.BaseEditPlanUpdatedAt.IsZero() || len(request.Replacements) == 0 {
+		return fmt.Errorf("clip replacement render request is incomplete")
+	}
+	return s.render(ctx, runID, &request)
+}
+
+func (s *GenerationRenderService) render(ctx context.Context, runID string, replacement *ClipReplacementRenderRequest) error {
 	if s == nil || s.runs == nil || s.voiceovers == nil || s.assets == nil || s.renderer == nil {
 		return fmt.Errorf("generation renderer is not configured")
 	}
@@ -89,7 +106,7 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	if err != nil {
 		return err
 	}
-	if run.Status == generationRunStatusCompleted && run.OutputStorageKey != "" {
+	if replacement == nil && run.Status == generationRunStatusCompleted && run.OutputStorageKey != "" {
 		outputPath, pathErr := safeStoragePath(s.storageRoot, run.OutputStorageKey)
 		if pathErr == nil {
 			if info, statErr := os.Stat(outputPath); statErr == nil && info.Size() > 0 {
@@ -104,6 +121,15 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	plan, err := s.runs.GetEditPlan(ctx, run.ID)
 	if err != nil {
 		return err
+	}
+	if replacement != nil {
+		if !plan.UpdatedAt.Equal(replacement.BaseEditPlanUpdatedAt) {
+			return ErrEditPlanConflict
+		}
+		plan, err = MaterializeClipReplacementPlan(run, plan, replacement.Replacements, s.assets)
+		if err != nil {
+			return err
+		}
 	}
 	if plan.Status != "ready" || len(plan.Clips) == 0 {
 		return fmt.Errorf("ready edit plan is required for rendering")
@@ -169,7 +195,11 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	fps := renderSnapshotInt(run.ConfigSnapshot, "output_fps", defaultRenderFPS, 1, 60)
 	workDir := filepath.Join(s.storageRoot, "temp", "renders", run.ID, uuid.NewString())
 	defer os.RemoveAll(workDir)
-	outputKey := path.Join("renders", "generations", run.ID, "final.mp4")
+	outputFileName := "final.mp4"
+	if replacement != nil {
+		outputFileName = "final-" + uuid.NewString() + ".mp4"
+	}
+	outputKey := path.Join("renders", "generations", run.ID, outputFileName)
 	finalPath, err := safeStoragePath(s.storageRoot, outputKey)
 	if err != nil {
 		return err
@@ -221,7 +251,7 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 	if err != nil {
 		return fmt.Errorf("stat final render output: %w", err)
 	}
-	if err := s.runs.MarkRenderCompleted(ctx, run.ID, GenerationRenderOutput{
+	output := GenerationRenderOutput{
 		StorageKey:    outputKey,
 		MimeType:      "video/mp4",
 		DurationMs:    probe.DurationMs,
@@ -230,7 +260,21 @@ func (s *GenerationRenderService) Render(ctx context.Context, runID string) erro
 		FileSizeBytes: info.Size(),
 		Renderer:      "ffmpeg",
 		RenderVersion: ffmpegRenderVersion,
-	}); err != nil {
+	}
+	if replacement != nil {
+		oldOutputKey, commitErr := s.runs.CommitClipReplacementRender(ctx, run.ID, replacement.BaseEditPlanUpdatedAt, plan, output)
+		if commitErr != nil {
+			_ = os.Remove(finalPath)
+			return commitErr
+		}
+		if oldOutputKey != "" && oldOutputKey != outputKey {
+			if oldOutputPath, pathErr := safeStoragePath(s.storageRoot, oldOutputKey); pathErr == nil {
+				if removeErr := os.Remove(oldOutputPath); removeErr != nil && !os.IsNotExist(removeErr) {
+					s.logger.Warn("remove replaced generation output failed", slog.String("storage_key", oldOutputKey), slog.Any("error", removeErr))
+				}
+			}
+		}
+	} else if err := s.runs.MarkRenderCompleted(ctx, run.ID, output); err != nil {
 		return err
 	}
 	s.logger.Info("generation render completed",

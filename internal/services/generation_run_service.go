@@ -661,6 +661,274 @@ func (s *GenerationRunService) MarkRenderCompleted(ctx context.Context, runID st
 	return nil
 }
 
+func (s *GenerationRunService) PrepareClipReplacementRender(ctx context.Context, runID string, basePlanUpdatedAt time.Time) (GenerationRun, error) {
+	runID = normalizeID(runID)
+	if runID == "" || basePlanUpdatedAt.IsZero() {
+		return GenerationRun{}, ErrEditPlanConflict
+	}
+	if s.pool == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		run, runOK := s.memoryRuns[runID]
+		plan, planOK := s.memoryPlans[runID]
+		if !runOK {
+			return GenerationRun{}, ErrGenerationRunNotFound
+		}
+		if !planOK {
+			return GenerationRun{}, ErrEditPlanNotFound
+		}
+		if run.Status != generationRunStatusCompleted || run.OutputStorageKey == "" {
+			return GenerationRun{}, ErrGenerationRunActive
+		}
+		if !plan.UpdatedAt.Equal(basePlanUpdatedAt) {
+			return GenerationRun{}, ErrEditPlanConflict
+		}
+		for taskID, task := range s.memoryTasks {
+			if task.GenerationRunID == runID && task.Stage == generationRunTaskStageRender {
+				delete(s.memoryTasks, taskID)
+			}
+		}
+		run.Status = generationRunStatusGenerating
+		run.Stage = generationRunStageRendering
+		run.Progress = 90
+		run.ErrorMessage = ""
+		run.UpdatedAt = time.Now()
+		s.memoryRuns[runID] = run
+		return cloneGenerationRun(run), nil
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return GenerationRun{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	run, err := scanGenerationRun(tx.QueryRow(ctx, generationRunColumns+` FROM generation_runs WHERE id = $1::uuid FOR UPDATE`, runID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return GenerationRun{}, ErrGenerationRunNotFound
+	}
+	if err != nil {
+		return GenerationRun{}, err
+	}
+	if run.Status != generationRunStatusCompleted || run.OutputStorageKey == "" {
+		return GenerationRun{}, ErrGenerationRunActive
+	}
+	var planUpdatedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT updated_at FROM edit_plans WHERE generation_run_id = $1::uuid FOR UPDATE`, runID).Scan(&planUpdatedAt); errors.Is(err, pgx.ErrNoRows) {
+		return GenerationRun{}, ErrEditPlanNotFound
+	} else if err != nil {
+		return GenerationRun{}, err
+	}
+	if !planUpdatedAt.Equal(basePlanUpdatedAt) {
+		return GenerationRun{}, ErrEditPlanConflict
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM generation_run_tasks WHERE generation_run_id = $1::uuid AND stage = $2`, runID, generationRunTaskStageRender); err != nil {
+		return GenerationRun{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE generation_runs
+		SET status = 'generating', stage = 'rendering', progress = 90,
+			error_message = NULL, updated_at = now()
+		WHERE id = $1::uuid`, runID); err != nil {
+		return GenerationRun{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return GenerationRun{}, err
+	}
+	return s.Get(ctx, runID)
+}
+
+func (s *GenerationRunService) MarkClipReplacementFailed(ctx context.Context, runID string, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	runID = normalizeID(runID)
+	if runID == "" {
+		return ErrGenerationRunNotFound
+	}
+	if s.pool == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		run, ok := s.memoryRuns[runID]
+		if !ok {
+			return ErrGenerationRunNotFound
+		}
+		if run.Status != generationRunStatusGenerating {
+			return nil
+		}
+		if run.OutputStorageKey == "" {
+			run.Status = generationRunStatusFailed
+			run.Stage = generationRunStageFailed
+		} else {
+			run.Status = generationRunStatusCompleted
+			run.Stage = generationRunStageCompleted
+		}
+		run.Progress = 100
+		run.ErrorMessage = cause.Error()
+		run.UpdatedAt = time.Now()
+		s.memoryRuns[runID] = run
+		return nil
+	}
+	command, err := s.pool.Exec(ctx, `
+		UPDATE generation_runs
+		SET status = CASE WHEN COALESCE(output_storage_key, '') = '' THEN 'failed' ELSE 'completed' END,
+			stage = CASE WHEN COALESCE(output_storage_key, '') = '' THEN 'failed' ELSE 'completed' END,
+			progress = 100, error_message = $2, updated_at = now()
+		WHERE id = $1::uuid AND status = 'generating'`, runID, cause.Error())
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		var exists bool
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM generation_runs WHERE id = $1::uuid)`, runID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrGenerationRunNotFound
+		}
+	}
+	return nil
+}
+
+func (s *GenerationRunService) CommitClipReplacementRender(
+	ctx context.Context,
+	runID string,
+	basePlanUpdatedAt time.Time,
+	plan EditPlan,
+	output GenerationRenderOutput,
+) (string, error) {
+	runID = normalizeID(runID)
+	if runID == "" || basePlanUpdatedAt.IsZero() || plan.GenerationRunID != runID {
+		return "", ErrEditPlanConflict
+	}
+	if output.StorageKey == "" || output.MimeType == "" || output.DurationMs <= 0 || output.Width <= 0 || output.Height <= 0 || output.FileSizeBytes <= 0 || output.Renderer == "" || output.RenderVersion == "" {
+		return "", fmt.Errorf("generation render output is incomplete")
+	}
+	if err := validateEditPlanForStorage(plan); err != nil {
+		return "", err
+	}
+	if s.pool == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		run, runOK := s.memoryRuns[runID]
+		currentPlan, planOK := s.memoryPlans[runID]
+		if !runOK {
+			return "", ErrGenerationRunNotFound
+		}
+		if !planOK {
+			return "", ErrEditPlanNotFound
+		}
+		if !currentPlan.UpdatedAt.Equal(basePlanUpdatedAt) {
+			return "", ErrEditPlanConflict
+		}
+		oldOutputKey := run.OutputStorageKey
+		now := time.Now()
+		plan.ID = currentPlan.ID
+		plan.CreatedAt = currentPlan.CreatedAt
+		plan.UpdatedAt = now
+		s.memoryPlans[runID] = cloneEditPlan(plan)
+		run.Status = generationRunStatusCompleted
+		run.Stage = generationRunStageCompleted
+		run.Progress = 100
+		run.ErrorMessage = ""
+		run.OutputStorageKey = output.StorageKey
+		run.OutputMimeType = output.MimeType
+		run.OutputDurationMs = output.DurationMs
+		run.OutputWidth = output.Width
+		run.OutputHeight = output.Height
+		run.OutputFileSizeBytes = output.FileSizeBytes
+		run.Renderer = output.Renderer
+		run.RenderVersion = output.RenderVersion
+		run.CompletedAt = &now
+		run.UpdatedAt = now
+		s.memoryRuns[runID] = run
+		return oldOutputKey, nil
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	run, err := scanGenerationRun(tx.QueryRow(ctx, generationRunColumns+` FROM generation_runs WHERE id = $1::uuid FOR UPDATE`, runID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrGenerationRunNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	var editPlanID string
+	var currentPlanUpdatedAt time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT id::text, updated_at
+		FROM edit_plans
+		WHERE generation_run_id = $1::uuid
+		FOR UPDATE`, runID).Scan(&editPlanID, &currentPlanUpdatedAt); errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrEditPlanNotFound
+	} else if err != nil {
+		return "", err
+	}
+	if !currentPlanUpdatedAt.Equal(basePlanUpdatedAt) || (plan.ID != "" && plan.ID != editPlanID) {
+		return "", ErrEditPlanConflict
+	}
+	for _, clip := range plan.Clips {
+		command, err := tx.Exec(ctx, `
+			UPDATE clip_segments
+			SET asset_id = $3::uuid, speech_segment_id = NULLIF($4, '')::uuid,
+				source_in_ms = $5, source_out_ms = $6, source_type = $7,
+				use_original_audio = $8, audio_gain_db = $9
+			WHERE id = $1::uuid AND edit_plan_id = $2::uuid`,
+			clip.ID, editPlanID, clip.AssetID, clip.SpeechSegmentID,
+			clip.SourceInMs, clip.SourceOutMs, clip.SourceType, clip.UseOriginalAudio, clip.AudioGainDB)
+		if err != nil {
+			return "", err
+		}
+		if command.RowsAffected() != 1 {
+			return "", ErrEditPlanConflict
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE edit_plans
+		SET status = 'ready', plan_json = $2::jsonb, error_message = NULL, updated_at = now()
+		WHERE id = $1::uuid`, editPlanID, []byte(plan.PlanJSON)); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM generation_asset_selections WHERE generation_run_id = $1::uuid`, runID); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO generation_asset_selections (
+			generation_run_id, generation_batch_id, asset_id, reuse_key,
+			state, expires_at, created_at, updated_at
+		)
+		SELECT DISTINCT ON (COALESCE(NULLIF(LOWER(BTRIM(assets.checksum)), ''), clips.asset_id::text))
+			$1::uuid, runs.generation_batch_id, clips.asset_id,
+			COALESCE(NULLIF(LOWER(BTRIM(assets.checksum)), ''), clips.asset_id::text),
+			'committed', NULL, now(), now()
+		FROM clip_segments clips
+		JOIN assets ON assets.id = clips.asset_id
+		JOIN generation_runs runs ON runs.id = $1::uuid
+		WHERE clips.edit_plan_id = $2::uuid
+		ORDER BY COALESCE(NULLIF(LOWER(BTRIM(assets.checksum)), ''), clips.asset_id::text), clips.segment_index`, runID, editPlanID); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE generation_runs
+		SET status = 'completed', stage = 'completed', progress = 100,
+			error_message = NULL, output_storage_key = $2, output_mime_type = $3,
+			output_duration_ms = $4, output_width = $5, output_height = $6,
+			output_file_size_bytes = $7, renderer = $8, render_version = $9,
+			completed_at = now(), updated_at = now()
+		WHERE id = $1::uuid`,
+		runID, output.StorageKey, output.MimeType, output.DurationMs, output.Width,
+		output.Height, output.FileSizeBytes, output.Renderer, output.RenderVersion); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return run.OutputStorageKey, nil
+}
+
 // PrepareRetry keeps the existing run as the user-visible finished-work item,
 // while discarding stale work links and the previous partial edit plan.
 func (s *GenerationRunService) PrepareRetry(ctx context.Context, runID string, mode GenerationRunRetryMode) (GenerationRun, error) {
@@ -1162,6 +1430,8 @@ func (s *GenerationRunService) workFromRun(ctx context.Context, run GenerationRu
 	}
 	plan, err := s.GetEditPlan(ctx, run.ID)
 	if err == nil {
+		planUpdatedAt := plan.UpdatedAt
+		work.EditPlanUpdatedAt = &planUpdatedAt
 		if len(plan.NarrationSegments) > 0 {
 			work.NarrationSegments = cloneNarrationSegments(plan.NarrationSegments)
 		}

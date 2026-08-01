@@ -91,9 +91,14 @@ func (s *PostgresTaskStore) CreateEditPlanGenerateTask(ctx context.Context, user
 }
 
 func (s *PostgresTaskStore) CreateGenerationRenderTask(ctx context.Context, userID string, productID string, payload queue.GenerationRenderPayload) (GenerationTask, error) {
-	return s.createTask(ctx, userID, productID, "generation_render", map[string]any{
+	summary := map[string]any{
 		"generation_run_id": payload.GenerationRunID,
-	})
+	}
+	if len(payload.ClipReplacements) > 0 {
+		summary["clip_replacement_count"] = len(payload.ClipReplacements)
+		summary["base_edit_plan_updated_at"] = payload.BaseEditPlanUpdatedAt
+	}
+	return s.createTask(ctx, userID, productID, "generation_render", summary)
 }
 
 func (s *PostgresTaskStore) createTask(ctx context.Context, userID string, productID string, taskType string, payloadSummary map[string]any) (GenerationTask, error) {

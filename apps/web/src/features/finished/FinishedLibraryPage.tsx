@@ -743,6 +743,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
       return (
         <FinishedWorkDetail
           work={selectedWork}
+          token={token}
           position={selectedWorkIndex >= 0 ? selectedWorkIndex + 1 : 1}
           total={Math.max(detailWorks.length, 1)}
           actionKind={actionWorkID === selectedWork.id ? actionKind : null}
@@ -752,6 +753,7 @@ export function FinishedLibraryPage({ token }: { token: string }) {
           onRetry={() => void retryWork(selectedWork.id)}
           onRegenerate={() => confirmRegenerate(selectedWork)}
           onDelete={() => confirmDelete(selectedWork, nextWork?.id ?? previousWork?.id)}
+          onWorkUpdated={(updated) => setWorks((current) => current.map((work) => (work.id === updated.id ? updated : work)))}
         />
       );
     }

@@ -173,6 +173,7 @@ type VoiceoverWork struct {
 	NarrationSegments   []NarrationSegment      `json:"narration_segments,omitempty"`
 	VisualBeats         []VisualBeat            `json:"visual_beats,omitempty"`
 	EditPlan            []VoiceoverEditPlanClip `json:"edit_plan,omitempty"`
+	EditPlanUpdatedAt   *time.Time              `json:"edit_plan_updated_at,omitempty"`
 	AudioURL            string                  `json:"audio_url,omitempty"`
 	AudioStorageKey     string                  `json:"-"`
 	VideoURL            string                  `json:"video_url,omitempty"`
