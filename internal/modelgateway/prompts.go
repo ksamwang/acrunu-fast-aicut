@@ -157,7 +157,7 @@ func BuildScriptGenerationPrompt(input ScriptGenerationInput) PromptBundle {
 每个 variant 只返回：variant_index、angle、selected_selling_points、hook、script_text。
 
 angle 表示本版本的核心说服方向。
-selected_selling_points 必须逐字复制并完整列出全部输入卖点。
+selected_selling_points 必须完整列出全部输入卖点，但只能复制每个卖点的 name 字符串值。必须使用字符串数组格式，例如 ["卖点1","卖点2"]，禁止返回对象。
 hook 必须与 script_text 的开头完全一致。
 只返回一个顶层键 variants。
 

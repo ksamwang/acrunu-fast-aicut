@@ -72,6 +72,44 @@ type ScriptCopyVariant struct {
 	ScriptText            string   `json:"script_text"`
 }
 
+func (v *ScriptCopyVariant) UnmarshalJSON(data []byte) error {
+	var decoded struct {
+		VariantIndex          int               `json:"variant_index"`
+		Angle                 string            `json:"angle"`
+		SelectedSellingPoints []json.RawMessage `json:"selected_selling_points"`
+		Hook                  string            `json:"hook"`
+		ScriptText            string            `json:"script_text"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	selectedSellingPoints := make([]string, 0, len(decoded.SelectedSellingPoints))
+	for index, raw := range decoded.SelectedSellingPoints {
+		var name string
+		if err := json.Unmarshal(raw, &name); err != nil {
+			var object struct {
+				Name string `json:"name"`
+			}
+			if objectErr := json.Unmarshal(raw, &object); objectErr != nil {
+				return fmt.Errorf("selected_selling_points[%d] must be a string or object with non-empty name: %w", index, err)
+			}
+			name = object.Name
+		}
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("selected_selling_points[%d] must be a string or object with non-empty name", index)
+		}
+		selectedSellingPoints = append(selectedSellingPoints, name)
+	}
+
+	v.VariantIndex = decoded.VariantIndex
+	v.Angle = decoded.Angle
+	v.SelectedSellingPoints = selectedSellingPoints
+	v.Hook = decoded.Hook
+	v.ScriptText = decoded.ScriptText
+	return nil
+}
+
 type ScriptCopyResult struct {
 	Variants []ScriptCopyVariant `json:"variants"`
 }

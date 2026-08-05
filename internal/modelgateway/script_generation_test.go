@@ -29,6 +29,7 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 		"每个版本必须实际表达全部输入卖点", "第一段：黄金开头",
 		"第二段：产品解决方案", "第三段：结果与收束", "具体功能或操作 + 直接结果",
 		"target_duration_seconds 是实际篇幅目标", "所有参数、材质、效果和场景必须来自输入事实",
+		`["卖点1","卖点2"]`, "禁止返回对象",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected copy prompt to contain %q, got %s", expected, prompt)
@@ -45,6 +46,26 @@ func TestBuildScriptGenerationPromptSeparatesCopyFromVisualEvidence(t *testing.T
 	}
 	if strings.Contains(prompt, "available_visual_evidence") || strings.Contains(prompt, "双手压紧魔术贴") {
 		t.Fatalf("copy prompt must not contain raw visual evidence: %s", prompt)
+	}
+}
+
+func TestScriptCopyVariantUnmarshalNormalizesObjectSellingPoints(t *testing.T) {
+	content := `{"variant_index":1,"angle":"防水","selected_selling_points":["压胶拉链",{"name":"肩背设计","description":"日常出行可斜挎"}],"hook":"下雨怎么办？","script_text":"下雨怎么办？看看这款车包。"}`
+	var variant ScriptCopyVariant
+	if err := json.Unmarshal([]byte(content), &variant); err != nil {
+		t.Fatalf("decode script copy variant: %v", err)
+	}
+	expected := []string{"压胶拉链", "肩背设计"}
+	if !reflect.DeepEqual(variant.SelectedSellingPoints, expected) {
+		t.Fatalf("unexpected normalized selling points: got %#v want %#v", variant.SelectedSellingPoints, expected)
+	}
+}
+
+func TestScriptCopyVariantUnmarshalRejectsInvalidSellingPointObject(t *testing.T) {
+	content := `{"variant_index":1,"angle":"防水","selected_selling_points":[{"description":"缺少名称"}],"hook":"下雨怎么办？","script_text":"下雨怎么办？看看这款车包。"}`
+	var variant ScriptCopyVariant
+	if err := json.Unmarshal([]byte(content), &variant); err == nil || !strings.Contains(err.Error(), "non-empty name") {
+		t.Fatalf("expected invalid selling point object error, got %v", err)
 	}
 }
 
