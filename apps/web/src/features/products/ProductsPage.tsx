@@ -184,7 +184,7 @@ export function ProductManagementPage({ token }: { token: string }) {
   };
 
   return (
-    <Space direction="vertical" size="middle" className="page-stack">
+    <Space direction="vertical" size="middle" className="page-stack product-management-page">
       <Card title="产品列表" extra={<Button type="primary" onClick={openCreateProduct}>新建产品</Button>}>
         <Table<(Product & { stats?: ProductStats })>
           rowKey="id"
