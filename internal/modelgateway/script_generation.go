@@ -128,6 +128,27 @@ type ScriptGenerator interface {
 	GenerateScripts(context.Context, ScriptGenerationInput) (ScriptGenerationResult, error)
 }
 
+const (
+	ScriptGenerationProgressGenerating = "generating"
+	ScriptGenerationProgressCompleted  = "completed"
+	ScriptGenerationProgressFailed     = "failed"
+)
+
+type ScriptGenerationVariantProgress struct {
+	VariantIndex int
+	Status       string
+	Copy         ScriptCopyVariant
+	Variant      ScriptGenerationVariant
+	Err          error
+}
+
+type ScriptGenerationProgressHandler func(ScriptGenerationVariantProgress) error
+
+type ProgressiveScriptGenerator interface {
+	ScriptGenerator
+	GenerateScriptsWithProgress(context.Context, ScriptGenerationInput, ScriptGenerationProgressHandler) (ScriptGenerationResult, error)
+}
+
 type scriptGeneratorFunc func(context.Context, ScriptGenerationInput) (ScriptGenerationResult, error)
 
 func (f scriptGeneratorFunc) GenerateScripts(ctx context.Context, input ScriptGenerationInput) (ScriptGenerationResult, error) {
@@ -181,6 +202,14 @@ func NewOpenAICompatibleScriptGenerator(cfg Config) *OpenAICompatibleScriptGener
 }
 
 func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, input ScriptGenerationInput) (ScriptGenerationResult, error) {
+	return g.generateScripts(ctx, input, nil)
+}
+
+func (g *OpenAICompatibleScriptGenerator) GenerateScriptsWithProgress(ctx context.Context, input ScriptGenerationInput, onProgress ScriptGenerationProgressHandler) (ScriptGenerationResult, error) {
+	return g.generateScripts(ctx, input, onProgress)
+}
+
+func (g *OpenAICompatibleScriptGenerator) generateScripts(ctx context.Context, input ScriptGenerationInput, onProgress ScriptGenerationProgressHandler) (ScriptGenerationResult, error) {
 	if g == nil || g.baseURL == "" {
 		return ScriptGenerationResult{}, NewError(ErrorCodeConfiguration, "openai compatible base_url is required", false, nil)
 	}
@@ -237,10 +266,54 @@ func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, i
 	sort.Slice(copies.Variants, func(i, j int) bool {
 		return copies.Variants[i].VariantIndex < copies.Variants[j].VariantIndex
 	})
+	if onProgress != nil {
+		for _, copyVariant := range copies.Variants {
+			if err := onProgress(ScriptGenerationVariantProgress{
+				VariantIndex: copyVariant.VariantIndex,
+				Status:       ScriptGenerationProgressGenerating,
+				Copy:         copyVariant,
+			}); err != nil {
+				return ScriptGenerationResult{}, err
+			}
+		}
+	}
 
-	visuals, err := g.generateScriptVisualIntents(ctx, input, copies)
+	visuals, variantErrors, err := g.generateScriptVisualIntents(ctx, input, copies, func(copyVariant ScriptCopyVariant, plan ScriptVisualIntentPlan, generationErr error) error {
+		if onProgress == nil {
+			return nil
+		}
+		progress := ScriptGenerationVariantProgress{
+			VariantIndex: copyVariant.VariantIndex,
+			Copy:         copyVariant,
+		}
+		if generationErr != nil {
+			progress.Status = ScriptGenerationProgressFailed
+			progress.Err = generationErr
+		} else {
+			progress.Status = ScriptGenerationProgressCompleted
+			progress.Variant = mergeScriptGenerationVariant(copyVariant, plan)
+		}
+		return onProgress(progress)
+	})
 	if err != nil {
 		return ScriptGenerationResult{}, err
+	}
+	hasVariantErrors := false
+	for _, generationErr := range variantErrors {
+		if generationErr != nil {
+			hasVariantErrors = true
+			break
+		}
+	}
+	if hasVariantErrors {
+		if onProgress == nil {
+			for position, copyVariant := range copies.Variants {
+				if generationErr := variantErrors[position]; generationErr != nil {
+					return ScriptGenerationResult{}, fmt.Errorf("generate visual intent for variant %d: %w", copyVariant.VariantIndex, generationErr)
+				}
+			}
+		}
+		return mergePartialScriptGenerationResult(copies, visuals, variantErrors), nil
 	}
 	if validationErr := ValidateScriptVisualIntentResult(visuals, copies, input); validationErr != nil {
 		return ScriptGenerationResult{}, validationErr
@@ -262,7 +335,9 @@ type scriptVisualIntentGenerationResult struct {
 	err      error
 }
 
-func (g *OpenAICompatibleScriptGenerator) generateScriptVisualIntents(ctx context.Context, input ScriptGenerationInput, copies ScriptCopyResult) (ScriptVisualIntentResult, error) {
+type scriptVisualIntentResultHandler func(ScriptCopyVariant, ScriptVisualIntentPlan, error) error
+
+func (g *OpenAICompatibleScriptGenerator) generateScriptVisualIntents(ctx context.Context, input ScriptGenerationInput, copies ScriptCopyResult, onResult scriptVisualIntentResultHandler) (ScriptVisualIntentResult, []error, error) {
 	results := make(chan scriptVisualIntentGenerationResult, len(copies.Variants))
 	for position, copyVariant := range copies.Variants {
 		go func() {
@@ -273,17 +348,19 @@ func (g *OpenAICompatibleScriptGenerator) generateScriptVisualIntents(ctx contex
 
 	plans := make([]ScriptVisualIntentPlan, len(copies.Variants))
 	errorsByPosition := make([]error, len(copies.Variants))
+	var callbackErr error
 	for range copies.Variants {
 		result := <-results
 		plans[result.position] = result.plan
 		errorsByPosition[result.position] = result.err
-	}
-	for position, err := range errorsByPosition {
-		if err != nil {
-			return ScriptVisualIntentResult{}, fmt.Errorf("generate visual intent for variant %d: %w", copies.Variants[position].VariantIndex, err)
+		if callbackErr == nil && onResult != nil {
+			callbackErr = onResult(copies.Variants[result.position], result.plan, result.err)
 		}
 	}
-	return ScriptVisualIntentResult{Plans: plans}, nil
+	if callbackErr != nil {
+		return ScriptVisualIntentResult{}, errorsByPosition, callbackErr
+	}
+	return ScriptVisualIntentResult{Plans: plans}, errorsByPosition, nil
 }
 
 func (g *OpenAICompatibleScriptGenerator) generateScriptVisualIntent(ctx context.Context, input ScriptGenerationInput, copyVariant ScriptCopyVariant) (ScriptVisualIntentPlan, error) {
@@ -304,6 +381,12 @@ func (g *OpenAICompatibleScriptGenerator) generateScriptVisualIntent(ctx context
 			return ScriptVisualIntentPlan{}, repairErr
 		}
 		visuals = repaired
+	}
+	variant := mergeScriptGenerationVariant(copyVariant, visuals.Plans[0])
+	singleInput := input
+	singleInput.VariantCount = 1
+	if err := ValidateScriptGenerationResult(ScriptGenerationResult{Variants: []ScriptGenerationVariant{variant}}, singleInput); err != nil {
+		return ScriptVisualIntentPlan{}, err
 	}
 	return visuals.Plans[0], nil
 }
@@ -398,6 +481,13 @@ func (g *OpenAICompatibleScriptGenerator) requestScriptVisualIntents(ctx context
 	}
 	var result ScriptVisualIntentResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		slog.Error("script visual intent JSON decode failed",
+			slog.String("model", g.model),
+			slog.String("prompt", promptBundle.Prompts[0].Name),
+			slog.Int("content_bytes", len(content)),
+			slog.String("decode_error", err.Error()),
+			slog.String("raw_content", content),
+		)
 		return ScriptVisualIntentResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode visual-intent json output failed: %v", err), false, err)
 	}
 	return result, nil
@@ -535,14 +625,29 @@ func mergeScriptGenerationResult(copies ScriptCopyResult, visuals ScriptVisualIn
 		if !exists {
 			return ScriptGenerationResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("visual plan is missing variant_index %d", copyVariant.VariantIndex), false, nil)
 		}
-		result.Variants = append(result.Variants, ScriptGenerationVariant{
-			Hook:          copyVariant.Hook,
-			ScriptText:    copyVariant.ScriptText,
-			EditingIntent: plan.EditingIntent,
-			Beats:         plan.Beats,
-		})
+		result.Variants = append(result.Variants, mergeScriptGenerationVariant(copyVariant, plan))
 	}
 	return result, nil
+}
+
+func mergePartialScriptGenerationResult(copies ScriptCopyResult, visuals ScriptVisualIntentResult, variantErrors []error) ScriptGenerationResult {
+	result := ScriptGenerationResult{Variants: make([]ScriptGenerationVariant, 0, len(copies.Variants))}
+	for position, copyVariant := range copies.Variants {
+		if position >= len(variantErrors) || variantErrors[position] != nil || position >= len(visuals.Plans) {
+			continue
+		}
+		result.Variants = append(result.Variants, mergeScriptGenerationVariant(copyVariant, visuals.Plans[position]))
+	}
+	return result
+}
+
+func mergeScriptGenerationVariant(copyVariant ScriptCopyVariant, plan ScriptVisualIntentPlan) ScriptGenerationVariant {
+	return ScriptGenerationVariant{
+		Hook:          copyVariant.Hook,
+		ScriptText:    copyVariant.ScriptText,
+		EditingIntent: plan.EditingIntent,
+		Beats:         plan.Beats,
+	}
 }
 
 func ValidateScriptGenerationResult(result ScriptGenerationResult, input ScriptGenerationInput) error {

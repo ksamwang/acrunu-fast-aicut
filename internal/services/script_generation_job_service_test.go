@@ -107,6 +107,110 @@ type blockingScriptGenerator struct {
 	result  modelgateway.ScriptGenerationResult
 }
 
+type progressiveScriptGenerator struct {
+	firstCompleted chan struct{}
+	release        chan struct{}
+}
+
+func (g *progressiveScriptGenerator) GenerateScripts(context.Context, modelgateway.ScriptGenerationInput) (modelgateway.ScriptGenerationResult, error) {
+	return modelgateway.ScriptGenerationResult{}, errors.New("progressive generator must use GenerateScriptsWithProgress")
+}
+
+func (g *progressiveScriptGenerator) GenerateScriptsWithProgress(ctx context.Context, _ modelgateway.ScriptGenerationInput, onProgress modelgateway.ScriptGenerationProgressHandler) (modelgateway.ScriptGenerationResult, error) {
+	copies := []modelgateway.ScriptCopyVariant{
+		{VariantIndex: 1, Hook: "第一条", ScriptText: "第一条，展示完整产品功能和实际使用效果。"},
+		{VariantIndex: 2, Hook: "第二条", ScriptText: "第二条，展示另一种产品功能和实际使用效果。"},
+	}
+	for _, copyVariant := range copies {
+		if err := onProgress(modelgateway.ScriptGenerationVariantProgress{
+			VariantIndex: copyVariant.VariantIndex,
+			Status:       modelgateway.ScriptGenerationProgressGenerating,
+			Copy:         copyVariant,
+		}); err != nil {
+			return modelgateway.ScriptGenerationResult{}, err
+		}
+	}
+	completed := modelgateway.ScriptGenerationVariant{
+		Hook:          copies[0].Hook,
+		ScriptText:    copies[0].ScriptText,
+		EditingIntent: "展示产品使用过程",
+		Beats: []modelgateway.ScriptGenerationBeat{{
+			Label: "产品使用", SellingPoint: "避免蹭链条", VisualGoal: "人物操作产品并展示使用状态", SourceType: modelgateway.TTSVisualSourceType,
+		}},
+	}
+	if err := onProgress(modelgateway.ScriptGenerationVariantProgress{
+		VariantIndex: 1,
+		Status:       modelgateway.ScriptGenerationProgressCompleted,
+		Copy:         copies[0],
+		Variant:      completed,
+	}); err != nil {
+		return modelgateway.ScriptGenerationResult{}, err
+	}
+	close(g.firstCompleted)
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return modelgateway.ScriptGenerationResult{}, ctx.Err()
+	}
+	if err := onProgress(modelgateway.ScriptGenerationVariantProgress{
+		VariantIndex: 2,
+		Status:       modelgateway.ScriptGenerationProgressFailed,
+		Copy:         copies[1],
+		Err:          errors.New("invalid visual intent"),
+	}); err != nil {
+		return modelgateway.ScriptGenerationResult{}, err
+	}
+	return modelgateway.ScriptGenerationResult{Variants: []modelgateway.ScriptGenerationVariant{completed}}, nil
+}
+
+func TestScriptGenerationJobPublishesEachVariantProgressively(t *testing.T) {
+	generator := &progressiveScriptGenerator{firstCompleted: make(chan struct{}), release: make(chan struct{})}
+	service, product, point := newScriptGenerationJobTestService(t, generator)
+	userID := uuid.NewString()
+	job, err := service.Create(context.Background(), CreateScriptGenerationJobInput{
+		CreatedByUserID: userID,
+		Mode:            ScriptGenerationJobModeReplaceAll,
+		BaseRevision:    "draft-v1",
+		GenerationInput: WorkbenchScriptGenerationInput{
+			ProductID:       product.ID,
+			SellingPointIDs: []string{point.ID},
+			VariantCount:    2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create script generation job: %v", err)
+	}
+	processResult := make(chan error, 1)
+	go func() { processResult <- service.Process(context.Background(), job.ID) }()
+	<-generator.firstCompleted
+
+	inProgress, err := service.GetForUser(context.Background(), job.ID, userID)
+	if err != nil {
+		t.Fatalf("get in-progress job: %v", err)
+	}
+	if inProgress.Status != ScriptGenerationJobStatusGenerating || len(inProgress.ResultVariants) != 2 {
+		t.Fatalf("expected two persisted progress slots, got %#v", inProgress)
+	}
+	if inProgress.ResultVariants[0].Status != "draft" || inProgress.ResultVariants[1].Status != "generating" {
+		t.Fatalf("unexpected progressive statuses %#v", inProgress.ResultVariants)
+	}
+
+	close(generator.release)
+	if err := <-processResult; err != nil {
+		t.Fatalf("process progressive job: %v", err)
+	}
+	completed, err := service.GetForUser(context.Background(), job.ID, userID)
+	if err != nil {
+		t.Fatalf("get completed job: %v", err)
+	}
+	if completed.Status != ScriptGenerationJobStatusCompleted || len(completed.ResultVariants) != 2 {
+		t.Fatalf("unexpected completed progressive job %#v", completed)
+	}
+	if completed.ResultVariants[0].Status != "draft" || completed.ResultVariants[1].Status != "failed" || completed.ResultVariants[1].ErrorMessage == "" {
+		t.Fatalf("expected successful and failed slots to coexist, got %#v", completed.ResultVariants)
+	}
+}
+
 func (g *blockingScriptGenerator) GenerateScripts(ctx context.Context, _ modelgateway.ScriptGenerationInput) (modelgateway.ScriptGenerationResult, error) {
 	close(g.started)
 	select {

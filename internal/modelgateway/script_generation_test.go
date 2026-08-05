@@ -260,10 +260,12 @@ func TestGenerateScriptVisualIntentsRunsOneConcurrentRequestPerVariant(t *testin
 
 	copies := ScriptCopyResult{Variants: make([]ScriptCopyVariant, 0, variantCount)}
 	for index := 1; index <= variantCount; index++ {
+		hook := fmt.Sprintf("脚本-%02d", index)
 		copies.Variants = append(copies.Variants, ScriptCopyVariant{
 			VariantIndex:          index,
 			SelectedSellingPoints: []string{"卖点"},
-			ScriptText:            fmt.Sprintf("脚本-%02d", index),
+			Hook:                  hook,
+			ScriptText:            hook + "，" + strings.Repeat("内容", 40) + "。",
 		})
 	}
 	generator := NewOpenAICompatibleScriptGenerator(Config{
@@ -272,16 +274,31 @@ func TestGenerateScriptVisualIntentsRunsOneConcurrentRequestPerVariant(t *testin
 		Model:    "script-model",
 		Timeout:  5 * time.Second,
 	})
-	result, err := generator.generateScriptVisualIntents(context.Background(), ScriptGenerationInput{
+	var published atomic.Int32
+	result, variantErrors, err := generator.generateScriptVisualIntents(context.Background(), ScriptGenerationInput{
 		ProductName:           "产品",
 		TargetDurationSeconds: 30,
 		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "卖点"}},
-	}, copies)
+	}, copies, func(_ ScriptCopyVariant, _ ScriptVisualIntentPlan, generationErr error) error {
+		if generationErr != nil {
+			return generationErr
+		}
+		published.Add(1)
+		return nil
+	})
 	if err != nil {
 		t.Fatalf("generate visual intents: %v", err)
 	}
+	for index, generationErr := range variantErrors {
+		if generationErr != nil {
+			t.Fatalf("variant %d failed: %v", index+1, generationErr)
+		}
+	}
 	if peak.Load() != variantCount {
 		t.Fatalf("expected peak concurrency %d, got %d", variantCount, peak.Load())
+	}
+	if published.Load() != variantCount {
+		t.Fatalf("expected %d progressive results, got %d", variantCount, published.Load())
 	}
 	if len(result.Plans) != variantCount {
 		t.Fatalf("expected %d plans, got %d", variantCount, len(result.Plans))

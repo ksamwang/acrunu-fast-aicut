@@ -78,7 +78,7 @@ export type FinishedWorkClipReplacement = {
   source_in_ms: number;
 };
 
-export type ScriptVariantStatus = "draft" | "confirmed";
+export type ScriptVariantStatus = "generating" | "failed" | "draft" | "confirmed";
 export type ScriptVariantOrigin = "generated" | "imported";
 export type ScriptTargetDuration = 15 | 20 | 30 | 45 | 60;
 
@@ -91,6 +91,7 @@ export type ScriptVariant = {
   editing_intent: string;
   beats: EditingIntentBeat[];
   status: ScriptVariantStatus;
+  error_message?: string;
   origin?: ScriptVariantOrigin;
   intent_stale?: boolean;
   bgm: BGMSelection;

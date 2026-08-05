@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,8 +53,11 @@ type GeneratedScriptVariant struct {
 	EditingIntent       string                `json:"editing_intent"`
 	Beats               []GeneratedScriptBeat `json:"beats"`
 	Status              string                `json:"status"`
+	ErrorMessage        string                `json:"error_message,omitempty"`
 	UpdatedAt           time.Time             `json:"updated_at"`
 }
+
+type ScriptGenerationVariantProgressHandler func(GeneratedScriptVariant) error
 
 type ScriptGenerationService struct {
 	productAssetService  *ProductAssetService
@@ -85,6 +89,14 @@ func (s *ScriptGenerationService) WithGenerator(generator modelgateway.ScriptGen
 }
 
 func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchScriptGenerationInput) ([]GeneratedScriptVariant, error) {
+	return s.generate(ctx, input, nil)
+}
+
+func (s *ScriptGenerationService) GenerateWithProgress(ctx context.Context, input WorkbenchScriptGenerationInput, onProgress ScriptGenerationVariantProgressHandler) ([]GeneratedScriptVariant, error) {
+	return s.generate(ctx, input, onProgress)
+}
+
+func (s *ScriptGenerationService) generate(ctx context.Context, input WorkbenchScriptGenerationInput, onProgress ScriptGenerationVariantProgressHandler) ([]GeneratedScriptVariant, error) {
 	if s == nil || s.productAssetService == nil {
 		return nil, fmt.Errorf("script generation service is not configured")
 	}
@@ -125,6 +137,29 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 		TargetDurationSeconds:   input.TargetDurationSeconds,
 		Temperature:             input.Temperature,
 	}
+	progressiveGenerator, supportsProgress := generator.(modelgateway.ProgressiveScriptGenerator)
+	if supportsProgress && onProgress != nil {
+		variantIDs := make(map[int]string, input.VariantCount)
+		variantsByOrder := make(map[int]GeneratedScriptVariant, input.VariantCount)
+		result, err := progressiveGenerator.GenerateScriptsWithProgress(ctx, generationInput, func(progress modelgateway.ScriptGenerationVariantProgress) error {
+			variantID := variantIDs[progress.VariantIndex]
+			if variantID == "" {
+				variantID = uuid.NewString()
+				variantIDs[progress.VariantIndex] = variantID
+			}
+			variant := generatedScriptVariantFromProgress(variantID, progress)
+			variantsByOrder[variant.Order] = variant
+			return onProgress(variant)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(variantsByOrder) > 0 {
+			return sortedGeneratedScriptVariants(variantsByOrder), nil
+		}
+		return generatedScriptVariants(result), nil
+	}
+
 	result, err := generator.GenerateScripts(ctx, generationInput)
 	if err != nil {
 		return nil, err
@@ -132,6 +167,10 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 	if err := modelgateway.ValidateScriptGenerationResult(result, generationInput); err != nil {
 		return nil, err
 	}
+	return generatedScriptVariants(result), nil
+}
+
+func generatedScriptVariants(result modelgateway.ScriptGenerationResult) []GeneratedScriptVariant {
 	now := time.Now()
 	variants := make([]GeneratedScriptVariant, 0, len(result.Variants))
 	for index, variant := range result.Variants {
@@ -157,7 +196,56 @@ func (s *ScriptGenerationService) Generate(ctx context.Context, input WorkbenchS
 			UpdatedAt:           now,
 		})
 	}
-	return variants, nil
+	return variants
+}
+
+func generatedScriptVariantFromProgress(variantID string, progress modelgateway.ScriptGenerationVariantProgress) GeneratedScriptVariant {
+	variant := GeneratedScriptVariant{
+		ID:                  variantID,
+		Order:               progress.VariantIndex,
+		Hook:                progress.Copy.Hook,
+		ScriptText:          progress.Copy.ScriptText,
+		EstimatedDurationMs: modelgateway.EstimateScriptDurationMs(progress.Copy.ScriptText),
+		Beats:               []GeneratedScriptBeat{},
+		Status:              progress.Status,
+		UpdatedAt:           time.Now(),
+	}
+	switch progress.Status {
+	case modelgateway.ScriptGenerationProgressCompleted:
+		variant.Status = "draft"
+		variant.EditingIntent = progress.Variant.EditingIntent
+		variant.Beats = make([]GeneratedScriptBeat, 0, len(progress.Variant.Beats))
+		for _, beat := range progress.Variant.Beats {
+			variant.Beats = append(variant.Beats, GeneratedScriptBeat{
+				ID:           uuid.NewString(),
+				Label:        beat.Label,
+				SellingPoint: beat.SellingPoint,
+				VisualGoal:   beat.VisualGoal,
+				SourceType:   beat.SourceType,
+			})
+		}
+	case modelgateway.ScriptGenerationProgressFailed:
+		variant.Status = "failed"
+		if progress.Err != nil {
+			variant.ErrorMessage = progress.Err.Error()
+		}
+	default:
+		variant.Status = "generating"
+	}
+	return variant
+}
+
+func sortedGeneratedScriptVariants(variantsByOrder map[int]GeneratedScriptVariant) []GeneratedScriptVariant {
+	orders := make([]int, 0, len(variantsByOrder))
+	for order := range variantsByOrder {
+		orders = append(orders, order)
+	}
+	sort.Ints(orders)
+	variants := make([]GeneratedScriptVariant, 0, len(orders))
+	for _, order := range orders {
+		variants = append(variants, variantsByOrder[order])
+	}
+	return variants
 }
 
 func normalizeWorkbenchScriptGenerationInput(input WorkbenchScriptGenerationInput) (WorkbenchScriptGenerationInput, error) {

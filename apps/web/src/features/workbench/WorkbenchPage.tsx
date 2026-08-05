@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Empty, Input, InputNumber, Modal, Popover, Segmented, Select, Slider, Tag, Tooltip, Typography, message } from "antd";
-import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, FileUp, ListChecks, Music2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Volume2, X } from "lucide-react";
+import { Captions, Check, CheckCircle2, Circle, Clapperboard, Copy, FileUp, ListChecks, LoaderCircle, Music2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, TriangleAlert, Volume2, X } from "lucide-react";
 import { useResource } from "../../shared/hooks/use-resource";
 import { formatDuration } from "../../shared/lib/format";
 import { createUUID } from "../../shared/lib/uuid";
@@ -109,10 +109,22 @@ function applyScriptGenerationResult(
     throw new Error("文案生成结果为空");
   }
 
+  const alreadyApplied = draft.script_generation?.job_id === job.id && draft.script_generation.applied_locally;
+  const mergeProgress = (incoming: ScriptVariant, existing?: ScriptVariant): ScriptVariant => {
+    if (existing && (existing.status === "draft" || existing.status === "confirmed") && incoming.status === "draft") {
+      return existing;
+    }
+    return {
+      ...incoming,
+      bgm: existing?.bgm ?? incoming.bgm
+    };
+  };
+
   let variants: ScriptVariant[];
   let activeVariantID = draft.active_variant_id;
   if (strategy === "append") {
-    variants = [...draft.variants, ...generated]
+    const existingByID = new Map(draft.variants.map((variant) => [variant.id, variant]));
+    variants = [...draft.variants.filter((variant) => !generated.some((item) => item.id === variant.id)), ...generated.map((variant) => mergeProgress(variant, existingByID.get(variant.id)))]
       .slice(0, maxWorkbenchScripts)
       .map((variant, index) => ({ ...variant, order: index + 1 }));
     activeVariantID = generated.find((variant) => variants.some((item) => item.id === variant.id))?.id ?? activeVariantID;
@@ -121,13 +133,15 @@ function applyScriptGenerationResult(
     const targetIndex = draft.variants.findIndex((variant) => variant.id === job.target_variant_id);
     if (targetIndex >= 0) {
       const target = draft.variants[targetIndex];
-      variants = draft.variants.map((variant, index) => index === targetIndex ? {
+      const incoming = {
         ...replacement,
         id: target.id,
         order: target.order,
-        bgm: target.bgm,
-        status: "draft"
-      } : variant);
+        bgm: target.bgm
+      };
+      variants = draft.variants.map((variant, index) => index === targetIndex
+        ? (alreadyApplied ? mergeProgress(incoming, target) : incoming)
+        : variant);
       activeVariantID = target.id;
     } else {
       variants = [...draft.variants, replacement]
@@ -136,8 +150,12 @@ function applyScriptGenerationResult(
       activeVariantID = replacement.id;
     }
   } else {
-    variants = generated.map((variant, index) => ({ ...variant, order: index + 1 }));
-    activeVariantID = variants[0]?.id ?? "";
+    const existingByID = new Map(draft.variants.map((variant) => [variant.id, variant]));
+    variants = generated.map((variant, index) => ({
+      ...(alreadyApplied ? mergeProgress(variant, existingByID.get(variant.id)) : variant),
+      order: index + 1
+    }));
+    activeVariantID = variants.some((variant) => variant.id === activeVariantID) ? activeVariantID : (variants[0]?.id ?? "");
   }
 
   return {
@@ -191,7 +209,8 @@ export function WorkbenchPage({ token }: { token: string }) {
   const selectedSellingPoints = availableSellingPoints.filter((point) => draft.selling_point_ids.includes(point.id));
   const activeVariant = draft.variants.find((variant) => variant.id === draft.active_variant_id) ?? draft.variants[0] ?? null;
   const confirmedVariants = draft.variants.filter((variant) => variant.status === "confirmed");
-  const allVariantsConfirmed = draft.variants.length > 0 && confirmedVariants.length === draft.variants.length;
+  const confirmableVariants = draft.variants.filter((variant) => variant.status === "draft" || variant.status === "confirmed");
+  const allVariantsConfirmed = confirmableVariants.length > 0 && confirmedVariants.length === confirmableVariants.length;
   const canGenerate = Boolean(selectedProduct) && (selectedSellingPoints.length > 0 || draft.custom_selling_points.length > 0);
   const availableVoiceProfiles = useMemo(
     () => voiceProfilesResource.profiles.filter((profile) => profile.status === "enabled" && profile.preview_status === "ready"),
@@ -209,6 +228,8 @@ export function WorkbenchPage({ token }: { token: string }) {
     ? audition
     : null;
   const scriptGenerationActive = scriptGenerationJob?.status === "queued" || scriptGenerationJob?.status === "generating";
+  const scriptGenerationReadyCount = scriptGenerationJob?.result_variants?.filter((variant) => variant.status === "draft" || variant.status === "confirmed").length ?? 0;
+  const scriptGenerationFailedCount = scriptGenerationJob?.result_variants?.filter((variant) => variant.status === "failed").length ?? 0;
   const scriptGenerationBusy = Boolean(creatingScriptGeneration) || scriptGenerationActive;
   const generating = creatingScriptGeneration?.mode === "replace_all" || (scriptGenerationActive && scriptGenerationJob.mode === "replace_all");
   const regeneratingVariantID = creatingScriptGeneration?.mode === "replace_variant"
@@ -264,12 +285,41 @@ export function WorkbenchPage({ token }: { token: string }) {
       const next = applyScriptGenerationResult(current, job, strategy, defaultBGM);
       persistDraft(next);
       await resolveAppliedScriptGeneration(job);
-      message.success(job.mode === "replace_variant" && strategy === "replace" ? "当前文案已重新生成" : `已生成 ${job.result_variants?.length ?? 0} 条文案`);
+      const readyCount = job.result_variants?.filter((variant) => variant.status === "draft" || variant.status === "confirmed").length ?? 0;
+      const failedCount = job.result_variants?.filter((variant) => variant.status === "failed").length ?? 0;
+      const resultMessage = job.mode === "replace_variant" && strategy === "replace"
+        ? (failedCount > 0 ? "当前文案生成失败，可在文案槽位中重试" : "当前文案已重新生成")
+        : `已生成 ${readyCount} 条文案${failedCount > 0 ? `，${failedCount} 条规划失败` : ""}`;
+      if (failedCount > 0) {
+        message.warning(resultMessage);
+      } else {
+        message.success(resultMessage);
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : "应用文案生成结果失败");
     } finally {
       handlingScriptGenerationJobsRef.current.delete(job.id);
       setScriptGenerationAction(null);
+    }
+  };
+
+  const applyScriptGenerationProgress = (job: ScriptGenerationJob) => {
+    const visibleResults = job.mode === "replace_variant"
+      ? (job.result_variants ?? []).filter((variant) => variant.status !== "generating")
+      : (job.result_variants ?? []);
+    if (visibleResults.length === 0) {
+      return;
+    }
+    const current = draftRef.current;
+    const alreadyApplied = current.script_generation?.job_id === job.id && current.script_generation.applied_locally;
+    if (!alreadyApplied && workbenchDraftRevision(current) !== job.base_revision) {
+      return;
+    }
+    const defaultBGM: BGMSelection = { mode: "random", track_id: "", gain_db: -12 };
+    try {
+      persistDraft(applyScriptGenerationResult(current, { ...job, result_variants: visibleResults }, "replace", defaultBGM));
+    } catch {
+      // The next poll will retry once the server has persisted at least one complete slot.
     }
   };
 
@@ -348,6 +398,13 @@ export function WorkbenchPage({ token }: { token: string }) {
   }, [scriptGenerationJob?.id, scriptGenerationJob?.status, token]);
 
   useEffect(() => {
+    if (!scriptGenerationJob || scriptGenerationJob.status === "queued" || scriptGenerationJob.status === "cancelled" || scriptGenerationJob.status === "discarded" || scriptGenerationJob.status === "applied") {
+      return;
+    }
+    applyScriptGenerationProgress(scriptGenerationJob);
+  }, [scriptGenerationJob?.id, scriptGenerationJob?.updated_at]);
+
+  useEffect(() => {
     if (!scriptGenerationJob || scriptGenerationJob.status !== "completed") {
       return;
     }
@@ -373,7 +430,7 @@ export function WorkbenchPage({ token }: { token: string }) {
   }, [activeVariant?.id, activeBGM.track_id]);
 
   useEffect(() => {
-    if (bgmTracksResource.loading) {
+    if (bgmTracksResource.loading || bgmTracksResource.data === null) {
       return;
     }
     setDraft((current) => {
@@ -391,7 +448,7 @@ export function WorkbenchPage({ token }: { token: string }) {
       });
       return changed ? { ...current, variants } : current;
     });
-  }, [bgmTracksResource.loading, enabledBGMTracks]);
+  }, [bgmTracksResource.data, bgmTracksResource.loading, enabledBGMTracks]);
 
   useEffect(() => {
     if (!draft.product_id || sellingPoints.loading || defaultedProductIDRef.current === draft.product_id) {
@@ -567,7 +624,14 @@ export function WorkbenchPage({ token }: { token: string }) {
     setScriptGenerationAction("cancel");
     try {
       await cancelScriptGenerationJob(scriptGenerationJob.id, token);
-      clearScriptGenerationReference(scriptGenerationJob.id);
+      const current = draftRef.current;
+      const variants = scriptGenerationJob.mode === "replace_all"
+        ? current.variants.filter((variant) => variant.status !== "generating").map((variant, index) => ({ ...variant, order: index + 1 }))
+        : current.variants;
+      const activeVariantID = variants.some((variant) => variant.id === current.active_variant_id)
+        ? current.active_variant_id
+        : (variants[0]?.id ?? "");
+      persistDraft(withoutScriptGeneration({ ...current, variants, active_variant_id: activeVariantID }));
       setScriptGenerationJob(null);
       message.success("已取消文案生成");
     } catch (error) {
@@ -627,11 +691,11 @@ export function WorkbenchPage({ token }: { token: string }) {
   };
 
   const toggleVariantConfirmed = (variantID: string) => {
-    updateVariant(variantID, (variant) => ({
-      ...variant,
-      status: variant.status === "confirmed" ? "draft" : "confirmed",
-      updated_at: new Date().toISOString()
-    }));
+    updateVariant(variantID, (variant) => variant.status === "draft" || variant.status === "confirmed" ? ({
+        ...variant,
+        status: variant.status === "confirmed" ? "draft" : "confirmed",
+        updated_at: new Date().toISOString()
+      }) : variant);
   };
 
   const toggleAllVariantsConfirmed = () => {
@@ -639,7 +703,9 @@ export function WorkbenchPage({ token }: { token: string }) {
     const updatedAt = new Date().toISOString();
     setDraft((current) => ({
       ...current,
-      variants: current.variants.map((variant) => ({ ...variant, status, updated_at: updatedAt }))
+      variants: current.variants.map((variant) => variant.status === "draft" || variant.status === "confirmed"
+        ? ({ ...variant, status, updated_at: updatedAt })
+        : variant)
     }));
   };
 
@@ -933,7 +999,10 @@ export function WorkbenchPage({ token }: { token: string }) {
           <div className="workbench-generation-notice is-running" data-testid="workbench-generation-job">
             <span>
               <strong>{scriptGenerationJob?.mode === "replace_variant" ? "正在重新生成当前文案" : "正在后台生成文案"}</strong>
-              <small>可以离开工作台，任务和结果会自动保留。</small>
+              <small>
+                已完成 {scriptGenerationReadyCount}/{scriptGenerationJob?.input.variant_count ?? 0}
+                {scriptGenerationFailedCount > 0 ? ` · 失败 ${scriptGenerationFailedCount}` : ""}，完成一条即写入工作台
+              </small>
             </span>
             <Button
               type="text"
@@ -1001,6 +1070,7 @@ export function WorkbenchPage({ token }: { token: string }) {
                       size="small"
                       aria-label={allVariantsConfirmed ? "取消全部确认" : "确认全部文案"}
                       icon={<ListChecks size={16} />}
+                      disabled={confirmableVariants.length === 0}
                       onClick={toggleAllVariantsConfirmed}
                     />
                   </Tooltip>
@@ -1020,7 +1090,7 @@ export function WorkbenchPage({ token }: { token: string }) {
                   <button
                     type="button"
                     key={variant.id}
-                    className={`workbench-variant-row${activeVariant?.id === variant.id ? " is-active" : ""}`}
+                    className={`workbench-variant-row${activeVariant?.id === variant.id ? " is-active" : ""}${variant.status === "generating" ? " is-generating" : ""}${variant.status === "failed" ? " is-failed" : ""}`}
                     onClick={() => setDraft((current) => ({ ...current, active_variant_id: variant.id }))}
                   >
                     <span className="workbench-variant-index">{String(variant.order).padStart(2, "0")}</span>
@@ -1028,7 +1098,10 @@ export function WorkbenchPage({ token }: { token: string }) {
                       <span className="workbench-variant-hook">{variant.hook}</span>
                       <span>{formatDuration(variant.estimated_duration_ms)}</span>
                     </span>
-                    {variant.status === "confirmed" ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                    {variant.status === "confirmed" ? <CheckCircle2 size={16} />
+                      : variant.status === "generating" ? <LoaderCircle className="workbench-status-spin" size={16} />
+                        : variant.status === "failed" ? <TriangleAlert size={16} />
+                          : <Circle size={16} />}
                   </button>
                 ))}
               </div>
@@ -1038,7 +1111,11 @@ export function WorkbenchPage({ token }: { token: string }) {
               <section className="workbench-script-editor" aria-label={`文案 ${activeVariant.order}`}>
                 <div className="workbench-script-toolbar">
                   <div>
-                    <Typography.Text className="workbench-script-index">文案 {String(activeVariant.order).padStart(2, "0")}</Typography.Text>
+                    <Typography.Text className="workbench-script-index">
+                      文案 {String(activeVariant.order).padStart(2, "0")}
+                      {activeVariant.status === "generating" ? <Tag color="processing">规划中</Tag> : null}
+                      {activeVariant.status === "failed" ? <Tag color="error">规划失败</Tag> : null}
+                    </Typography.Text>
                     <Typography.Text type="secondary">
                       预计 {formatDuration(activeVariant.estimated_duration_ms)} · 目标 {draft.target_duration_seconds} 秒
                     </Typography.Text>
@@ -1049,19 +1126,19 @@ export function WorkbenchPage({ token }: { token: string }) {
                       aria-label="试听当前文案"
                       icon={<Volume2 size={17} />}
                       loading={creatingAudition || (activeAudition?.status === "queued" || activeAudition?.status === "synthesizing")}
-                      disabled={!selectedVoiceProfile || activeAudition?.status === "queued" || activeAudition?.status === "synthesizing"}
+                      disabled={!selectedVoiceProfile || activeVariant.status === "generating" || activeVariant.status === "failed" || activeAudition?.status === "queued" || activeAudition?.status === "synthesizing"}
                       onClick={() => void requestAudition()}
                     >
                       {activeAudition?.status === "queued" || activeAudition?.status === "synthesizing" ? "生成试听" : "试听当前文案"}
                     </Button>
                     {activeVariant.origin !== "imported" ? (
-                      <Tooltip title="重新生成当前文案">
+                      <Tooltip title={activeVariant.status === "failed" ? "重试当前文案" : "重新生成当前文案"}>
                         <Button
                           type="text"
-                          aria-label="重新生成当前文案"
+                          aria-label={activeVariant.status === "failed" ? "重试当前文案" : "重新生成当前文案"}
                           icon={<RefreshCw size={17} />}
                           loading={regeneratingVariantID === activeVariant.id}
-                          disabled={scriptGenerationBusy || scriptGenerationJob?.status === "completed" || scriptGenerationJob?.status === "failed"}
+                          disabled={scriptGenerationBusy || activeVariant.status === "generating" || scriptGenerationJob?.status === "completed" || scriptGenerationJob?.status === "failed"}
                           onClick={() => void regenerateActiveVariant()}
                         />
                       </Tooltip>
@@ -1069,6 +1146,7 @@ export function WorkbenchPage({ token }: { token: string }) {
                     <Button
                       type={activeVariant.status === "confirmed" ? "default" : "primary"}
                       icon={<Check size={16} />}
+                      disabled={activeVariant.status !== "draft" && activeVariant.status !== "confirmed"}
                       onClick={() => toggleVariantConfirmed(activeVariant.id)}
                     >
                       {activeVariant.status === "confirmed" ? "已确认" : "确认文案"}
@@ -1082,11 +1160,18 @@ export function WorkbenchPage({ token }: { token: string }) {
                   </div>
                 ) : null}
                 {activeAudition?.status === "failed" ? <Typography.Text type="danger">{activeAudition.error_message || "试听生成失败"}</Typography.Text> : null}
+                {activeVariant.status === "failed" ? (
+                  <div className="workbench-variant-error">
+                    <TriangleAlert size={16} />
+                    <span>{activeVariant.error_message || "镜头意图生成失败，请重新生成当前文案"}</span>
+                  </div>
+                ) : null}
 
                 <Input.TextArea
                   data-testid="workbench-script-editor"
                   className="workbench-script-text"
                   value={activeVariant.script_text}
+                  disabled={activeVariant.status === "generating" || activeVariant.status === "failed"}
                   autoSize={{ minRows: 7, maxRows: 14 }}
                   onChange={(event) => {
                     const scriptText = event.target.value;

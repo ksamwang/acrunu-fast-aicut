@@ -317,6 +317,30 @@
   color: #155e58;
 }
 
+.workbench-variant-row.is-generating {
+  background: #f5f7f8;
+  color: #667085;
+}
+
+.workbench-variant-row.is-failed {
+  border-color: #f1c2bc;
+  background: #fff5f3;
+  color: #a43b2d;
+}
+
+.workbench-variant-row.is-active.is-failed {
+  border-color: #dd8e83;
+  background: #fff0ed;
+}
+
+.workbench-status-spin {
+  animation: workbench-status-spin 1s linear infinite;
+}
+
+@keyframes workbench-status-spin {
+  to { transform: rotate(360deg); }
+}
+
 .workbench-variant-row:focus-visible {
   outline: 2px solid #2d9c91;
   outline-offset: 1px;
@@ -357,6 +381,22 @@
   padding: 24px clamp(20px, 4vw, 64px) 30px;
   background: #ffffff;
 }
+
+.workbench-variant-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid #efc0ba;
+  border-radius: 5px;
+  background: #fff5f3;
+  color: #8f2f24;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workbench-variant-error svg { flex: none; margin-top: 1px; }
 
 .workbench-script-toolbar {
   display: flex;

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("uses the workbench and finished library through Hash routes", async ({ page }) => {
+  test.setTimeout(45_000);
   await page.addInitScript(() => {
     Object.defineProperty(globalThis.crypto, "randomUUID", { configurable: true, value: undefined });
   });
@@ -133,6 +134,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   let voiceoverTaskPayload: Record<string, any> | null = null;
   let scriptGenerationSequence = 0;
   let scriptGenerationJob: Record<string, any> | null = null;
+  let scriptGenerationProgressAt = 0;
   let scriptGenerationCompletesAt = 0;
   let bgmTracks = [
     {
@@ -479,13 +481,14 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
               { id: `script-generated-${scriptGenerationSequence}-beat-2`, label: "触发", selling_point: "Auto Wake", visual_goal: "展示设备自动亮起的瞬间。", source_type: "visual_only" },
               { id: `script-generated-${scriptGenerationSequence}-beat-3`, label: "结果", selling_point: "Auto Wake", visual_goal: "展示夜间使用时的安心感。", source_type: "visual_only" }
             ],
-            status: "draft",
+            status: "generating",
             updated_at: now
           }],
           created_at: now,
           updated_at: now
         };
-        scriptGenerationCompletesAt = Date.now() + 650;
+        scriptGenerationProgressAt = Date.now() + 250;
+        scriptGenerationCompletesAt = Date.now() + 1_900;
         await route.fulfill({
           status: 201,
           contentType: "application/json",
@@ -494,6 +497,14 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
         return;
       }
 
+      if (scriptGenerationJob && (scriptGenerationJob.status === "queued" || scriptGenerationJob.status === "generating") && Date.now() >= scriptGenerationProgressAt) {
+        scriptGenerationJob = {
+          ...scriptGenerationJob,
+          status: "generating",
+          result_variants: scriptGenerationJob.result_variants.map((variant: Record<string, any>) => ({ ...variant, status: "draft" })),
+          updated_at: new Date().toISOString()
+        };
+      }
       if (scriptGenerationJob && (scriptGenerationJob.status === "queued" || scriptGenerationJob.status === "generating") && Date.now() >= scriptGenerationCompletesAt) {
         scriptGenerationJob = {
           ...scriptGenerationJob,
@@ -1225,7 +1236,7 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   await expect(page.getByText("已选 2 项", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "下载选中" })).toBeDisabled();
   await batchDeleteCompleted.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "删除选中" }).click();
+  await page.locator(".ant-dropdown:visible").getByRole("menuitem", { name: "删除选中" }).click({ force: true });
   const batchDeleteConfirm = page.locator(".ant-modal-confirm").filter({ hasText: "删除 2 个成品？" });
   await expect(batchDeleteConfirm).toBeVisible();
   await batchDeleteConfirm.locator(".ant-btn-dangerous").click();
@@ -1336,6 +1347,9 @@ test("uses the workbench and finished library through Hash routes", async ({ pag
   expect(scriptGenerationJob?.input.target_duration_seconds).toBe(30);
   expect(scriptGenerationJob?.input.temperature).toBe(1.1);
   await expect(page.getByTestId("workbench-generation-job")).toContainText("正在后台生成文案");
+  await expect(page.getByTestId("workbench-generation-job")).toContainText("已完成 1/3");
+  await expect(page.getByText("文案 01")).toBeVisible();
+  expect(scriptGenerationJob?.status).toBe("generating");
   await page.getByRole("menuitem", { name: "成品库" }).click();
   await page.reload();
   await page.getByRole("menuitem", { name: "工作台" }).click();

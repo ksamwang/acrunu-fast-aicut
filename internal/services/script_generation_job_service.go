@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -235,7 +236,9 @@ func (s *ScriptGenerationJobService) Process(ctx context.Context, jobID string) 
 			return err
 		}
 	}
-	variants, err := s.generator.Generate(ctx, job.Input)
+	variants, err := s.generator.GenerateWithProgress(ctx, job.Input, func(variant GeneratedScriptVariant) error {
+		return s.upsertResultVariant(ctx, job.ID, variant)
+	})
 	if err != nil {
 		if ctx.Err() != nil {
 			_ = s.markQueued(context.Background(), job.ID)
@@ -245,6 +248,62 @@ func (s *ScriptGenerationJobService) Process(ctx context.Context, jobID string) 
 		return err
 	}
 	return s.markCompleted(ctx, job.ID, variants)
+}
+
+func (s *ScriptGenerationJobService) upsertResultVariant(ctx context.Context, jobID string, variant GeneratedScriptVariant) error {
+	if s.pool == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		job, ok := s.jobs[jobID]
+		if !ok {
+			return ErrScriptGenerationJobNotFound
+		}
+		if job.Status != ScriptGenerationJobStatusGenerating {
+			return ErrScriptGenerationJobState
+		}
+		replaced := false
+		for index := range job.ResultVariants {
+			if job.ResultVariants[index].Order == variant.Order {
+				job.ResultVariants[index] = variant
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			job.ResultVariants = append(job.ResultVariants, variant)
+		}
+		sort.Slice(job.ResultVariants, func(i, j int) bool {
+			return job.ResultVariants[i].Order < job.ResultVariants[j].Order
+		})
+		job.UpdatedAt = time.Now()
+		s.jobs[jobID] = job
+		return nil
+	}
+
+	variantJSON, err := json.Marshal(variant)
+	if err != nil {
+		return err
+	}
+	commandTag, err := s.pool.Exec(ctx, `
+		UPDATE workbench_script_generation_jobs
+		SET result_variants = (
+			SELECT COALESCE(jsonb_agg(item ORDER BY (item->>'order')::int), '[]'::jsonb)
+			FROM (
+				SELECT value AS item
+				FROM jsonb_array_elements(result_variants)
+				WHERE COALESCE((value->>'order')::int, 0) <> $3
+				UNION ALL
+				SELECT $2::jsonb
+			) AS variants
+		), updated_at = now()
+		WHERE id = $1::uuid AND status = 'generating'`, jobID, variantJSON, variant.Order)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return ErrScriptGenerationJobState
+	}
+	return nil
 }
 
 func (s *ScriptGenerationJobService) PendingJobIDs(ctx context.Context) ([]string, error) {
