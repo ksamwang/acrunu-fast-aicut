@@ -238,22 +238,12 @@ func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, i
 		return copies.Variants[i].VariantIndex < copies.Variants[j].VariantIndex
 	})
 
-	visualPrompt := BuildScriptVisualIntentPrompt(input, copies)
-	visuals, err := g.requestScriptVisualIntents(ctx, visualPrompt, "", 0.3)
+	visuals, err := g.generateScriptVisualIntents(ctx, input, copies)
 	if err != nil {
 		return ScriptGenerationResult{}, err
 	}
 	if validationErr := ValidateScriptVisualIntentResult(visuals, copies, input); validationErr != nil {
-		previousJSON, _ := json.Marshal(visuals)
-		repairInstruction := "上一次视觉计划 JSON 未通过服务端校验。请完整重写一次并修复列出的全部问题，不得改写或返回已经确认的口播文案。校验错误：" + validationErr.Error() + "。上一次 JSON：" + string(previousJSON)
-		repaired, repairErr := g.requestScriptVisualIntents(ctx, visualPrompt, repairInstruction, 0.15)
-		if repairErr != nil {
-			return ScriptGenerationResult{}, repairErr
-		}
-		if repairErr := ValidateScriptVisualIntentResult(repaired, copies, input); repairErr != nil {
-			return ScriptGenerationResult{}, repairErr
-		}
-		visuals = repaired
+		return ScriptGenerationResult{}, validationErr
 	}
 
 	result, err := mergeScriptGenerationResult(copies, visuals)
@@ -264,6 +254,58 @@ func (g *OpenAICompatibleScriptGenerator) GenerateScripts(ctx context.Context, i
 		return ScriptGenerationResult{}, err
 	}
 	return result, nil
+}
+
+type scriptVisualIntentGenerationResult struct {
+	position int
+	plan     ScriptVisualIntentPlan
+	err      error
+}
+
+func (g *OpenAICompatibleScriptGenerator) generateScriptVisualIntents(ctx context.Context, input ScriptGenerationInput, copies ScriptCopyResult) (ScriptVisualIntentResult, error) {
+	results := make(chan scriptVisualIntentGenerationResult, len(copies.Variants))
+	for position, copyVariant := range copies.Variants {
+		go func() {
+			plan, err := g.generateScriptVisualIntent(ctx, input, copyVariant)
+			results <- scriptVisualIntentGenerationResult{position: position, plan: plan, err: err}
+		}()
+	}
+
+	plans := make([]ScriptVisualIntentPlan, len(copies.Variants))
+	errorsByPosition := make([]error, len(copies.Variants))
+	for range copies.Variants {
+		result := <-results
+		plans[result.position] = result.plan
+		errorsByPosition[result.position] = result.err
+	}
+	for position, err := range errorsByPosition {
+		if err != nil {
+			return ScriptVisualIntentResult{}, fmt.Errorf("generate visual intent for variant %d: %w", copies.Variants[position].VariantIndex, err)
+		}
+	}
+	return ScriptVisualIntentResult{Plans: plans}, nil
+}
+
+func (g *OpenAICompatibleScriptGenerator) generateScriptVisualIntent(ctx context.Context, input ScriptGenerationInput, copyVariant ScriptCopyVariant) (ScriptVisualIntentPlan, error) {
+	singleCopy := ScriptCopyResult{Variants: []ScriptCopyVariant{copyVariant}}
+	visualPrompt := BuildScriptVisualIntentPrompt(input, singleCopy)
+	visuals, err := g.requestScriptVisualIntents(ctx, visualPrompt, "", 0.3)
+	if err != nil {
+		return ScriptVisualIntentPlan{}, err
+	}
+	if validationErr := ValidateScriptVisualIntentResult(visuals, singleCopy, input); validationErr != nil {
+		previousJSON, _ := json.Marshal(visuals)
+		repairInstruction := "上一次视觉计划 JSON 未通过服务端校验。请完整重写一次并修复列出的全部问题，不得改写或返回已经确认的口播文案。校验错误：" + validationErr.Error() + "。上一次 JSON：" + string(previousJSON)
+		repaired, repairErr := g.requestScriptVisualIntents(ctx, visualPrompt, repairInstruction, 0.15)
+		if repairErr != nil {
+			return ScriptVisualIntentPlan{}, repairErr
+		}
+		if repairErr := ValidateScriptVisualIntentResult(repaired, singleCopy, input); repairErr != nil {
+			return ScriptVisualIntentPlan{}, repairErr
+		}
+		visuals = repaired
+	}
+	return visuals.Plans[0], nil
 }
 
 func (g *OpenAICompatibleScriptGenerator) requestJSONContent(ctx context.Context, promptBundle PromptBundle, repairInstruction string, temperature float64) (string, error) {

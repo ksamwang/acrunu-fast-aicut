@@ -3,11 +3,14 @@ package modelgateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -184,6 +187,109 @@ func TestOpenAICompatibleScriptGeneratorUsesSeparatedCopyAndVisualRequests(t *te
 	}
 	if len(result.Variants) != 1 || result.Variants[0].Hook != validScriptCopyResult().Variants[0].Hook || len(result.Variants[0].Beats) != 3 {
 		t.Fatalf("unexpected result %#v", result)
+	}
+}
+
+func TestGenerateScriptVisualIntentsRunsOneConcurrentRequestPerVariant(t *testing.T) {
+	const variantCount = 8
+	var active atomic.Int32
+	var entered atomic.Int32
+	var peak atomic.Int32
+	var releaseOnce sync.Once
+	release := make(chan struct{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var request map[string]any
+		if err := json.Unmarshal(body, &request); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		messages, _ := request["messages"].([]any)
+		userMessage := stringifyChatMessage(messages[1])
+		variantIndex := 0
+		for index := 1; index <= variantCount; index++ {
+			if strings.Contains(userMessage, fmt.Sprintf("脚本-%02d", index)) {
+				variantIndex = index
+				break
+			}
+		}
+		if variantIndex == 0 {
+			http.Error(w, "variant not found", http.StatusBadRequest)
+			return
+		}
+
+		current := active.Add(1)
+		defer active.Add(-1)
+		for {
+			previous := peak.Load()
+			if current <= previous || peak.CompareAndSwap(previous, current) {
+				break
+			}
+		}
+		if entered.Add(1) == variantCount {
+			releaseOnce.Do(func() { close(release) })
+		}
+		select {
+		case <-release:
+		case <-time.After(2 * time.Second):
+			http.Error(w, "visual requests did not run concurrently", http.StatusGatewayTimeout)
+			return
+		}
+
+		content, _ := json.Marshal(ScriptVisualIntentResult{Plans: []ScriptVisualIntentPlan{{
+			VariantIndex:  variantIndex,
+			EditingIntent: "展示产品使用效果",
+			Beats: []ScriptGenerationBeat{{
+				Label:        "产品效果",
+				SellingPoint: "卖点",
+				VisualGoal:   "人物操作产品并展示使用状态",
+				SourceType:   TTSVisualSourceType,
+			}},
+		}}})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": string(content)}}},
+		})
+	}))
+	defer server.Close()
+
+	copies := ScriptCopyResult{Variants: make([]ScriptCopyVariant, 0, variantCount)}
+	for index := 1; index <= variantCount; index++ {
+		copies.Variants = append(copies.Variants, ScriptCopyVariant{
+			VariantIndex:          index,
+			SelectedSellingPoints: []string{"卖点"},
+			ScriptText:            fmt.Sprintf("脚本-%02d", index),
+		})
+	}
+	generator := NewOpenAICompatibleScriptGenerator(Config{
+		Provider: "openai_compatible",
+		BaseURL:  server.URL,
+		Model:    "script-model",
+		Timeout:  5 * time.Second,
+	})
+	result, err := generator.generateScriptVisualIntents(context.Background(), ScriptGenerationInput{
+		ProductName:           "产品",
+		TargetDurationSeconds: 30,
+		SellingPoints:         []ScriptGenerationSellingPoint{{Name: "卖点"}},
+	}, copies)
+	if err != nil {
+		t.Fatalf("generate visual intents: %v", err)
+	}
+	if peak.Load() != variantCount {
+		t.Fatalf("expected peak concurrency %d, got %d", variantCount, peak.Load())
+	}
+	if len(result.Plans) != variantCount {
+		t.Fatalf("expected %d plans, got %d", variantCount, len(result.Plans))
+	}
+	for index, plan := range result.Plans {
+		if plan.VariantIndex != index+1 {
+			t.Fatalf("plans must preserve variant order, got index %d at position %d", plan.VariantIndex, index)
+		}
 	}
 }
 
