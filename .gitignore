@@ -39,7 +39,7 @@ storage/*
 *.log
 tmp/
 *.tmp
-
+/test
 # OS / editor
 .DS_Store
 Thumbs.db
