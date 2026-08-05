@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"sort"
@@ -298,6 +299,13 @@ func (g *OpenAICompatibleScriptGenerator) requestScriptCopies(ctx context.Contex
 	}
 	var result ScriptCopyResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		slog.Error("script copy JSON decode failed",
+			slog.String("model", g.model),
+			slog.String("prompt", promptBundle.Prompts[0].Name),
+			slog.Int("content_bytes", len(content)),
+			slog.String("decode_error", err.Error()),
+			slog.String("raw_content", content),
+		)
 		return ScriptCopyResult{}, NewError(ErrorCodeInvalidResponse, fmt.Sprintf("decode copy json output failed: %v", err), false, err)
 	}
 	return result, nil
