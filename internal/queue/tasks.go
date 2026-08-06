@@ -60,6 +60,7 @@ type VoiceAuditionPayload struct {
 type VoiceoverGeneratePayload struct {
 	TaskID          string `json:"task_id"`
 	GenerationRunID string `json:"generation_run_id,omitempty"`
+	ReplacementID   string `json:"replacement_id,omitempty"`
 	ScriptVariantID string `json:"script_variant_id"`
 	VoiceoverID     string `json:"voiceover_id"`
 }
@@ -72,10 +73,11 @@ type EditPlanGeneratePayload struct {
 }
 
 type GenerationRenderPayload struct {
-	TaskID                string                            `json:"task_id"`
-	GenerationRunID       string                            `json:"generation_run_id"`
-	BaseEditPlanUpdatedAt string                            `json:"base_edit_plan_updated_at,omitempty"`
-	ClipReplacements      []GenerationRenderClipReplacement `json:"clip_replacements,omitempty"`
+	TaskID                 string                            `json:"task_id"`
+	GenerationRunID        string                            `json:"generation_run_id"`
+	BaseEditPlanUpdatedAt  string                            `json:"base_edit_plan_updated_at,omitempty"`
+	ClipReplacements       []GenerationRenderClipReplacement `json:"clip_replacements,omitempty"`
+	VoiceoverReplacementID string                            `json:"voiceover_replacement_id,omitempty"`
 }
 
 type GenerationRenderClipReplacement struct {

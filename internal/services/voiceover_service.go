@@ -1081,17 +1081,9 @@ func (s *VoiceoverService) ProcessVoiceoverGenerate(ctx context.Context, payload
 		return err
 	}
 
-	audio, err := os.ReadFile(s.localStore.FullPath(storageKey))
+	durationMs, synthesisUnits, transcript, err := s.validateStoredNarration(ctx, storageKey, variant.ScriptText, sampleRate, durationMs, synthesisUnits)
 	if err != nil {
-		s.failVoiceover(context.Background(), variant.ID, voiceover.ID, err)
-		return err
-	}
-	transcript, err := s.transcriber.Transcribe(ctx, modelgateway.FunASRTranscriptionInput{
-		Filename:   "voiceover.wav",
-		Audio:      bytes.NewReader(audio),
-		DurationMs: durationMs,
-	})
-	if err != nil {
+		_ = s.localStore.Delete(storageKey)
 		s.failVoiceover(context.Background(), variant.ID, voiceover.ID, err)
 		return err
 	}
@@ -1146,17 +1138,9 @@ func (s *VoiceoverService) processMemoryVoiceover(ctx context.Context, payload q
 	job.work.Progress = 72
 	s.mu.Unlock()
 
-	audio, err := os.ReadFile(s.localStore.FullPath(storageKey))
+	durationMs, synthesisUnits, transcript, err := s.validateStoredNarration(ctx, storageKey, job.work.ScriptText, 0, durationMs, synthesisUnits)
 	if err != nil {
-		s.failMemoryVoiceover(payload.TaskID, err)
-		return err
-	}
-	transcript, err := s.transcriber.Transcribe(ctx, modelgateway.FunASRTranscriptionInput{
-		Filename:   "voiceover.wav",
-		Audio:      bytes.NewReader(audio),
-		DurationMs: durationMs,
-	})
-	if err != nil {
+		_ = s.localStore.Delete(storageKey)
 		s.failMemoryVoiceover(payload.TaskID, err)
 		return err
 	}
@@ -1223,6 +1207,102 @@ func (s *VoiceoverService) synthesizeNarrationAndStore(
 		return 0, 0, nil, err
 	}
 	return sampleRate, durationMs, units, nil
+}
+
+func (s *VoiceoverService) validateStoredNarration(
+	ctx context.Context,
+	storageKey string,
+	text string,
+	sampleRate int,
+	durationMs int,
+	units []synthesizedNarrationUnit,
+) (int, []synthesizedNarrationUnit, modelgateway.ASRTranscriptionResult, error) {
+	audio, err := os.ReadFile(s.localStore.FullPath(storageKey))
+	if err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+	}
+	if sampleRate <= 0 {
+		sampleRate, _, err = wavAudioMetadata(audio)
+		if err != nil {
+			return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+		}
+	}
+	transcript, err := s.transcriber.Transcribe(ctx, modelgateway.FunASRTranscriptionInput{
+		Filename:   "voiceover.wav",
+		Audio:      bytes.NewReader(audio),
+		DurationMs: durationMs,
+	})
+	if err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+	}
+	if len(units) == 0 {
+		return durationMs, units, transcript, nil
+	}
+
+	planned := make([]narrationSynthesisUnit, len(units))
+	results := make([]modelgateway.CosyVoiceSynthesisUnitResult, len(units))
+	for index, unit := range units {
+		planned[index] = narrationSynthesisUnit{
+			Text:              unit.Text,
+			PauseAfterMs:      unit.PauseAfterMs,
+			CaptionStartIndex: unit.CaptionStartIndex,
+			CaptionEndIndex:   unit.CaptionEndIndex,
+		}
+		results[index] = modelgateway.CosyVoiceSynthesisUnitResult{
+			SpeechSamples: unit.SpeechSamples,
+			TotalSamples:  unit.TotalSamples,
+		}
+	}
+	cleanedAudio, cleanedResults, changed, err := cleanSynthesizedNarration(audio, planned, results, sampleRate, transcript)
+	if err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+	}
+	if !changed {
+		return durationMs, units, transcript, nil
+	}
+	_, cleanedDurationMs, err := wavAudioMetadata(cleanedAudio)
+	if err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+	}
+	cleanedUnits, err := materializeSynthesizedNarrationUnits(planned, cleanedResults, sampleRate, cleanedDurationMs)
+	if err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+	}
+	cleanedTranscript, err := s.transcriber.Transcribe(ctx, modelgateway.FunASRTranscriptionInput{
+		Filename:   "voiceover.wav",
+		Audio:      bytes.NewReader(cleanedAudio),
+		DurationMs: cleanedDurationMs,
+	})
+	if err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+	}
+	if _, _, err := validateCleanedNarration(text, cleanedUnits, cleanedTranscript); err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, err
+	}
+	if _, err := s.localStore.Save(storageKey, bytes.NewReader(cleanedAudio)); err != nil {
+		return 0, nil, modelgateway.ASRTranscriptionResult{}, fmt.Errorf("save cleaned narration: %w", err)
+	}
+	return cleanedDurationMs, cleanedUnits, cleanedTranscript, nil
+}
+
+func validateCleanedNarration(text string, units []synthesizedNarrationUnit, transcript modelgateway.ASRTranscriptionResult) (bool, int, error) {
+	if len(units) == 0 {
+		return false, 0, errors.New("cleaned narration units are missing")
+	}
+	for index, unit := range units {
+		tokens := transcriptTokensInRange(transcript.Tokens, unit.StartMs, unit.SpeechEndMs)
+		_, shouldCut, err := trailingNarrationCut(unit.Text, tokens)
+		if err != nil {
+			return false, index, fmt.Errorf("cleaned narration unit %d: %w", index+1, err)
+		}
+		if shouldCut {
+			return false, index, fmt.Errorf("cleaned narration unit %d still contains trailing speech", index+1)
+		}
+	}
+	if len(normalizedNarrationRunes(text)) == 0 {
+		return false, 0, errors.New("cleaned narration text is empty")
+	}
+	return true, -1, nil
 }
 
 func (s *VoiceoverService) synthesizeAndStoreWithUnits(

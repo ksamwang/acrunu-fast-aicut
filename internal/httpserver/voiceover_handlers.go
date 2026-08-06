@@ -429,6 +429,148 @@ func (s *Server) handleRegenerateVoiceoverWork(c *gin.Context) {
 	OK(c, work)
 }
 
+func (s *Server) handleCreateVoiceoverReplacement(c *gin.Context) {
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+	ctx := c.Request.Context()
+	run, err := s.generationRunService.Get(ctx, c.Param("taskID"))
+	if err != nil {
+		handleVoiceoverError(c, err)
+		return
+	}
+	if run.Status != "completed" || run.OutputStorageKey == "" {
+		Fail(c, http.StatusConflict, "generation_not_completed", "只有已完成的成片可以单独重新生成配音")
+		return
+	}
+	original, err := s.generationRunService.GetWork(ctx, run.ID)
+	if err != nil || original.VoiceProfileID == "" || strings.TrimSpace(original.ScriptText) == "" {
+		Fail(c, http.StatusConflict, "voiceover_replacement_unavailable", "原文案或音色不完整，无法重新生成配音")
+		return
+	}
+	profile, err := s.voiceoverService.GetVoiceProfile(ctx, original.VoiceProfileID)
+	if err != nil || profile.Status != "enabled" || profile.PreviewStatus != "ready" {
+		Fail(c, http.StatusConflict, "voice_profile_not_ready", "当前音色不可用")
+		return
+	}
+	task, err := s.taskService.CreateVoiceoverGenerateTask(ctx, user.ID, run.ProductID, queue.VoiceoverGeneratePayload{})
+	if err != nil {
+		handleVoiceoverError(c, err)
+		return
+	}
+	_, scriptVariantID, voiceoverID, err := s.voiceoverService.CreateVoiceoverWork(ctx, services.CreateVoiceoverWorkInput{
+		TaskID: task.ID, ProductID: run.ProductID, ProductName: original.ProductName,
+		VoiceProfileID: original.VoiceProfileID, VariantIndex: retryVariantIndex(run.ConfigSnapshot),
+		Variant: services.VoiceoverVariantInput{
+			Hook: original.Hook, ScriptText: original.ScriptText,
+			EditingIntent: original.EditingIntent, Beats: original.Beats,
+		},
+	})
+	if err != nil {
+		_ = s.taskService.MarkFailed(ctx, task.ID, err.Error())
+		handleVoiceoverError(c, err)
+		return
+	}
+	replacement, err := s.generationRunService.CreateVoiceoverReplacement(ctx, run.ID, task.ID, scriptVariantID, voiceoverID, user.ID)
+	if err != nil {
+		_ = s.taskService.MarkFailed(ctx, task.ID, err.Error())
+		if errors.Is(err, services.ErrVoiceoverReplacementActive) {
+			Fail(c, http.StatusConflict, "voiceover_replacement_active", "正在应用新的配音，请等待完成")
+			return
+		}
+		handleVoiceoverError(c, err)
+		return
+	}
+	payload := queue.VoiceoverGeneratePayload{
+		TaskID: task.ID, ReplacementID: replacement.ID,
+		ScriptVariantID: scriptVariantID, VoiceoverID: voiceoverID,
+	}
+	if err := s.queueClient.EnqueueVoiceoverGenerate(payload); err != nil {
+		_ = s.taskService.MarkFailed(ctx, task.ID, err.Error())
+		_ = s.generationRunService.MarkVoiceoverReplacementFailed(ctx, replacement.ID, err)
+		handleVoiceoverError(c, err)
+		return
+	}
+	Created(c, replacement)
+}
+
+func (s *Server) handleGetCurrentVoiceoverReplacement(c *gin.Context) {
+	replacement, err := s.generationRunService.GetCurrentVoiceoverReplacement(c.Request.Context(), c.Param("taskID"))
+	if errors.Is(err, services.ErrVoiceoverReplacementNotFound) {
+		OK(c, nil)
+		return
+	}
+	if err != nil {
+		handleVoiceoverError(c, err)
+		return
+	}
+	OK(c, replacement)
+}
+
+func (s *Server) handleApplyVoiceoverReplacement(c *gin.Context) {
+	user, ok := auth.CurrentUser(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+	ctx := c.Request.Context()
+	replacement, err := s.generationRunService.GetVoiceoverReplacement(ctx, c.Param("replacementID"))
+	if err != nil || replacement.GenerationRunID != c.Param("taskID") {
+		Fail(c, http.StatusNotFound, "voiceover_replacement_not_found", "配音草稿不存在")
+		return
+	}
+	if replacement.Status != "ready" {
+		Fail(c, http.StatusConflict, "voiceover_replacement_not_ready", "配音草稿尚未生成完成")
+		return
+	}
+	run, err := s.generationRunService.Get(ctx, replacement.GenerationRunID)
+	if err != nil || run.Status != "completed" {
+		Fail(c, http.StatusConflict, "generation_not_completed", "当前成片状态已变化，不能应用配音")
+		return
+	}
+	task, err := s.taskService.CreateGenerationRenderTask(ctx, user.ID, run.ProductID, queue.GenerationRenderPayload{
+		GenerationRunID: run.ID, VoiceoverReplacementID: replacement.ID,
+	})
+	if err != nil {
+		handleVoiceoverError(c, err)
+		return
+	}
+	if err := s.generationRunService.MarkVoiceoverReplacementApplying(ctx, replacement.ID, task.ID); err != nil {
+		_ = s.taskService.MarkFailed(ctx, task.ID, err.Error())
+		handleVoiceoverError(c, err)
+		return
+	}
+	if err := s.queueClient.EnqueueGenerationRender(queue.GenerationRenderPayload{
+		TaskID: task.ID, GenerationRunID: run.ID, VoiceoverReplacementID: replacement.ID,
+	}); err != nil {
+		_ = s.taskService.MarkFailed(ctx, task.ID, err.Error())
+		_ = s.generationRunService.MarkVoiceoverReplacementFailed(ctx, replacement.ID, err)
+		handleVoiceoverError(c, err)
+		return
+	}
+	replacement, _ = s.generationRunService.GetVoiceoverReplacement(ctx, replacement.ID)
+	OK(c, replacement)
+}
+
+func (s *Server) handleCancelVoiceoverReplacement(c *gin.Context) {
+	replacement, err := s.generationRunService.GetVoiceoverReplacement(c.Request.Context(), c.Param("replacementID"))
+	if err != nil || replacement.GenerationRunID != c.Param("taskID") {
+		Fail(c, http.StatusNotFound, "voiceover_replacement_not_found", "配音草稿不存在")
+		return
+	}
+	if err := s.generationRunService.CancelVoiceoverReplacement(c.Request.Context(), replacement.ID); err != nil {
+		if errors.Is(err, services.ErrVoiceoverReplacementActive) {
+			Fail(c, http.StatusConflict, "voiceover_replacement_active", "配音正在应用，不能取消")
+			return
+		}
+		handleVoiceoverError(c, err)
+		return
+	}
+	OK(c, gin.H{"cancelled": true})
+}
+
 func (s *Server) handleDeleteVoiceoverWork(c *gin.Context) {
 	run, err := s.generationRunService.Delete(c.Request.Context(), c.Param("taskID"))
 	if err != nil {

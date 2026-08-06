@@ -172,6 +172,24 @@ export type PrototypeRun = {
 
 export type FinishedWorkStatus = "generating" | "completed" | "failed";
 
+export type VoiceoverReplacementStatus = "generating" | "ready" | "applying" | "applied" | "failed" | "cancelled";
+
+export type VoiceoverReplacement = {
+  id: string;
+  generation_run_id: string;
+  generation_task_id: string;
+  script_variant_id: string;
+  voiceover_id: string;
+  render_task_id?: string;
+  status: VoiceoverReplacementStatus;
+  error_message?: string;
+  audio_url?: string;
+  duration_ms?: number;
+  created_at: string;
+  updated_at: string;
+  applied_at?: string;
+};
+
 export type FinishedWork = {
   id: string;
   run_id: string;

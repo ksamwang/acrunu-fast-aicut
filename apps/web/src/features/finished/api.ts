@@ -1,5 +1,5 @@
 import { apiRequest } from "../../shared/api/server-api";
-import type { FinishedWork, FinishedWorkClipCandidates, FinishedWorkClipReplacement } from "../../shared/types/generation";
+import type { FinishedWork, FinishedWorkClipCandidates, FinishedWorkClipReplacement, VoiceoverReplacement } from "../../shared/types/generation";
 
 export type FinishedWorkDownloadBatch = {
   download_url: string;
@@ -38,4 +38,34 @@ export function replaceFinishedWorkClips(
     method: "POST",
     body: JSON.stringify({ plan_updated_at: planUpdatedAt, replacements })
   }, token);
+}
+
+export function createVoiceoverReplacement(workID: string, token: string) {
+  return apiRequest<VoiceoverReplacement>(`/api/workbench/works/${encodeURIComponent(workID)}/voiceover-replacements`, {
+    method: "POST"
+  }, token);
+}
+
+export function getCurrentVoiceoverReplacement(workID: string, token: string) {
+  return apiRequest<VoiceoverReplacement | null>(`/api/workbench/works/${encodeURIComponent(workID)}/voiceover-replacements/current`, {}, token);
+}
+
+export function applyVoiceoverReplacement(workID: string, replacementID: string, token: string) {
+  return apiRequest<VoiceoverReplacement>(
+    `/api/workbench/works/${encodeURIComponent(workID)}/voiceover-replacements/${encodeURIComponent(replacementID)}/apply`,
+    { method: "POST" },
+    token
+  );
+}
+
+export function cancelVoiceoverReplacement(workID: string, replacementID: string, token: string) {
+  return apiRequest<{ cancelled: boolean }>(
+    `/api/workbench/works/${encodeURIComponent(workID)}/voiceover-replacements/${encodeURIComponent(replacementID)}`,
+    { method: "DELETE" },
+    token
+  );
+}
+
+export function getFinishedWork(workID: string, token: string) {
+  return apiRequest<FinishedWork>(`/api/workbench/works/${encodeURIComponent(workID)}`, {}, token);
 }

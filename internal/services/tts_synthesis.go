@@ -31,11 +31,14 @@ type narrationSynthesisUnit struct {
 
 type synthesizedNarrationUnit struct {
 	Text              string
+	PauseAfterMs      int
 	CaptionStartIndex int
 	CaptionEndIndex   int
 	StartMs           int
 	SpeechEndMs       int
 	EndMs             int
+	SpeechSamples     int
+	TotalSamples      int
 }
 
 type synthesisBoundaryKind int
@@ -226,11 +229,14 @@ func materializeSynthesizedNarrationUnits(
 		cumulativeSamples += int64(result[index].TotalSamples)
 		units[index] = synthesizedNarrationUnit{
 			Text:              planned[index].Text,
+			PauseAfterMs:      planned[index].PauseAfterMs,
 			CaptionStartIndex: planned[index].CaptionStartIndex,
 			CaptionEndIndex:   planned[index].CaptionEndIndex,
 			StartMs:           samplesToMilliseconds(startSamples, sampleRate),
 			SpeechEndMs:       samplesToMilliseconds(speechEndSamples, sampleRate),
 			EndMs:             samplesToMilliseconds(cumulativeSamples, sampleRate),
+			SpeechSamples:     result[index].SpeechSamples,
+			TotalSamples:      result[index].TotalSamples,
 		}
 	}
 	if difference := units[len(units)-1].EndMs - durationMs; difference < -2 || difference > 2 {

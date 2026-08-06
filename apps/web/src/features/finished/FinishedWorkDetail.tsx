@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { WheelEvent as ReactWheelEvent } from "react";
-import { Button, Empty, Input, message, Modal, Progress, Segmented, Slider, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Empty, Input, message, Modal, Progress, Segmented, Slider, Tabs, Tag, Tooltip, Typography } from "antd";
 import {
   ArrowLeft,
   Captions,
@@ -27,8 +27,8 @@ import {
 } from "lucide-react";
 import { formatDateTime, formatDuration, formatTimestamp } from "../../shared/lib/format";
 import { subtitleDisplayText } from "../../shared/lib/subtitle";
-import type { EditPlanBeat, FinishedWork, FinishedWorkClipCandidate, FinishedWorkClipCandidates, FinishedWorkClipReplacement } from "../../shared/types/generation";
-import { listFinishedWorkClipCandidates, replaceFinishedWorkClips } from "./api";
+import type { EditPlanBeat, FinishedWork, FinishedWorkClipCandidate, FinishedWorkClipCandidates, FinishedWorkClipReplacement, VoiceoverReplacement } from "../../shared/types/generation";
+import { applyVoiceoverReplacement, cancelVoiceoverReplacement, createVoiceoverReplacement, getCurrentVoiceoverReplacement, getFinishedWork, listFinishedWorkClipCandidates, replaceFinishedWorkClips } from "./api";
 import { FinishedWorkVisual } from "./FinishedWorkVisual";
 
 const sourceTypeLabels = {
@@ -102,6 +102,9 @@ export function FinishedWorkDetail({
   const [pendingReplacements, setPendingReplacements] = useState<Record<string, PendingClipReplacement>>({});
   const [pendingPlanUpdatedAt, setPendingPlanUpdatedAt] = useState("");
   const [applyingReplacements, setApplyingReplacements] = useState(false);
+  const [voiceoverModalOpen, setVoiceoverModalOpen] = useState(false);
+  const [voiceoverReplacement, setVoiceoverReplacement] = useState<VoiceoverReplacement | null>(null);
+  const [voiceoverAction, setVoiceoverAction] = useState<"generate" | "apply" | "cancel" | null>(null);
   const narrationSegments = work.narration_segments ?? [];
   const editPlan = work.edit_plan ?? [];
   const beats = work.beats ?? [];
@@ -201,7 +204,95 @@ export function FinishedWorkDetail({
     setPendingReplacements({});
     setPendingPlanUpdatedAt("");
     setApplyingReplacements(false);
+    setVoiceoverModalOpen(false);
+    setVoiceoverReplacement(null);
+    setVoiceoverAction(null);
   }, [work.id]);
+
+  useEffect(() => {
+    if (!voiceoverModalOpen || !voiceoverReplacement || (voiceoverReplacement.status !== "generating" && voiceoverReplacement.status !== "applying")) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void getCurrentVoiceoverReplacement(work.id, token).then(async (current) => {
+        if (cancelled || !current || current.id !== voiceoverReplacement.id) {
+          return;
+        }
+        setVoiceoverReplacement(current);
+        if (current.status === "applied") {
+          const updated = await getFinishedWork(work.id, token);
+          if (!cancelled) {
+            onWorkUpdated(updated);
+            setVoiceoverModalOpen(false);
+            setVoiceoverReplacement(null);
+            setVoiceoverAction(null);
+            message.success("新配音已应用");
+          }
+        }
+      }).catch((error) => {
+        if (!cancelled) {
+          message.error(error instanceof Error ? error.message : "读取配音状态失败");
+        }
+      });
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [onWorkUpdated, token, voiceoverModalOpen, voiceoverReplacement, work.id]);
+
+  const generateVoiceoverReplacement = async () => {
+    setVoiceoverModalOpen(true);
+    setVoiceoverAction("generate");
+    try {
+      const replacement = await createVoiceoverReplacement(work.id, token);
+      setVoiceoverReplacement(replacement);
+    } catch (error) {
+      setVoiceoverModalOpen(false);
+      setVoiceoverReplacement(null);
+      message.error(error instanceof Error ? error.message : "重新生成配音失败");
+    } finally {
+      setVoiceoverAction(null);
+    }
+  };
+
+  const applyGeneratedVoiceover = async () => {
+    if (!voiceoverReplacement || voiceoverReplacement.status !== "ready") {
+      return;
+    }
+    setVoiceoverAction("apply");
+    try {
+      const applying = await applyVoiceoverReplacement(work.id, voiceoverReplacement.id, token);
+      setVoiceoverReplacement(applying);
+    } catch (error) {
+      const current = await getCurrentVoiceoverReplacement(work.id, token).catch(() => null);
+      if (current) {
+        setVoiceoverReplacement(current);
+      }
+      message.error(error instanceof Error ? error.message : "应用新配音失败");
+    } finally {
+      setVoiceoverAction(null);
+    }
+  };
+
+  const closeVoiceoverReplacement = async () => {
+    if (voiceoverReplacement?.status === "applying") {
+      return;
+    }
+    setVoiceoverAction("cancel");
+    try {
+      if (voiceoverReplacement && voiceoverReplacement.status !== "applied" && voiceoverReplacement.status !== "cancelled") {
+        await cancelVoiceoverReplacement(work.id, voiceoverReplacement.id, token);
+      }
+      setVoiceoverModalOpen(false);
+      setVoiceoverReplacement(null);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "取消配音草稿失败");
+    } finally {
+      setVoiceoverAction(null);
+    }
+  };
 
   useEffect(() => {
     const video = previewRef.current?.querySelector("video");
@@ -801,6 +892,16 @@ export function FinishedWorkDetail({
           </div>
         </div>
         <div className="finished-detail-actions">
+          {!isFailed ? (
+            <Button
+              icon={<Mic2 size={15} />}
+              loading={voiceoverAction === "generate"}
+              disabled={isGenerating || actionBusy || pendingReplacementCount > 0}
+              onClick={() => void generateVoiceoverReplacement()}
+            >
+              重新生成配音
+            </Button>
+          ) : null}
           <Button
             icon={<RotateCcw size={15} />}
             loading={actionKind === "retry" || actionKind === "regenerate"}
@@ -919,6 +1020,48 @@ export function FinishedWorkDetail({
           </aside>
         </div>
       </main>
+      <Modal
+        className="voiceover-replacement-modal"
+        title="重新生成配音"
+        open={voiceoverModalOpen}
+        width={440}
+        centered
+        closable={voiceoverReplacement?.status !== "applying"}
+        maskClosable={false}
+        onCancel={() => void closeVoiceoverReplacement()}
+        footer={[
+          <Button key="cancel" loading={voiceoverAction === "cancel"} disabled={voiceoverReplacement?.status === "applying"} onClick={() => void closeVoiceoverReplacement()}>
+            取消
+          </Button>,
+          <Button key="again" icon={<RefreshCw size={15} />} loading={voiceoverAction === "generate"} disabled={voiceoverReplacement?.status === "applying"} onClick={() => void generateVoiceoverReplacement()}>
+            再生成一次
+          </Button>,
+          <Button key="apply" type="primary" loading={voiceoverAction === "apply" || voiceoverReplacement?.status === "applying"} disabled={voiceoverReplacement?.status !== "ready"} onClick={() => void applyGeneratedVoiceover()}>
+            应用
+          </Button>
+        ]}
+      >
+        <div className="voiceover-replacement-content">
+          {voiceoverReplacement?.status === "generating" || !voiceoverReplacement ? (
+            <div className="voiceover-replacement-progress"><LoaderCircle size={20} /><span>正在生成并检查旁白...</span></div>
+          ) : null}
+          {voiceoverReplacement?.status === "applying" ? (
+            <div className="voiceover-replacement-progress"><LoaderCircle size={20} /><span>正在按原镜头重新渲染...</span></div>
+          ) : null}
+          {voiceoverReplacement?.status === "failed" ? (
+            <Alert type="error" showIcon message="配音处理失败" description={voiceoverReplacement.error_message || "请重新生成后再试"} />
+          ) : null}
+          {voiceoverReplacement?.status === "ready" && voiceoverReplacement.audio_url ? (
+            <>
+              <div className="voiceover-replacement-meta">
+                <span>当前音色：{work.voice_profile_name || "原音色"}</span>
+                <span>{formatDuration(voiceoverReplacement.duration_ms ?? 0)}</span>
+              </div>
+              <audio controls preload="metadata" src={voiceoverReplacement.audio_url} aria-label="新旁白试听" />
+            </>
+          ) : null}
+        </div>
+      </Modal>
     </div>
   );
 }

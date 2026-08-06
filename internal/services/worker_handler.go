@@ -113,6 +113,12 @@ func (h *WorkerHandler) HandleVoiceoverGenerate(ctx context.Context, payload que
 		h.markGenerationRunFailed(payload.GenerationRunID, err)
 		return err
 	}
+	if payload.ReplacementID != "" {
+		if h.generationRunService == nil {
+			return fmt.Errorf("generation run service is not configured")
+		}
+		return h.generationRunService.MarkVoiceoverReplacementReady(ctx, payload.ReplacementID)
+	}
 	return h.enqueueEditPlan(ctx, payload)
 }
 
@@ -155,6 +161,18 @@ func (h *WorkerHandler) HandleEditPlanGenerate(ctx context.Context, payload queu
 }
 
 func (h *WorkerHandler) HandleGenerationRender(ctx context.Context, payload queue.GenerationRenderPayload) error {
+	if payload.VoiceoverReplacementID != "" {
+		err := h.runVoiceTask(ctx, payload.TaskID, "generation_render", func(runCtx context.Context) error {
+			if h.generationRenderer == nil {
+				return fmt.Errorf("generation renderer is not configured")
+			}
+			return h.generationRenderer.RenderVoiceoverReplacement(runCtx, payload.VoiceoverReplacementID)
+		})
+		if err != nil && h.generationRunService != nil {
+			_ = h.generationRunService.MarkVoiceoverReplacementFailed(context.Background(), payload.VoiceoverReplacementID, err)
+		}
+		return err
+	}
 	current, err := h.isCurrentGenerationTask(ctx, payload.GenerationRunID, payload.TaskID, generationRunTaskStageRender)
 	if err != nil {
 		return err

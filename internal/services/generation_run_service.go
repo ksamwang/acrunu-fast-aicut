@@ -90,6 +90,23 @@ type GenerationRenderOutput struct {
 	RenderVersion string
 }
 
+type VoiceoverReplacement struct {
+	ID               string     `json:"id"`
+	GenerationRunID  string     `json:"generation_run_id"`
+	GenerationTaskID string     `json:"generation_task_id"`
+	ScriptVariantID  string     `json:"script_variant_id"`
+	VoiceoverID      string     `json:"voiceover_id"`
+	RenderTaskID     string     `json:"render_task_id,omitempty"`
+	Status           string     `json:"status"`
+	ErrorMessage     string     `json:"error_message,omitempty"`
+	CreatedByUserID  string     `json:"created_by_user_id,omitempty"`
+	AudioURL         string     `json:"audio_url,omitempty"`
+	DurationMs       int        `json:"duration_ms,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	AppliedAt        *time.Time `json:"applied_at,omitempty"`
+}
+
 type GenerationRunTask struct {
 	GenerationRunID  string    `json:"generation_run_id"`
 	GenerationTaskID string    `json:"generation_task_id"`
@@ -158,10 +175,11 @@ type GenerationRunService struct {
 	pool       *pgxpool.Pool
 	voiceovers generationWorkLoader
 
-	mu          sync.RWMutex
-	memoryRuns  map[string]GenerationRun
-	memoryTasks map[string]GenerationRunTask
-	memoryPlans map[string]EditPlan
+	mu                          sync.RWMutex
+	memoryRuns                  map[string]GenerationRun
+	memoryTasks                 map[string]GenerationRunTask
+	memoryPlans                 map[string]EditPlan
+	memoryVoiceoverReplacements map[string]VoiceoverReplacement
 }
 
 func NewGenerationRunService(voiceovers generationWorkLoader) *GenerationRunService {
@@ -177,11 +195,12 @@ func NewGenerationRunServiceWithPool(pool *pgxpool.Pool, voiceovers generationWo
 
 func newGenerationRunService(pool *pgxpool.Pool, voiceovers generationWorkLoader) *GenerationRunService {
 	return &GenerationRunService{
-		pool:        pool,
-		voiceovers:  voiceovers,
-		memoryRuns:  map[string]GenerationRun{},
-		memoryTasks: map[string]GenerationRunTask{},
-		memoryPlans: map[string]EditPlan{},
+		pool:                        pool,
+		voiceovers:                  voiceovers,
+		memoryRuns:                  map[string]GenerationRun{},
+		memoryTasks:                 map[string]GenerationRunTask{},
+		memoryPlans:                 map[string]EditPlan{},
+		memoryVoiceoverReplacements: map[string]VoiceoverReplacement{},
 	}
 }
 

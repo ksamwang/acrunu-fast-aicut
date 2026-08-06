@@ -37,10 +37,10 @@ func TestFunASRClientTranscribeForwardsAudioAndNormalizesSentences(t *testing.T)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
 			"text":"第一句。第二句。",
-			"timestamp":[[100,200],[5100,5300]],
+			"timestamp":[[100,200],[200,300],[300,400],[2800,2900],[2900,3000],[3000,3100]],
 			"sentence_info":[
-				{"text":"第二句。","start":2800,"end":5300},
-				{"text":"第一句。","start":100,"end":2500}
+				{"text":"第二句。","start":2800,"end":5300,"timestamp":[[2800,2900],[2900,3000],[3000,3100]]},
+				{"text":"第一句。","start":100,"end":2500,"timestamp":[[100,200],[200,300],[300,400]]}
 			]
 		}`)
 	}))
@@ -67,6 +67,9 @@ func TestFunASRClientTranscribeForwardsAudioAndNormalizesSentences(t *testing.T)
 	if result.Segments[1].StartMs != 2800 || result.Segments[1].EndMs != 5000 || result.Segments[1].Text != "第二句。" {
 		t.Fatalf("unexpected clamped second segment %#v", result.Segments[1])
 	}
+	if len(result.Tokens) != 6 || result.Tokens[0].Text != "第" || result.Tokens[5].Text != "句" {
+		t.Fatalf("unexpected timestamp tokens %#v", result.Tokens)
+	}
 }
 
 func TestFunASRClientFallsBackToTopLevelTextAndTimestamps(t *testing.T) {
@@ -87,6 +90,9 @@ func TestFunASRClientFallsBackToTopLevelTextAndTimestamps(t *testing.T) {
 	}
 	if len(result.Segments) != 1 || result.Segments[0].StartMs != 320 || result.Segments[0].EndMs != 2480 {
 		t.Fatalf("unexpected fallback segments %#v", result.Segments)
+	}
+	if len(result.Tokens) != len([]rune("只有完整文本")) || result.Tokens[0].StartMs != 320 || result.Tokens[len(result.Tokens)-1].EndMs != 2480 {
+		t.Fatalf("unexpected interpolated tokens %#v", result.Tokens)
 	}
 }
 

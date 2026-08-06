@@ -62,9 +62,16 @@ type ASRTranscriptSegment struct {
 	Text    string `json:"text"`
 }
 
+type ASRTranscriptToken struct {
+	Text    string `json:"text"`
+	StartMs int    `json:"start_ms"`
+	EndMs   int    `json:"end_ms"`
+}
+
 type ASRTranscriptionResult struct {
 	Text     string                 `json:"text"`
 	Segments []ASRTranscriptSegment `json:"segments"`
+	Tokens   []ASRTranscriptToken   `json:"tokens"`
 }
 
 type FunASRClient struct {
@@ -163,6 +170,7 @@ func (c *FunASRClient) Transcribe(ctx context.Context, input FunASRTranscription
 
 func normalizeFunASRResponse(input funASRResponse, durationMs int) ASRTranscriptionResult {
 	segments := make([]ASRTranscriptSegment, 0, len(input.SentenceInfo))
+	tokens := make([]ASRTranscriptToken, 0, len(input.Timestamp))
 	for _, sentence := range input.SentenceInfo {
 		text := strings.TrimSpace(sentence.Text)
 		if text == "" {
@@ -179,6 +187,7 @@ func normalizeFunASRResponse(input funASRResponse, durationMs int) ASRTranscript
 			continue
 		}
 		segments = append(segments, ASRTranscriptSegment{StartMs: startMs, EndMs: endMs, Text: text})
+		tokens = append(tokens, transcriptTokens(text, sentence.Timestamp, durationMs)...)
 	}
 	sort.SliceStable(segments, func(i, j int) bool {
 		return segments[i].StartMs < segments[j].StartMs
@@ -201,8 +210,82 @@ func normalizeFunASRResponse(input funASRResponse, durationMs int) ASRTranscript
 			segments = append(segments, ASRTranscriptSegment{StartMs: startMs, EndMs: endMs, Text: text})
 		}
 	}
+	if topLevelTokens := transcriptTokens(text, input.Timestamp, durationMs); len(topLevelTokens) > len(tokens) {
+		tokens = topLevelTokens
+	}
+	sort.SliceStable(tokens, func(i, j int) bool {
+		return tokens[i].StartMs < tokens[j].StartMs
+	})
 
-	return ASRTranscriptionResult{Text: text, Segments: segments}
+	return ASRTranscriptionResult{Text: text, Segments: segments, Tokens: tokens}
+}
+
+func transcriptTokens(text string, timestamps [][]int, durationMs int) []ASRTranscriptToken {
+	runes := make([]rune, 0, len([]rune(text)))
+	for _, value := range []rune(text) {
+		if strings.TrimSpace(string(value)) == "" {
+			continue
+		}
+		runes = append(runes, value)
+	}
+	if len(runes) == 0 || len(timestamps) == 0 {
+		return nil
+	}
+
+	// FunASR omits punctuation timestamps in some models. Prefer an exact
+	// rune mapping, then fall back to non-punctuation runes.
+	if len(runes) != len(timestamps) {
+		content := make([]rune, 0, len(runes))
+		for _, value := range runes {
+			if !strings.ContainsRune("，。！？、；：,.!?;:\"'“”‘’（）()《》<>—…·-", value) {
+				content = append(content, value)
+			}
+		}
+		if len(content) != len(timestamps) {
+			return interpolateTranscriptTokens(content, timestamps, durationMs)
+		}
+		runes = content
+	}
+
+	result := make([]ASRTranscriptToken, 0, len(runes))
+	for index, value := range runes {
+		if len(timestamps[index]) < 2 {
+			continue
+		}
+		startMs, endMs, ok := normalizeSegmentRange(timestamps[index][0], timestamps[index][1], durationMs)
+		if !ok {
+			continue
+		}
+		result = append(result, ASRTranscriptToken{Text: string(value), StartMs: startMs, EndMs: endMs})
+	}
+	return result
+}
+
+func interpolateTranscriptTokens(runes []rune, timestamps [][]int, durationMs int) []ASRTranscriptToken {
+	if len(runes) == 0 || len(timestamps) == 0 {
+		return nil
+	}
+	result := make([]ASRTranscriptToken, 0, len(runes))
+	for runeIndex, value := range runes {
+		timestampIndex := runeIndex * len(timestamps) / len(runes)
+		if timestampIndex >= len(timestamps) || len(timestamps[timestampIndex]) < 2 {
+			continue
+		}
+		groupStart := (timestampIndex*len(runes) + len(timestamps) - 1) / len(timestamps)
+		groupEnd := ((timestampIndex+1)*len(runes) + len(timestamps) - 1) / len(timestamps)
+		if groupEnd <= groupStart {
+			groupEnd = groupStart + 1
+		}
+		rawStart, rawEnd := timestamps[timestampIndex][0], timestamps[timestampIndex][1]
+		startMs := rawStart + (rawEnd-rawStart)*(runeIndex-groupStart)/(groupEnd-groupStart)
+		endMs := rawStart + (rawEnd-rawStart)*(runeIndex-groupStart+1)/(groupEnd-groupStart)
+		startMs, endMs, ok := normalizeSegmentRange(startMs, endMs, durationMs)
+		if !ok {
+			continue
+		}
+		result = append(result, ASRTranscriptToken{Text: string(value), StartMs: startMs, EndMs: endMs})
+	}
+	return result
 }
 
 func timestampBounds(timestamps [][]int) (int, int, bool) {
